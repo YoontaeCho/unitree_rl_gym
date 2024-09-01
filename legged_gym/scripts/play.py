@@ -44,7 +44,8 @@ def play(args):
         obs, _, rews, dones, infos = env.step(actions.detach())
 
 if __name__ == '__main__':
-    EXPORT_POLICY = True
+    # EXPORT_POLICY = True
+    EXPORT_POLICY = False
     RECORD_FRAMES = False
     MOVE_CAMERA = False
     args = get_args()
