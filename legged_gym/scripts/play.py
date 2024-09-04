@@ -10,6 +10,7 @@ from legged_gym.utils import  get_args, export_policy_as_jit, task_registry, Log
 
 import numpy as np
 import torch
+import time
 
 
 def play(args):
@@ -22,8 +23,11 @@ def play(args):
     env_cfg.noise.add_noise = False
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = False
+    env_cfg.domain_rand.randomize_init_orn = True
 
-    env_cfg.env.test = True
+    # env_cfg.asset.disable_gravity = True
+
+    # env_cfg.env.test = True
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
@@ -41,6 +45,9 @@ def play(args):
 
     for i in range(10*int(env.max_episode_length)):
         actions = policy(obs.detach())
+        # Temporarily due to debugging
+        # actions *= 0
+        time.sleep(0.01)
         obs, _, rews, dones, infos = env.step(actions.detach())
 
 if __name__ == '__main__':
@@ -48,5 +55,5 @@ if __name__ == '__main__':
     EXPORT_POLICY = False
     RECORD_FRAMES = False
     MOVE_CAMERA = False
-    args = get_args()
+    args = get_args(test=True)
     play(args)

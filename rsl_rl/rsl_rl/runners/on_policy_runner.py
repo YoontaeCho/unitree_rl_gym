@@ -40,6 +40,8 @@ from rsl_rl.algorithms import PPO
 from rsl_rl.modules import ActorCritic, ActorCriticRecurrent
 from rsl_rl.env import VecEnv
 
+import wandb
+
 
 class OnPolicyRunner:
 
@@ -93,6 +95,7 @@ class OnPolicyRunner:
         self.alg.actor_critic.train() # switch to train mode (for dropout for example)
 
         ep_infos = []
+        ep_stats = []
         rewbuffer = deque(maxlen=100)
         lenbuffer = deque(maxlen=100)
         cur_reward_sum = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
@@ -114,6 +117,8 @@ class OnPolicyRunner:
                         # Book keeping
                         if 'episode' in infos:
                             ep_infos.append(infos['episode'])
+                        if 'stats' in infos:
+                            ep_stats.append(infos['stats'])
                         cur_reward_sum += rewards
                         cur_episode_length += 1
                         new_ids = (dones > 0).nonzero(as_tuple=False)
@@ -137,6 +142,7 @@ class OnPolicyRunner:
             if it % self.save_interval == 0:
                 self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
             ep_infos.clear()
+            ep_stats.clear()
         
         self.current_learning_iteration += num_learning_iterations
         self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(self.current_learning_iteration)))
@@ -147,6 +153,7 @@ class OnPolicyRunner:
         iteration_time = locs['collection_time'] + locs['learn_time']
 
         ep_string = f''
+        wandb_dict = {}
         if locs['ep_infos']:
             for key in locs['ep_infos'][0]:
                 infotensor = torch.tensor([], device=self.device)
@@ -158,23 +165,50 @@ class OnPolicyRunner:
                         ep_info[key] = ep_info[key].unsqueeze(0)
                     infotensor = torch.cat((infotensor, ep_info[key].to(self.device)))
                 value = torch.mean(infotensor)
-                self.writer.add_scalar('Episode/' + key, value, locs['it'])
+                # self.writer.add_scalar('Episode/' + key, value, locs['it'])
+                wandb_dict['Episode/' + key] = value
                 ep_string += f"""{f'Mean episode {key}:':>{pad}} {value:.4f}\n"""
+        if locs['ep_stats']:
+            for key in locs['ep_stats'][0]:
+                stattensor = torch.tensor([], device=self.device)
+                for ep_stat in locs['ep_stats']:
+                    # handle scalar and zero dimensional tensor infos
+                    if not isinstance(ep_stat[key], torch.Tensor):
+                        ep_stat[key] = torch.Tensor([ep_stat[key]])
+                    if len(ep_stat[key].shape) == 0:
+                        ep_stat[key] = ep_stat[key].unsqueeze(0)
+                    stattensor = torch.cat((stattensor, ep_stat[key].to(self.device)))
+                value = torch.mean(stattensor)
+                # wandb.log({'Episode/' + key: value}, step=locs['it'])
+                wandb_dict['Statistics/' + key] = value
+                # ep_string += f"""{f'Mean episode {key}:':>{pad}} {value:.4f}\n"""
         mean_std = self.alg.actor_critic.std.mean()
         fps = int(self.num_steps_per_env * self.env.num_envs / (locs['collection_time'] + locs['learn_time']))
 
-        self.writer.add_scalar('Loss/value_function', locs['mean_value_loss'], locs['it'])
-        self.writer.add_scalar('Loss/surrogate', locs['mean_surrogate_loss'], locs['it'])
-        self.writer.add_scalar('Loss/learning_rate', self.alg.learning_rate, locs['it'])
-        self.writer.add_scalar('Policy/mean_noise_std', mean_std.item(), locs['it'])
-        self.writer.add_scalar('Perf/total_fps', fps, locs['it'])
-        self.writer.add_scalar('Perf/collection time', locs['collection_time'], locs['it'])
-        self.writer.add_scalar('Perf/learning_time', locs['learn_time'], locs['it'])
+        # self.writer.add_scalar('Loss/value_function', locs['mean_value_loss'], locs['it'])
+        # self.writer.add_scalar('Loss/surrogate', locs['mean_surrogate_loss'], locs['it'])
+        wandb_dict['Loss/value_function'] = locs['mean_value_loss']
+        wandb_dict['Loss/surrogate'] = locs['mean_surrogate_loss']
+        wandb_dict['Loss/learning_rate'] = self.alg.learning_rate
+        # self.writer.add_scalar('Loss/learning_rate', self.alg.learning_rate, locs['it'])
+        # self.writer.add_scalar('Policy/mean_noise_std', mean_std.item(), locs['it'])
+        wandb_dict['Policy/mean_noise_std'] = mean_std.item()
+        # self.writer.add_scalar('Perf/total_fps', fps, locs['it'])
+        # self.writer.add_scalar('Perf/collection time', locs['collection_time'], locs['it'])
+        # self.writer.add_scalar('Perf/learning_time', locs['learn_time'], locs['it'])
+        wandb_dict['Perf/total_fps'] = fps
+        wandb_dict['Perf/collection time'] = locs['collection_time']
+        wandb_dict['Perf/learning_time'] = locs['learn_time']
         if len(locs['rewbuffer']) > 0:
-            self.writer.add_scalar('Train/mean_reward', statistics.mean(locs['rewbuffer']), locs['it'])
-            self.writer.add_scalar('Train/mean_episode_length', statistics.mean(locs['lenbuffer']), locs['it'])
-            self.writer.add_scalar('Train/mean_reward/time', statistics.mean(locs['rewbuffer']), self.tot_time)
-            self.writer.add_scalar('Train/mean_episode_length/time', statistics.mean(locs['lenbuffer']), self.tot_time)
+            # self.writer.add_scalar('Train/mean_reward', statistics.mean(locs['rewbuffer']), locs['it'])
+            wandb_dict['Train/mean_reward'] = statistics.mean(locs['rewbuffer'])
+            # self.writer.add_scalar('Train/mean_episode_length', statistics.mean(locs['lenbuffer']), locs['it'])
+            wandb_dict['Train/mean_episode_length'] = statistics.mean(locs['lenbuffer'])
+
+            # self.writer.add_scalar('Train/mean_reward/time', statistics.mean(locs['rewbuffer']), self.tot_time)
+            # self.writer.add_scalar('Train/mean_episode_length/time', statistics.mean(locs['lenbuffer']), self.tot_time)
+        if not self.cfg["no_wandb"]:
+            wandb.log(wandb_dict, step=locs['it'])
 
         str = f" \033[1m Learning iteration {locs['it']}/{self.current_learning_iteration + locs['num_learning_iterations']} \033[0m "
 

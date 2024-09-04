@@ -165,3 +165,4 @@ logs
 *LICENSE
 *.md
 *.txt
+wandb/

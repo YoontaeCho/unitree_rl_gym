@@ -3,8 +3,12 @@ import copy
 import torch
 import numpy as np
 import random
+import itertools
 from isaacgym import gymapi
 from isaacgym import gymutil
+from typing import Optional
+from functools import partial
+from legged_gym.utils.math import quat_rotate
 
 from legged_gym import LEGGED_GYM_ROOT_DIR, LEGGED_GYM_ENVS_DIR
 
@@ -116,10 +120,12 @@ def update_cfg_from_args(env_cfg, cfg_train, args):
             cfg_train.runner.load_run = args.load_run
         if args.checkpoint is not None:
             cfg_train.runner.checkpoint = args.checkpoint
+        if args.no_wandb is not None:
+            cfg_train.runner.no_wandb = args.no_wandb
 
     return env_cfg, cfg_train
 
-def get_args():
+def get_args(test=False):
     custom_parameters = [
         {"name": "--task", "type": str, "default": "go2", "help": "Resume training or start testing from a checkpoint. Overrides config file if provided."},
         {"name": "--resume", "action": "store_true", "default": False,  "help": "Resume training from a checkpoint"},
@@ -134,11 +140,16 @@ def get_args():
         {"name": "--num_envs", "type": int, "help": "Number of environments to create. Overrides config file if provided."},
         {"name": "--seed", "type": int, "help": "Random seed. Overrides config file if provided."},
         {"name": "--max_iterations", "type": int, "help": "Maximum number of training iterations. Overrides config file if provided."},
+        {"name": "--no_wandb", "action": "store_true", "default": False,  "help": "Don't use wandb for logging"},
+
     ]
     # parse arguments
     args = gymutil.parse_arguments(
         description="RL Policy",
         custom_parameters=custom_parameters)
+    
+    args.test = test
+
 
     # name allignment
     args.sim_device_id = args.compute_device_id
@@ -159,6 +170,68 @@ def export_policy_as_jit(actor_critic, path):
         traced_script_module = torch.jit.script(model)
         traced_script_module.save(path)
 
+def TTT(*x, device: Optional[torch.device] = None):
+    return torch.as_tensor(x,
+                           device=device,
+                           dtype=torch.float32)
+
+def draw_axis(gym, viewer, env, txn, rxn, device: Optional[torch.device] = None):
+    _TTT = partial(TTT, device=device)
+    points = torch.stack([
+        # X-axis
+        txn,
+        txn + quat_rotate(rxn, _TTT(0.2, 0, 0)[None, ...]),
+        # Y-axis
+        txn,
+        txn + quat_rotate(rxn, _TTT(0, 0.2, 0)[None, ...]),
+        # Z-axis
+        txn,
+        txn + quat_rotate(rxn, _TTT(0, 0, 0.2)[None, ...]),
+    ])
+    return gym.add_lines(viewer, env,
+                         3, points.detach().cpu().numpy(),
+                         torch.eye(3, device=device,
+                                   dtype=torch.float32).detach().cpu().numpy()
+                         )
+
+def draw_bbox(gym, viewer, env_handle,
+              pose: torch.Tensor,
+              bbox: torch.Tensor,
+              color=None):
+
+    # indices = th.tensor([0,7],device=bbox.device)
+
+    bbox_geom = gymutil.TrimeshBBoxGeometry(bbox, color=color)
+    xfm = dcn(pose[..., :7])
+    txn = xfm[..., :3]
+    rxn = xfm[..., 3:7]
+    # print(txn, th.mean(bbox,-2), bbox, bbox_geom.vertices())
+    obj_pose = gymapi.Transform()
+    obj_pose.p = gymapi.Vec3(*txn)
+    obj_pose.r = gymapi.Quat(*rxn)
+    colors = list(itertools.product([0, 1], repeat=3))
+    for i, point in enumerate(bbox):
+        point_pose = gymapi.Transform()
+        point_pose.p = gymapi.Vec3(*point)
+        ball_geom = gymutil.WireframeSphereGeometry(
+            radius=0.01, pose=point_pose, color=colors[i])
+        gymutil.draw_lines(
+            ball_geom, gym, viewer, env_handle, None)
+    return (gymutil.draw_lines(
+        bbox_geom,
+        gym,
+        viewer,
+        env_handle,
+        None
+    ))
+
+def dcn(x: torch.Tensor) -> np.ndarray:
+    """
+    Convert torch tensor into numpy array.
+    """
+    if isinstance(x, torch.Tensor):
+        return x.detach().cpu().numpy()
+    return x
 
 class PolicyExporterLSTM(torch.nn.Module):
     def __init__(self, actor_critic):
