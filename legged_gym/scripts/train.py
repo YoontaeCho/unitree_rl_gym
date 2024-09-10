@@ -15,9 +15,13 @@ def train(args):
     env, env_cfg = task_registry.make_env(name=args.task, args=args)
     ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args)
     ic(dict(class_to_dict(env_cfg), **class_to_dict(train_cfg)))
+    if train_cfg.runner.resume:
+        name = train_cfg.runner.load_run
+    else:
+        name = args.run_name
     if not args.no_wandb:
         wandb.init(project='humanoid_grasp', 
-                name=args.run_name, 
+                name= name, 
                 config=dict(class_to_dict(env_cfg), **class_to_dict(train_cfg)))
     # ppo_runner.learn(num_learning_iterations=train_cfg.runner.max_iterations, init_at_random_ep_len=True)
     ppo_runner.learn(num_learning_iterations=train_cfg.runner.max_iterations, init_at_random_ep_len=False)

@@ -4,6 +4,7 @@ import torch
 import numpy as np
 import random
 import itertools
+import sys
 from isaacgym import gymapi
 from isaacgym import gymutil
 from typing import Optional
@@ -225,6 +226,36 @@ def draw_bbox(gym, viewer, env_handle,
         None
     ))
 
+def get_object_size(obj, seen=None):
+    """
+    Returns the total size of an object in bytes.
+    If the object is a Tensor, calculate its memory size based on the number of elements.
+    If the object is a dictionary, recursively calculate the size of all its elements.
+    """
+    if seen is None:
+        seen = set()
+    
+    size = 0
+
+    # Avoid double counting of already processed objects
+    if id(obj) in seen:
+        return 0
+    seen.add(id(obj))
+
+    if torch.is_tensor(obj):
+        # If the object is a tensor, calculate its size
+        size += obj.element_size() * obj.nelement()
+    elif isinstance(obj, dict):
+        # If the object is a dictionary, recursively calculate the size of its contents
+        size += sys.getsizeof(obj)  # Account for dictionary overhead
+        for key, value in obj.items():
+            size += get_object_size(key, seen)   # Size of the key
+            size += get_object_size(value, seen) # Size of the value
+    else:
+        # For other objects, use sys.getsizeof
+        size += sys.getsizeof(obj)
+
+    return size
 def dcn(x: torch.Tensor) -> np.ndarray:
     """
     Convert torch tensor into numpy array.

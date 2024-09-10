@@ -7,10 +7,12 @@ from legged_gym import LEGGED_GYM_ROOT_DIR
 import isaacgym
 from legged_gym.envs import *
 from legged_gym.utils import  get_args, export_policy_as_jit, task_registry, Logger
+from icecream import ic
 
 import numpy as np
 import torch
 import time
+import pickle
 
 
 def play(args):
@@ -24,6 +26,7 @@ def play(args):
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = False
     env_cfg.domain_rand.randomize_init_orn = True
+    observations = []
 
     # env_cfg.asset.disable_gravity = True
 
@@ -43,12 +46,31 @@ def play(args):
         export_policy_as_jit(ppo_runner.alg.actor_critic, path)
         print('Exported policy as jit script to: ', path)
 
-    for i in range(10*int(env.max_episode_length)):
-        actions = policy(obs.detach())
-        # Temporarily due to debugging
-        # actions *= 0
-        time.sleep(0.01)
-        obs, _, rews, dones, infos = env.step(actions.detach())
+    try:
+        for i in range(10*int(env.max_episode_length)):
+            start_time = time.time()
+
+            actions = policy(obs.detach())
+            # Temporarily due to debugging
+            # actions *= 0
+            time.sleep(0.01)
+            obs, _, rews, dones, infos = env.step(actions.detach())
+
+            # Save the observations
+            current_obs = obs.cpu().numpy() if obs.is_cuda else obs.numpy()
+            observations.append(current_obs)
+            stop_time = time.time()
+
+            duration = stop_time - start_time
+            time.sleep(max(0.02 - duration, 0))
+    finally:
+        # observations = np.concatenate(observations, axis=0)
+        # # Save the concatenated observations to a pickle file
+        # ic(observations.shape)
+        # with open('/tmp/training_dist.pkl', 'wb') as f:
+        # # with open('/tmp/testing_dist.pkl', 'wb') as f:
+        #     pickle.dump(observations, f)
+        pass
 
 if __name__ == '__main__':
     # EXPORT_POLICY = True

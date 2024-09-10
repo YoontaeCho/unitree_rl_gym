@@ -39,6 +39,8 @@ import torch
 from rsl_rl.algorithms import PPO
 from rsl_rl.modules import ActorCritic, ActorCriticRecurrent
 from rsl_rl.env import VecEnv
+from legged_gym.utils.helpers import get_object_size
+from icecream import ic
 
 import wandb
 
@@ -140,7 +142,7 @@ class OnPolicyRunner:
             if self.log_dir is not None:
                 self.log(locals())
             if it % self.save_interval == 0:
-                self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
+                self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)), it=it)
             ep_infos.clear()
             ep_stats.clear()
         
@@ -244,13 +246,22 @@ class OnPolicyRunner:
                                locs['num_learning_iterations'] - locs['it']):.1f}s\n""")
         print(log_string)
 
-    def save(self, path, infos=None):
-        torch.save({
-            'model_state_dict': self.alg.actor_critic.state_dict(),
-            'optimizer_state_dict': self.alg.optimizer.state_dict(),
-            'iter': self.current_learning_iteration,
-            'infos': infos,
-            }, path)
+    def save(self, path, infos=None, it=None):
+        if it is not None:
+            torch.save({
+                'model_state_dict': self.alg.actor_critic.state_dict(),
+                'optimizer_state_dict': self.alg.optimizer.state_dict(),
+                'iter': it,
+                'infos': infos,
+                }, path)
+
+        else:
+            torch.save({
+                'model_state_dict': self.alg.actor_critic.state_dict(),
+                'optimizer_state_dict': self.alg.optimizer.state_dict(),
+                'iter': self.current_learning_iteration,
+                'infos': infos,
+                }, path)
 
     def load(self, path, load_optimizer=True):
         loaded_dict = torch.load(path)
