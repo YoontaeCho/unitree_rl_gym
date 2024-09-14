@@ -5,11 +5,13 @@ import numpy as np
 import random
 import itertools
 import sys
+import argparse
 from isaacgym import gymapi
 from isaacgym import gymutil
 from typing import Optional
 from functools import partial
 from legged_gym.utils.math import quat_rotate
+from icecream import ic
 
 from legged_gym import LEGGED_GYM_ROOT_DIR, LEGGED_GYM_ENVS_DIR
 
@@ -105,6 +107,27 @@ def update_cfg_from_args(env_cfg, cfg_train, args):
         # num envs
         if args.num_envs is not None:
             env_cfg.env.num_envs = args.num_envs
+        
+        # Dynamically updating nested configuration based on dot notation in args
+        if hasattr(args, 'env_cfg_updates') and args.env_cfg_updates is not None:
+
+            for key, value in args.env_cfg_updates.items():
+
+                keys = key.split('.')
+                sub_cfg = env_cfg
+                try:
+                    # Traverse the nested attributes except for the last one
+                    for sub_key in keys[:-1]:
+                        sub_cfg = getattr(sub_cfg, sub_key)
+
+                    # Set the final attribute to the provided value
+                    setattr(sub_cfg, keys[-1], value)
+                except AttributeError:
+                    print(f"Failed to update configuration for {key}")
+                    raise ValueError
+
+    # Final logging to confirm the changes
+
     if cfg_train is not None:
         if args.seed is not None:
             cfg_train.seed = args.seed
@@ -126,6 +149,92 @@ def update_cfg_from_args(env_cfg, cfg_train, args):
 
     return env_cfg, cfg_train
 
+def parse_arguments(description="Isaac Gym Example", headless=False, no_graphics=False, custom_parameters=[]):
+    parser = argparse.ArgumentParser(description=description)
+
+    # Add basic arguments
+    if headless:
+        parser.add_argument('--headless', action='store_true', help='Run headless without creating a viewer window')
+    if no_graphics:
+        parser.add_argument('--nographics', action='store_true', help='Disable graphics context creation')
+
+    # Simulation and pipeline arguments
+    parser.add_argument('--sim_device', type=str, default="cuda:0", help='Physics Device in PyTorch-like syntax')
+    parser.add_argument('--pipeline', type=str, default="gpu", help='Tensor API pipeline (cpu/gpu)')
+    parser.add_argument('--graphics_device_id', type=int, default=0, help='Graphics Device ID')
+
+    # PhysX or FleX
+    physics_group = parser.add_mutually_exclusive_group()
+    physics_group.add_argument('--flex', action='store_true', help='Use FleX for physics')
+    physics_group.add_argument('--physx', action='store_true', help='Use PhysX for physics')
+
+    # Additional configurations
+    parser.add_argument('--num_threads', type=int, default=0, help='Number of cores used by PhysX')
+    parser.add_argument('--subscenes', type=int, default=0, help='Number of PhysX subscenes to simulate in parallel')
+    parser.add_argument('--slices', type=int, help='Number of client threads that process env slices')
+
+    # Add custom parameters from the list
+    for argument in custom_parameters:
+        if "name" in argument and ("type" in argument or "action" in argument):
+            help_str = argument.get("help", "")
+            if "type" in argument:
+                parser.add_argument(argument["name"], type=argument["type"], default=argument.get("default"), help=help_str)
+            elif "action" in argument:
+                parser.add_argument(argument["name"], action=argument["action"], help=help_str)
+        else:
+            print(f"ERROR: Invalid custom parameter: {argument}")
+
+    # Add specific argument for environment configuration updates
+    parser.add_argument('--env_cfg_updates', nargs='+', help="Environment configuration updates in dot notation, e.g., env_cfg.rewards.scales.survive=0.1")
+
+    args = parser.parse_args()
+
+    # Convert env_cfg_updates into a dictionary for easier processing
+    if args.env_cfg_updates:
+        def parse_value(value):
+            # Handle lists in the format [value1, value2, value3]
+            if value.startswith('[') and value.endswith(']'):
+                # Remove brackets and split by commas, convert each value to float
+                return [float(v.strip()) for v in value[1:-1].split(',')]
+            # Otherwise, return a float for single values
+            return float(value)
+
+        args.env_cfg_updates = {kv.split('=')[0]: parse_value(kv.split('=')[1]) for kv in args.env_cfg_updates}
+
+    # Handle sim_device and pipeline logic
+    args.sim_device_type, args.compute_device_id = gymutil.parse_device_str(args.sim_device)
+    pipeline = args.pipeline.lower()
+    assert pipeline in ['cpu', 'gpu', 'cuda'], f"Invalid pipeline '{pipeline}'."
+    args.use_gpu_pipeline = (pipeline in ['gpu', 'cuda'])
+
+    if args.sim_device_type != 'cuda' and args.flex:
+        print("Can't use FleX with CPU. Switching sim device to 'cuda:0'")
+        args.sim_device = 'cuda:0'
+        args.sim_device_type, args.compute_device_id = gymutil.parse_device_str(args.sim_device)
+
+    if args.sim_device_type != 'cuda' and pipeline == 'gpu':
+        print("Can't use GPU pipeline with CPU Physics. Switching pipeline to 'CPU'.")
+        args.pipeline = 'CPU'
+        args.use_gpu_pipeline = False
+
+    # Default to PhysX 
+    args.physics_engine = gymapi.SIM_PHYSX
+    args.use_gpu = (args.sim_device_type == 'cuda')
+
+    if args.flex:
+        args.physics_engine = gymapi.SIM_FLEX
+
+    # Using --nographics implies --headless
+    if no_graphics and args.nographics:
+        args.headless = True
+
+    if args.slices is None:
+        args.slices = args.subscenes
+
+    return args
+
+
+
 def get_args(test=False):
     custom_parameters = [
         {"name": "--task", "type": str, "default": "go2", "help": "Resume training or start testing from a checkpoint. Overrides config file if provided."},
@@ -145,7 +254,8 @@ def get_args(test=False):
 
     ]
     # parse arguments
-    args = gymutil.parse_arguments(
+    # args = gymutil.parse_arguments(
+    args = parse_arguments(
         description="RL Policy",
         custom_parameters=custom_parameters)
     

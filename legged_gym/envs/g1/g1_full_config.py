@@ -181,9 +181,13 @@ class G1GraspCfg( LeggedRobotCfg ):
         flip_visual_attachments = False
     
     class object(LeggedRobotCfg.object):
-        density = 200
+        # density = 200
+        density = 50
+        initial_hand_obj_dist = 3.
+        # density = 50
         box_size = [0.2, 0.2, 0.2]
         succeed_threshold = 0.6
+        holding_time_threshold = 50 # Number of steps to "succeed"
 
 
     class domain_rand:
@@ -206,32 +210,47 @@ class G1GraspCfg( LeggedRobotCfg ):
             # ang_vel_xy = -0.05
             # orientation = -1.0
             # base_height = -10.0
-            termination = -10
+            # termination = -10
+            termination = -20
             survive = 0.5
 
             # Reward set 1: task-relevant rewards
             # dist_left = 0.5
             # dist_right = 0.5
-            dist_left = 1.0
-            dist_right = 1.0
-            # dist_left_v2 = 1.5
-            # dist_right_v2 = 1.5
+            # dist_left = 1.0
+            # dist_right = 1.0
             # dist_left_v2 = 0.5
             # dist_right_v2 = 0.5
-            left_contact = 1.0
-            right_contact = 1.0
+            dist_left_v2 = 2.0
+            dist_right_v2 = 2.0
+            # dist_left_v3 = 1.0
+            # dist_right_v3 = 1.0
+            # left_contact = 1.0
+            # right_contact = 1.0
+            left_contact = 0.5
+            right_contact = 0.5
             # pickup = 10.
-            pickup_v2 = 10.
+            # pickup_v2 = 10.
+            pickup_v2 = 20.
+            obj_zvel = 10.
+            obj_xyvel = -1.
             completion = 1000.
+            lifted = 10.
 
             # Reward set 2: Balancing reward
             # com_avgfoot_dist = -1.0
-            com_avgfoot_dist = -10.0
+            # com_avgfoot_dist = -10.0
+            # zmp_avgfoot_dist = -10.0
+            # zmp_avgfoot_dist = -2.0
+            zmp_avgfoot_dist = -1.0
             # base_orient = -10.0
             # base_orient = -1.0
             base_orient = -2.0
-            foot_orient = -0.05
+            # foot_orient = -0.05
+            # foot_orient = -0.1
+            foot_orient_v2 = -0.1
             foot_vel = -0.05
+            single_foot_contact = -0.3
 
             # Reward set 3: Regulation reward
             dof_vel = -0.000001
