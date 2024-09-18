@@ -171,6 +171,7 @@ class G1GraspCfg( LeggedRobotCfg ):
         fingertip_links = ["two", "four", "six"]
         left_fingers = ["left_two", "left_four", "left_six"]
         right_fingers = ["right_two", "right_four", "right_six"]
+        hip = ["hip_pitch"]
         # penalize_contacts_on = ["hip", "knee"]
         penalize_contacts_on = []
         # terminate_after_contacts_on = ["torso"]
@@ -188,6 +189,10 @@ class G1GraspCfg( LeggedRobotCfg ):
         box_size = [0.2, 0.2, 0.2]
         succeed_threshold = 0.6
         holding_time_threshold = 50 # Number of steps to "succeed"
+
+        use_curriculum = False
+        schedule_steps = [5, 10]
+        mass_range = [1, 2]
 
 
     class domain_rand:
@@ -217,48 +222,35 @@ class G1GraspCfg( LeggedRobotCfg ):
             # Reward set 1: task-relevant rewards
             # dist_left = 0.5
             # dist_right = 0.5
-            # dist_left = 1.0
-            # dist_right = 1.0
-            # dist_left_v2 = 0.5
-            # dist_right_v2 = 0.5
             dist_left_v2 = 2.0
             dist_right_v2 = 2.0
-            # dist_left_v3 = 1.0
-            # dist_right_v3 = 1.0
-            # left_contact = 1.0
-            # right_contact = 1.0
             left_contact = 0.5
             right_contact = 0.5
-            # pickup = 10.
-            # pickup_v2 = 10.
             pickup_v2 = 20.
             obj_zvel = 10.
             obj_xyvel = -1.
             completion = 1000.
             lifted = 10.
+            # pelvis_height =0.
+            # base_obj_dist = 0.
 
             # Reward set 2: Balancing reward
             # com_avgfoot_dist = -1.0
-            # com_avgfoot_dist = -10.0
-            # zmp_avgfoot_dist = -10.0
-            # zmp_avgfoot_dist = -2.0
             zmp_avgfoot_dist = -1.0
-            # base_orient = -10.0
-            # base_orient = -1.0
             base_orient = -2.0
-            # foot_orient = -0.05
             # foot_orient = -0.1
             foot_orient_v2 = -0.1
             foot_vel = -0.05
+            foot_height = 0.
+            # foot_vel_v2 = -0.05
             single_foot_contact = -0.3
 
             # Reward set 3: Regulation reward
             dof_vel = -0.000001
-            # action_rate = -0.005
             action_rate = -0.002
+            # action_double_rate = -0.0005
             dof_acc = -1e-8
             torques = -0.0001
-            # dof_pos_limits = -0.1
             dof_pos_limits = -0.05
 
 
@@ -285,7 +277,8 @@ class G1RGraspCfgPPO( LeggedRobotCfgPPO ):
         run_name = ''
         experiment_name = 'g1'
 
-        max_iterations = 20000 # number of policy updates
+        # max_iterations = 20000 # number of policy updates
+        max_iterations = 40000 # number of policy updates
         # save_interval = 250
         save_interval = 200
 
