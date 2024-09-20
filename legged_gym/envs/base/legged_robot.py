@@ -108,6 +108,8 @@ class LeggedRobot(BaseTask):
         self._compute_hand_pose()
         self._compute_foot_pose()
         self._compute_obj_pose_base()
+        self._compute_foot_pose_base()
+
         self._compute_pelvis_pose()
         # Update foot contact information
         self.foot_contacts = torch.norm(self.contact_forces[:, self.feet_indices, :], dim=-1) > 1.
@@ -234,9 +236,14 @@ class LeggedRobot(BaseTask):
         foot_fly = torch.all(self.foot_pose[..., 2] > 0.15, dim=-1)
         self.jump_buf = torch.logical_and((foot_contact_off | foot_fly), self.episode_length_buf > 10)
 
-        self.contact_buf = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 10., dim=1)
+        # self.contact_buf = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 10., dim=1)
+        # self.contact_buf = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 150., dim=1)
+        self.contact_buf = torch.any(torch.norm(
+            self.contact_forces[:, self.termination_contact_indices, :], dim=-1) \
+                > self.cfg.env.termination.termination_force, dim=1)
         # Termination decided by the base's rpy
-        self.rpy_buf = torch.logical_or(torch.abs(self.rpy[:,1])>1.0, torch.abs(self.rpy[:,0])>0.5)
+        self.rpy_buf = torch.logical_or(torch.abs(self.rpy[:,0])>self.cfg.env.termination.rpy_thresh[0], 
+                                        torch.abs(self.rpy[:,1])>self.cfg.env.termination.rpy_thresh[1])
 
         # Termination decided by the base height
         self.height_buf = torch.logical_or(self.base_pos[..., 2]>1.0, self.base_pos[..., 2]<0.2)
@@ -248,6 +255,14 @@ class LeggedRobot(BaseTask):
 
         self.time_out_buf = self.episode_length_buf > self.max_episode_length # no terminal reward for time-outs
         self.reset_buf = self.jump_buf | self.contact_buf | self.rpy_buf | self.height_buf | self.obj_buf | self.time_out_buf | self.completion_buf
+        # if torch.any(self.reset_buf):
+        #     ic(self.jump_buf, self.contact_buf, self.rpy_buf, self.height_buf, self.obj_buf)
+        # if torch.any(self.contact_buf):
+        #     ic(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1))
+            # ic(self.jump_buf, self.contact_buf, self.rpy_buf, self.height_buf, self.obj_buf)
+        #     ic(self.rpy)
+        #     ic(self.base_pos[..., 2])
+            # ic(self.last_last_contacts, self.last_contacts, self.foot_contacts, self.episode_length_buf)
 
         '''
         For debugging
@@ -395,6 +410,13 @@ class LeggedRobot(BaseTask):
             self.base_lin_vel * self.obs_scales.lin_vel, # 3
             self.base_ang_vel  * self.obs_scales.ang_vel, # 3
             self.projected_gravity, # 3
+            # self.get_body_orientation(), # 2
+            # Foot pos, ori, and contact
+            # self.left_feet_pos,
+            # self.left_feet_ori_base,
+            # self.right_feet_pos,
+            # self.right_feet_ori_base,
+            # self.foot_contacts,
             # Left hand delta
             self.obj_pos_wrt_left, # 3
             self.obj_ori_wrt_left, # 3
@@ -475,6 +497,12 @@ class LeggedRobot(BaseTask):
             self.dof_vel_limits = torch.zeros(self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
             self.torque_limits = torch.zeros(self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
             for i in range(len(props)):
+                # Modify dof limit according to the config file
+                for dof_name in self.cfg.init_state.limits.keys():
+                    if dof_name in self.dof_names[i]:
+                        props["lower"][i] = self.cfg.init_state.limits[dof_name][0]
+                        props["upper"][i] = self.cfg.init_state.limits[dof_name][1]
+
                 self.dof_pos_limits[i, 0] = props["lower"][i].item()
                 self.dof_pos_limits[i, 1] = props["upper"][i].item()
                 self.dof_vel_limits[i] = props["velocity"][i].item()
@@ -618,6 +646,7 @@ class LeggedRobot(BaseTask):
                     # torch_rand_float(0, 2* torch.pi, (len(env_ids), 1), device=self.device)],
                     # Decrease the range
                     torch_rand_float(-0.5*torch.pi, 0.5* torch.pi, (len(env_ids), 1), device=self.device)],
+                    # torch_rand_float(-torch.pi/4, torch.pi/4, (len(env_ids), 1), device=self.device)],
                     dim=-1)
             )
         # base velocities
@@ -631,10 +660,11 @@ class LeggedRobot(BaseTask):
         #                                              gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
         self.obj_root_states[env_ids, :3] = self.root_states[env_ids, :3].clone()
         # Put closer to the base!!
-        self.obj_root_states[env_ids, 0] += 0.5
+        # self.obj_root_states[env_ids, 0] += 0.5
+        self.obj_root_states[env_ids, 0] += 0.6
         self.obj_root_states[env_ids, 2] = 0.5 * self.cfg.object.box_size[2] + 0.01
         self.obj_root_states[env_ids, 3:7] = torch.tensor([0., 0., 0., 1.], device=self.device, requires_grad=False,)
-        self.obj_root_states[env_ids, 7:] = 0.
+        self.obj_root_states[env_ids, 7:13] = 0.
 
         # Should be avoided
         # self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self._root_states))
@@ -688,6 +718,23 @@ class LeggedRobot(BaseTask):
         self.left_hand_quat = self.hands_quat[:, 0, :]
         self.right_hand_quat = self.hands_quat[:, 1, :]
     
+    def _compute_foot_pose_base(self):
+        self.left_feet_pos_base = quat_rotate_inverse(
+            self.left_feet_quat,
+            self.left_feet_pos - self.root_states[..., :3]
+        )
+        self.left_feet_ori_base = wrap_to_pi_minuspi(axis_angle_from_quat(quat_multiply(
+            self.left_feet_quat, quat_inverse(self.base_quat)))
+        )
+        self.right_feet_pos_base = quat_rotate_inverse(
+            self.right_feet_quat,
+            self.right_feet_pos - self.root_states[..., :3]
+        )
+        self.right_feet_ori_base = wrap_to_pi_minuspi(axis_angle_from_quat(quat_multiply(
+            self.right_feet_quat, quat_inverse(self.base_quat)))
+        )
+        # ic(self.left_feet_pos_base, self.left_feet_ori_base)
+
     def _compute_pelvis_pose(self):
         self.pelvis_pos = torch.mean(self.rigid_body_state[..., self.hip_indices, :3], dim=1)
    
@@ -721,6 +768,14 @@ class LeggedRobot(BaseTask):
         self.obj_ori_wrt_right = wrap_to_pi_minuspi(axis_angle_from_quat(quat_multiply(
             self.obj_root_states[..., 3:7], quat_inverse(self.right_hand_quat)))
         )
+
+    def get_body_orientation(self, return_yaw=False):
+        body_angles = wrap_to_pi_minuspi(axis_angle_from_quat(self.base_quat))
+
+        if not return_yaw:
+            return body_angles[:, :-1]
+        else:
+            return body_angles
 
 
     def _get_noise_scale_vec(self, cfg):
@@ -940,6 +995,7 @@ class LeggedRobot(BaseTask):
         self._compute_hand_pose()
         self._compute_foot_pose()
         self._compute_obj_pose_base()
+        self._compute_foot_pose_base()
 
       
 
@@ -1548,8 +1604,30 @@ class LeggedRobot(BaseTask):
         # self.episode_metric_sums['com_avgfoot_dist'] += com_avgfoot_dist
         self.episode_metric_sums['zmp_avgfoot_dist'] += zmp_avgfoot_dist
         # ic(1.0 * zmp_avgfoot_dist)
-        # ic(5.0 * torch.square(com_avgfoot_dist))
+        # ic(1.0 * torch.square(zmp_avgfoot_dist))
         return torch.square(zmp_avgfoot_dist)
+
+    def _reward_zmp_avgfoot_dist_v2(self):
+        '''
+        Computes reward based on the distance between the 
+        average foot position <-> ZMP
+        # In theory, it should be the ZMP, but calculating ZMP
+        # requires a lot of computation resources. Thus we used
+        # CoM instead...
+        '''
+
+        # self._compute_com() 
+        avg_foot_pos = 0.5 * (self.left_feet_pos + self.right_feet_pos)
+        zmp_avgfoot_dist = torch.norm((self.ZMP-avg_foot_pos[..., :2]), dim=-1)
+        # Clip in case of invalid value
+        # zmp_avgfoot_dist = torch.clip(zmp_avgfoot_dist, -1.2, 1.2)
+        zmp_avgfoot_dist = torch.clip(zmp_avgfoot_dist, 0, self.cfg.rewards.zmp.max_dist)
+        # self.episode_metric_sums['com_avgfoot_dist'] += com_avgfoot_dist
+        self.episode_metric_sums['zmp_avgfoot_dist'] += zmp_avgfoot_dist
+        # ic(1.0 * zmp_avgfoot_dist)
+        # ic(0.1 * (torch.exp(4 * zmp_avgfoot_dist)-1))
+        # return (torch.exp(4 * zmp_avgfoot_dist)-1)
+        return (torch.exp(self.cfg.rewards.zmp.sigma * zmp_avgfoot_dist)-1)
     
     def _reward_base_orient(self):
         '''
@@ -1608,6 +1686,32 @@ class LeggedRobot(BaseTask):
         # ic(left_delta_z_axis, right_delta_z_axis)
 
         return left_delta_z_axis+right_delta_z_axis
+
+    def _reward_foot_orient_v3(self):
+        '''
+        Should we constraint our foot to face the forward direction during 
+        the pickup process? Probably not....
+        Computes the z-axis difference with the foot and the global frame
+        '''
+        # Z axis of the left foot frame, measured in the global frame
+        left_foot_z = quat_apply(
+            self.left_feet_quat, 
+            to_torch([0., 0., 1.], device=self.device).expand(self.num_envs, -1))
+
+        # To avoid NaNs
+        epsilon=1e-7
+        left_delta_z_axis = torch.acos(torch.clamp(left_foot_z[..., 2], -1 + epsilon, 1 - epsilon))
+
+        # Z axis of the right foot frame, measured in the global frame
+        right_foot_z = quat_apply(
+            self.right_feet_quat, 
+            to_torch([0., 0., 1.], device=self.device).expand(self.num_envs, -1))
+        right_delta_z_axis = torch.acos(torch.clamp(right_foot_z[..., 2], -1 + epsilon, 1 - epsilon))
+
+        self.episode_metric_sums['left_foot_delta_z_axis'] += left_delta_z_axis
+        self.episode_metric_sums['right_foot_delta_z_axis'] += right_delta_z_axis
+
+        return torch.square(left_delta_z_axis)+torch.square(right_delta_z_axis)
 
     def _reward_foot_vel(self):
         '''

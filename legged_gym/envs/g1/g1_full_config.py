@@ -1,4 +1,5 @@
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
+import numpy as np
 
 class G1GraspCfg( LeggedRobotCfg ):
     class init_state( LeggedRobotCfg.init_state ):
@@ -18,13 +19,15 @@ class G1GraspCfg( LeggedRobotCfg ):
             # 'right_ankle_pitch_joint': -0.2,
             # Zero pad
             'left_hip_pitch_joint': 0,
-            'left_hip_roll_joint': 0,
+            # 'left_hip_roll_joint': np.pi/8,
+            'left_hip_roll_joint': 0.,
             'left_hip_yaw_joint': 0.,
             'left_knee_joint': 0,
             'left_ankle_pitch_joint': 0,
             'left_ankle_roll_joint': 0,
             'right_hip_pitch_joint': 0,
-            'right_hip_roll_joint': 0,
+            # 'right_hip_roll_joint': -np.pi/8,
+            'right_hip_roll_joint': 0.,
             'right_hip_yaw_joint': 0.,
             'right_knee_joint': 0,
             'right_ankle_pitch_joint': 0,
@@ -56,6 +59,11 @@ class G1GraspCfg( LeggedRobotCfg ):
             'right_one_joint': 0.,
             'right_two_joint': 0.
         }
+        # Change the dof lower and upper limits
+        limits = {
+           'torso_joint' : [-np.pi/3, np.pi/3],
+
+        }
     
     class env(LeggedRobotCfg.env):
         # 3+3+3+12+3+12+12
@@ -69,8 +77,14 @@ class G1GraspCfg( LeggedRobotCfg ):
         # env_spacing = 10.  # not used with heightfields/trimeshes 
         send_timeouts = True # send time out information to the algorithm
         # episode_length_s = 20 # episode length in seconds
-        episode_length_s = 10 # episode length in seconds
+        # episode_length_s = 10 # episode length in seconds
+        episode_length_s = 6 # episode length in seconds
         test = False
+
+        class termination:
+            termination_force = 150
+            rpy_thresh = [0.5, 1.5]
+
       
 
     class control( LeggedRobotCfg.control ):
@@ -208,6 +222,9 @@ class G1GraspCfg( LeggedRobotCfg ):
     class rewards( LeggedRobotCfg.rewards ):
         soft_dof_pos_limit = 0.9
         base_height_target = 0.728
+        class zmp:
+            max_dist = 1.2
+            sigma = 4.
         class scales( LeggedRobotCfg.rewards.scales ):
             # tracking_lin_vel = 1.0
             # tracking_ang_vel = 0.5
@@ -227,8 +244,8 @@ class G1GraspCfg( LeggedRobotCfg ):
             left_contact = 0.5
             right_contact = 0.5
             pickup_v2 = 20.
-            obj_zvel = 10.
-            obj_xyvel = -1.
+            # obj_zvel = 10.
+            # obj_xyvel = -1.
             completion = 1000.
             lifted = 10.
             # pelvis_height =0.
@@ -237,13 +254,15 @@ class G1GraspCfg( LeggedRobotCfg ):
             # Reward set 2: Balancing reward
             # com_avgfoot_dist = -1.0
             zmp_avgfoot_dist = -1.0
-            base_orient = -2.0
+            # zmp_avgfoot_dist_v2 = -0.1
+            # base_orient = -2.0
             # foot_orient = -0.1
-            foot_orient_v2 = -0.1
-            foot_vel = -0.05
-            foot_height = 0.
-            # foot_vel_v2 = -0.05
-            single_foot_contact = -0.3
+            # foot_orient_v2 = -0.1
+            foot_orient_v3 = -5.
+            # foot_vel = -0.05
+            foot_height = -1.0
+            foot_vel_v2 = -0.2
+            # single_foot_contact = -0.3
 
             # Reward set 3: Regulation reward
             dof_vel = -0.000001
@@ -278,7 +297,7 @@ class G1RGraspCfgPPO( LeggedRobotCfgPPO ):
         experiment_name = 'g1'
 
         # max_iterations = 20000 # number of policy updates
-        max_iterations = 40000 # number of policy updates
+        max_iterations = 15000 # number of policy updates
         # save_interval = 250
         save_interval = 200
 
