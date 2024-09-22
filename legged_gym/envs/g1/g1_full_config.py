@@ -70,6 +70,7 @@ class G1GraspCfg( LeggedRobotCfg ):
         # 3+3+3+25+3+25+25
         num_envs = 4096
         num_observations = 126 + 12
+        # num_observations = 126 + 12 + 5
         num_actions = 37
         num_privileged_obs = None # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise 
 
@@ -78,7 +79,7 @@ class G1GraspCfg( LeggedRobotCfg ):
         send_timeouts = True # send time out information to the algorithm
         # episode_length_s = 20 # episode length in seconds
         # episode_length_s = 10 # episode length in seconds
-        episode_length_s = 6 # episode length in seconds
+        episode_length_s = 8 # episode length in seconds
         test = False
 
         class termination:
@@ -202,7 +203,7 @@ class G1GraspCfg( LeggedRobotCfg ):
         # density = 50
         box_size = [0.2, 0.2, 0.2]
         succeed_threshold = 0.6
-        holding_time_threshold = 50 # Number of steps to "succeed"
+        holding_time_threshold = 150 # Number of steps to "succeed"
 
         use_curriculum = False
         schedule_steps = [5, 10]
@@ -223,7 +224,10 @@ class G1GraspCfg( LeggedRobotCfg ):
         soft_dof_pos_limit = 0.9
         base_height_target = 0.728
         class zmp:
-            max_dist = 1.2
+            max_dist = 1.5
+            sigma = 4.
+        class com:
+            max_dist = 1.5
             sigma = 4.
         class scales( LeggedRobotCfg.rewards.scales ):
             # tracking_lin_vel = 1.0
@@ -246,15 +250,16 @@ class G1GraspCfg( LeggedRobotCfg ):
             pickup_v2 = 20.
             # obj_zvel = 10.
             # obj_xyvel = -1.
-            completion = 1000.
-            lifted = 10.
+            completion = 1500.
+            lifted = 8.
             # pelvis_height =0.
             # base_obj_dist = 0.
 
             # Reward set 2: Balancing reward
             # com_avgfoot_dist = -1.0
-            zmp_avgfoot_dist = -1.0
-            # zmp_avgfoot_dist_v2 = -0.1
+            # zmp_avgfoot_dist = 0.
+            zmp_avgfoot_dist_v2 = -0.2
+            com_avgfoot_dist_v2 = 0.
             # base_orient = -2.0
             # foot_orient = -0.1
             # foot_orient_v2 = -0.1
@@ -296,8 +301,8 @@ class G1RGraspCfgPPO( LeggedRobotCfgPPO ):
         run_name = ''
         experiment_name = 'g1'
 
-        # max_iterations = 20000 # number of policy updates
-        max_iterations = 15000 # number of policy updates
+        max_iterations = 20000 # number of policy updates
+        # max_iterations = 15000 # number of policy updates
         # save_interval = 250
         save_interval = 200
 

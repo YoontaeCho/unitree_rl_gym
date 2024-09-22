@@ -20,8 +20,15 @@
 # PYTORCH_JIT=0 python3 legged_gym/scripts/train.py --task=g1_grasp --num_envs=4096 --headless --run_name=test_v65 
 # PYTORCH_JIT=0 python3 legged_gym/scripts/train.py --task=g1_grasp --num_envs=4096 --headless --run_name=test_v69 --env_cfg_updates env.episode_length_s=6
 # PYTORCH_JIT=0 python3 legged_gym/scripts/train.py --task=g1_grasp --num_envs=4096 --headless --run_name=test_v70 --env_cfg_updates env.episode_length_s=6
-PYTORCH_JIT=0 python3 legged_gym/scripts/train.py --task=g1_grasp --num_envs=4096 --headless --run_name=test_v70
+# PYTORCH_JIT=0 python3 legged_gym/scripts/train.py --task=g1_grasp --num_envs=4096 --headless --run_name=test_v70
 # PYTORCH_JIT=0 python3 legged_gym/scripts/train.py --task=g1_grasp --num_envs=4096 --headless --run_name=test_v71 --env_cfg_updates env.termination.rpy_thresh=[1.0,0.5]
-PYTORCH_JIT=0 python3 legged_gym/scripts/train.py --task=g1_grasp --num_envs=4096 --headless --run_name=test_v72 --env_cfg_updates rewards.scales.zmp_avgfoot_dist=0 rewards.scales.zmp_avgfoot_dist_v2=-0.1
+# PYTORCH_JIT=0 python3 legged_gym/scripts/train.py --task=g1_grasp --num_envs=4096 --headless --run_name=test_v72 --env_cfg_updates rewards.scales.zmp_avgfoot_dist=0 rewards.scales.zmp_avgfoot_dist_v2=-0.1
+# PYTORCH_JIT=0 python3 legged_gym/scripts/train.py --task=g1_grasp --num_envs=4096 --headless --run_name=test_v73 --env_cfg_updates object.holding_time_threshold=150 env.episode_length_s=8 rewards.scales.lifted=5
+# PYTORCH_JIT=0 python3 legged_gym/scripts/train.py --task=g1_grasp --num_envs=4096 --headless --run_name=test_v74 --env_cfg_updates object.holding_time_threshold=150 env.episode_length_s=8 rewards.scales.lifted=8
+# PYTORCH_JIT=0 python3 legged_gym/scripts/train.py --task=g1_grasp --num_envs=4096 --headless --run_name=test_v75 --env_cfg_updates object.holding_time_threshold=150 env.episode_length_s=8 rewards.scales.lifted=5 rewards.scales.zmp_avgfoot_dist=0 rewards.scales.zmp_avgfoot_dist_v2=-0.1
 # PYTORCH_JIT=0 python3 legged_gym/scripts/train.py --task=g1_grasp --num_envs=4096 --headless --run_name=test_v73 --env_cfg_updates rewards.scales.zmp_avgfoot_dist=0 rewards.scales.zmp_avgfoot_dist_v2=-0.05
+# PYTORCH_JIT=0 python3 legged_gym/scripts/train.py --task=g1_grasp --num_envs=4096 --headless --run_name=test_v77 --env_cfg_updates object.holding_time_threshold=150 env.episode_length_s=8 rewards.scales.lifted=8 rewards.scales.zmp_avgfoot_dist=0 rewards.scales.zmp_avgfoot_dist_v2=-0.2
+PYTORCH_JIT=0 python3 legged_gym/scripts/train.py --task=g1_grasp --num_envs=4096 --headless --run_name=test_v85 --env_cfg_updates rewards.scales.zmp_avgfoot_dist=0 rewards.scales.sigma=4
+PYTORCH_JIT=0 python3 legged_gym/scripts/train.py --task=g1_grasp --num_envs=4096 --headless --run_name=test_v86 --env_cfg_updates rewards.scales.zmp_avgfoot_dist=0 rewards.scales.sigma=6
+
 

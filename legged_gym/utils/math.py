@@ -85,3 +85,53 @@ def wrap_to_pi_minuspi(angles):
     angles = angles % (2 * np.pi)
     angles -= 2 * np.pi * (angles > np.pi)
     return angles
+
+
+def _matrix_from_quaternion(x: torch.Tensor, out: torch.Tensor):
+    # qx, qy, qz, qw = [x[..., i] for i in range(4)]
+    qx = x[..., 0]
+    qy = x[..., 1]
+    qz = x[..., 2]
+    qw = x[..., 3]
+
+    tx = 2.0 * qx
+    ty = 2.0 * qy
+    tz = 2.0 * qz
+    twx = tx * qw
+    twy = ty * qw
+    twz = tz * qw
+    txx = tx * qx
+    txy = ty * qx
+    txz = tz * qx
+    tyy = ty * qy
+    tyz = tz * qy
+    tzz = tz * qz
+
+    # outr = out.reshape(-1, 9)
+    # torch.stack([
+    #     1.0 - (tyy + tzz),
+    #     txy - twx,
+    #     txz + twy,
+    #     txy + twz,
+    #     1.0 - (txx + tzz),
+    #     tyz - twx,
+    #     txz - twy,
+    #     tyz + twx,
+    #     1.0 - (txx + tyy)], dim=-1, out=outr)
+    out[..., 0, 0] = 1.0 - (tyy + tzz)
+    out[..., 0, 1] = txy - twz
+    out[..., 0, 2] = txz + twy
+    out[..., 1, 0] = txy + twz
+    out[..., 1, 1] = 1.0 - (txx + tzz)
+    out[..., 1, 2] = tyz - twx
+    out[..., 2, 0] = txz - twy
+    out[..., 2, 1] = tyz + twx
+    out[..., 2, 2] = 1.0 - (txx + tyy)
+
+def matrix_from_quaternion(
+        x: torch.Tensor, out: Optional[torch.Tensor] = None) -> torch.Tensor:
+    if out is None:
+        out = torch.zeros(size=x.shape[:-1] + (3, 3),
+                       dtype=x.dtype, device=x.device)
+    _matrix_from_quaternion(x, out)
+    return out

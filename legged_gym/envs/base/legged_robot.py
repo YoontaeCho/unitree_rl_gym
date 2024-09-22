@@ -13,7 +13,7 @@ from typing import Tuple, Dict
 
 from legged_gym import LEGGED_GYM_ROOT_DIR
 from legged_gym.envs.base.base_task import BaseTask
-from legged_gym.utils.math import wrap_to_pi, quat_multiply, quat_inverse, axis_angle_from_quat, wrap_to_pi_minuspi, quat_from_euler
+from legged_gym.utils.math import *
 from legged_gym.utils.isaacgym_utils import get_euler_xyz as get_euler_xyz_in_tensor
 from legged_gym.utils.helpers import class_to_dict, draw_axis, get_object_size
 from .legged_robot_config import LeggedRobotCfg
@@ -257,6 +257,8 @@ class LeggedRobot(BaseTask):
         self.reset_buf = self.jump_buf | self.contact_buf | self.rpy_buf | self.height_buf | self.obj_buf | self.time_out_buf | self.completion_buf
         # if torch.any(self.reset_buf):
         #     ic(self.jump_buf, self.contact_buf, self.rpy_buf, self.height_buf, self.obj_buf)
+        #     ic(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1))
+        #     time.sleep(2)
         # if torch.any(self.contact_buf):
         #     ic(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1))
             # ic(self.jump_buf, self.contact_buf, self.rpy_buf, self.height_buf, self.obj_buf)
@@ -411,6 +413,9 @@ class LeggedRobot(BaseTask):
             self.base_ang_vel  * self.obs_scales.ang_vel, # 3
             self.projected_gravity, # 3
             # self.get_body_orientation(), # 2
+            # ZMP, foot avg position
+            # self.avg_foot_pos_base, #3
+            # self.ZMP_base, #3
             # Foot pos, ori, and contact
             # self.left_feet_pos,
             # self.left_feet_ori_base,
@@ -855,17 +860,30 @@ class LeggedRobot(BaseTask):
         # Compute angular momentum for each body
         # Orbital angular momentum L_orb = (position - global CoM) x (m * v)
         r_com = positions - rb_com_global  # Global position relative to the center of mass
-        # r_cross_m_v = torch.cross(r_com, linear_momentum_per_body, dim=-1)  # Shape: [num_envs, num_bodies, 3]
-        r_cross_m_v = torch.cross(rb_com_global, linear_momentum_per_body, dim=-1)  # Shape: [num_envs, num_bodies, 3]
+        r_cross_m_v = torch.cross(rb_com_global-self.root_states[..., :3].unsqueeze(-2), linear_momentum_per_body, dim=-1)  # Shape: [num_envs, num_bodies, 3]
+
+
+        rot = matrix_from_quaternion(quaternions)
+        inertia_global = torch.einsum('...ik,...kl,...jl->...ij', rot, self.rb_inertia, rot)  # Shape: [num_envs, num_bodies, 3, 3]
 
         # Rotational angular momentum L_rot = I * omega
-        I_times_omega = torch.einsum('...ij,...j->...i', self.rb_inertia, angular_velocities)  # Shape: [num_envs, num_bodies, 3]
+        I_times_omega = torch.einsum('...ij,...j->...i', inertia_global, angular_velocities)  # Shape: [num_envs, num_bodies, 3]
 
         # Total angular momentum is the sum of orbital and rotational angular momentum
         angular_momentum_per_body = r_cross_m_v + I_times_omega  # Shape: [num_envs, num_bodies, 3]
 
         # Sum the angular momenta of all bodies in each environment
         self.ang_momentum = torch.sum(angular_momentum_per_body, dim=1)  # Shape: [num_envs, 3]
+
+        # Compute objects related stuff
+        # obj_lin_momentum = self.obj_mass.unsqueeze(-1) * self.obj_root_states[..., 7:10]
+        # obj_rot = matrix_from_quaternion(self.obj_root_states[..., 3:7])
+        # obj_inertia_global = torch.einsum('...ik,...kl,...jl->...ij', obj_rot, self.obj_inertia, obj_rot)
+        # obj_ang_momentum = \
+        #     torch.cross(self.obj_root_states[..., 0:3], obj_lin_momentum, dim=-1) \
+        #     + torch.einsum('...ij,...j->...i', obj_inertia_global, self.obj_root_states[..., 10:13])
+        # self.lin_momentum += obj_lin_momentum
+        # self.ang_momentum += obj_ang_momentum
 
 
     def _compute_zmp(self):
@@ -892,14 +910,27 @@ class LeggedRobot(BaseTask):
 
         self.ZMP[..., 0] = torch.where(
             torch.logical_and(contact_flag, Fgz > 50),
-            (Mg*self.CoM[..., 0] - d_ang_mom[..., 1])/Fgz,
-            self.CoM[..., 0]
+            (Mg*(self.CoM[..., 0]-self.root_states[..., 0]) - d_ang_mom[..., 1])/Fgz,
+            self.CoM[..., 0]-self.root_states[..., 0]
         )
         self.ZMP[..., 1]= torch.where(
             torch.logical_and(contact_flag, Fgz > 50),
-            ((Mg*self.CoM[..., 1] + d_ang_mom[..., 0])/Fgz),
-            self.CoM[..., 1]
+            ((Mg*(self.CoM[..., 1]-self.root_states[..., 1]) + d_ang_mom[..., 0])/Fgz),
+            self.CoM[..., 1]-self.root_states[..., 1]
         )
+        self.ZMP[..., 0] += self.root_states[..., 0]
+        self.ZMP[..., 1] += self.root_states[..., 1]
+        
+        avg_foot_pos = 0.5 * (self.left_feet_pos + self.right_feet_pos)
+        self.avg_foot_pos_base = quat_rotate_inverse(
+            self.base_quat,
+            avg_foot_pos - self.root_states[..., :3]
+        ) 
+        self.ZMP_base = quat_rotate_inverse(
+            self.base_quat,
+            self.ZMP - self.root_states[..., :3]
+        ).clip(min=-3, max=3)
+        # ic(self.avg_foot_pos_base, self.ZMP_base)
 
         # ic(self.ZMP - self.CoM[..., :2])
 
@@ -958,7 +989,7 @@ class LeggedRobot(BaseTask):
         self.prev_lin_momentum = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.prev_ang_momentum = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         # ZMPs
-        self.ZMP = torch.zeros(self.num_envs, 2, dtype=torch.float, device=self.device, requires_grad=False)
+        self.ZMP = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.last_dof_vel = torch.zeros_like(self.dof_vel)
         self.last_root_vel = torch.zeros_like(self.root_states[:, 7:13])
         # self.commands = torch.zeros(self.num_envs, self.cfg.commands.num_commands, dtype=torch.float, device=self.device, requires_grad=False) # x vel, y vel, yaw vel, heading
@@ -1032,6 +1063,10 @@ class LeggedRobot(BaseTask):
             self.rb_inertia = gymtorch.torch.zeros((self.num_envs, self.num_bodies, 3, 3), device=self.device) # [comX, comY, comZ], [Ix, Iy, Iz]
             self.rb_mass = gymtorch.torch.zeros((self.num_envs, self.num_bodies), device=self.device) # link mass
             self.rb_com = gymtorch.torch.zeros((self.num_envs, self.num_bodies, 3), device = self.device) # [comX, comY, comZ] in link's origin frame 
+
+            self.obj_inertia = gymtorch.torch.zeros((self.num_envs, 3, 3), device=self.device) # [comX, comY, comZ], [Ix, Iy, Iz]
+            self.obj_mass = gymtorch.torch.zeros((self.num_envs), device=self.device) # link mass
+            self.obj_com = gymtorch.torch.zeros((self.num_envs, 3), device = self.device) # [comX, comY, comZ] in link's origin frame 
             # self.com_position = gymtorch.torch.zeros((self.num_envs, 3), device=self.device) # robot-com position in inertial frame
             # self.centroidal_momentum = gymtorch.torch.zeros((self.num_envs, 6), device=self.device)        
             
@@ -1046,6 +1081,12 @@ class LeggedRobot(BaseTask):
                     self.rb_inertia[i, N, 2, :] = gymtorch.torch.tensor([-rb_props.inertia.z.x, -rb_props.inertia.z.y, rb_props.inertia.z.z], device=self.device)
                     # see how inertia tensor is made : https://ocw.mit.edu/courses/16-07-dynamics-fall-2009/dd277ec654440f4c2b5b07d6c286c3fd_MIT16_07F09_Lec26.pdf
                     self.rb_mass[i, N] = rb_props.mass
+                obj_props = self.gym.get_actor_rigid_body_properties(self.envs[i], self.obj_actor_handles[i])[0]
+                self.obj_com[i, :] = gymtorch.torch.tensor([obj_props.com.x, obj_props.com.y, obj_props.com.z], device=self.device)
+                self.rb_mass[i] = obj_props.mass
+                self.obj_inertia[i, 0, :] = gymtorch.torch.tensor([obj_props.inertia.x.x, -obj_props.inertia.x.y, -obj_props.inertia.x.z], device=self.device)
+                self.obj_inertia[i, 1, :] = gymtorch.torch.tensor([-obj_props.inertia.y.x, obj_props.inertia.y.y, -obj_props.inertia.y.z], device=self.device)
+                self.obj_inertia[i, 2, :] = gymtorch.torch.tensor([-obj_props.inertia.z.x, -obj_props.inertia.z.y, obj_props.inertia.z.z], device=self.device)
             # Update dynamics        
 
     def _get_curriculum_value(self, schedule, init_range, final_range, counter):
@@ -1618,16 +1659,24 @@ class LeggedRobot(BaseTask):
 
         # self._compute_com() 
         avg_foot_pos = 0.5 * (self.left_feet_pos + self.right_feet_pos)
-        zmp_avgfoot_dist = torch.norm((self.ZMP-avg_foot_pos[..., :2]), dim=-1)
+        zmp_avgfoot_dist = torch.norm((self.ZMP[..., :2]-avg_foot_pos[..., :2]), dim=-1)
         # Clip in case of invalid value
         # zmp_avgfoot_dist = torch.clip(zmp_avgfoot_dist, -1.2, 1.2)
         zmp_avgfoot_dist = torch.clip(zmp_avgfoot_dist, 0, self.cfg.rewards.zmp.max_dist)
         # self.episode_metric_sums['com_avgfoot_dist'] += com_avgfoot_dist
         self.episode_metric_sums['zmp_avgfoot_dist'] += zmp_avgfoot_dist
         # ic(1.0 * zmp_avgfoot_dist)
-        # ic(0.1 * (torch.exp(4 * zmp_avgfoot_dist)-1))
+        # ic((torch.exp(4 * zmp_avgfoot_dist)-1).mean())
         # return (torch.exp(4 * zmp_avgfoot_dist)-1)
         return (torch.exp(self.cfg.rewards.zmp.sigma * zmp_avgfoot_dist)-1)
+
+    def _reward_com_avgfoot_dist_v2(self):
+
+        avg_foot_pos = 0.5 * (self.left_feet_pos + self.right_feet_pos)
+        com_avgfoot_dist = torch.norm((self.CoM[..., :2]-avg_foot_pos[..., :2]), dim=-1)
+        com_avgfoot_dist = torch.clip(com_avgfoot_dist, 0, self.cfg.rewards.com.max_dist)
+        self.episode_metric_sums['com_avgfoot_dist'] += com_avgfoot_dist
+        return (torch.exp(self.cfg.rewards.com.sigma * com_avgfoot_dist)-1)
     
     def _reward_base_orient(self):
         '''
