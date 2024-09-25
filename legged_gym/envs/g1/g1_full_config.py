@@ -62,6 +62,7 @@ class G1GraspCfg( LeggedRobotCfg ):
         # Change the dof lower and upper limits
         limits = {
            'torso_joint' : [-np.pi/3, np.pi/3],
+        #    'torso_joint' : [-np.pi/4, np.pi/4],
 
         }
     

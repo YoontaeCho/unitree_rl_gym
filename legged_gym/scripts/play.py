@@ -27,6 +27,7 @@ def play(args):
     env_cfg.domain_rand.push_robots = False
     env_cfg.domain_rand.randomize_init_orn = True
     observations = []
+    logs = []
 
     # env_cfg.asset.disable_gravity = True
 
@@ -57,8 +58,15 @@ def play(args):
             obs, _, rews, dones, infos = env.step(actions.detach())
 
             # Save the observations
-            current_obs = obs.cpu().numpy() if obs.is_cuda else obs.numpy()
-            observations.append(current_obs)
+            # current_obs = obs.cpu().numpy() if obs.is_cuda else obs.numpy()
+            # observations.append(current_obs)
+            # com = infos['log_com'].cpu().numpy()
+            # zmp = infos['log_zmp'].cpu().numpy()
+            # ic(com.shape)
+            # ic(np.stack((com, zmp), axis=-1).shape)
+            # logs.append(np.stack((com, zmp), axis=-1))
+
+            # observations.append(current_obs)
             stop_time = time.time()
 
             duration = stop_time - start_time
@@ -70,6 +78,12 @@ def play(args):
         # with open('/tmp/training_dist.pkl', 'wb') as f:
         # # with open('/tmp/testing_dist.pkl', 'wb') as f:
         #     pickle.dump(observations, f)
+        # logs = np.concatenate(logs, axis=0)
+        # # Save the concatenated observations to a pickle file
+        # ic(logs.shape)
+        # with open('/tmp/training_dist.pkl', 'wb') as f:
+        # # with open('/tmp/testing_dist.pkl', 'wb') as f:
+        #     pickle.dump(logs, f)
         pass
 
 if __name__ == '__main__':
