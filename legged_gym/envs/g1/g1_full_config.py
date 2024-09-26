@@ -209,6 +209,15 @@ class G1GraspCfg( LeggedRobotCfg ):
         use_curriculum = False
         schedule_steps = [5, 10]
         mass_range = [1, 2]
+    
+    class footpoint:
+        # used when computing the support polygon
+        num_footpoints = 4
+        offeset = [[0.13, -0.025, -0.032],
+                   [0.13, 0.025, -0.032],
+                   [-0.055, -0.025, -0.032],
+                   [-0.055, 0.025, -0.032]]
+
 
 
     class domain_rand:

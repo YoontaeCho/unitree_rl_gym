@@ -5,8 +5,8 @@ import sys
 
 import isaacgym
 from legged_gym.envs import *
-from legged_gym.utils import get_args, task_registry
-from legged_gym.utils.helpers import class_to_dict
+from legged_gym.utils.task_registry import task_registry
+from legged_gym.utils.helpers import class_to_dict, get_args
 import torch
 from icecream import ic
 import wandb

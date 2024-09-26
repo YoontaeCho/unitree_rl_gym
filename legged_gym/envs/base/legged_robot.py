@@ -129,6 +129,7 @@ class LeggedRobot(BaseTask):
         self._compute_obj_pose_base()
         self._compute_foot_pose_base()
         self._compute_foot_contact()
+        self._compute_footpoint_pos()
 
         self._compute_pelvis_pose()
         # Update foot contact information
@@ -158,6 +159,12 @@ class LeggedRobot(BaseTask):
             self.foot_contacts,
             self.CoM,
             self.root_states)
+
+        self.zmp_dist = compute_min_distance(
+            torch.cat([self.left_footpoints, self.right_footpoints], dim=1),
+            torch.cat([self.left_footpoints_mask, self.right_footpoints_mask], dim=1),
+            self.ZMP)
+        
 
         self._post_physics_step_callback()
 
@@ -238,11 +245,13 @@ class LeggedRobot(BaseTask):
                 r=None)
             gymutil.draw_lines(sphere_geom_a, self.gym, 
                                self.viewer, self.envs[i], sphere_pose_a) 
-            sphere_pose_b = gymapi.Transform(
-                gymapi.Vec3((self.left_feet_pos[i, 0]+self.right_feet_pos[i, 0])/2,
-                            (self.left_feet_pos[i, 1]+self.right_feet_pos[i, 1])/2, 
-                            (self.left_feet_pos[i, 2]+self.right_feet_pos[i, 2])/2), 
-                r=None)
+
+            # sphere_pose_b = gymapi.Transform(
+            #     gymapi.Vec3(
+            #                 self.left_footpoints[i, 2, 0],
+            #                 self.left_footpoints[i, 2, 1],
+            #                 self.left_footpoints[i, 2, 2]),
+            #     r=None)
             # gymutil.draw_lines(sphere_geom_b, self.gym, 
             #                    self.viewer, self.envs[i], sphere_pose_b) 
 
@@ -735,6 +744,48 @@ class LeggedRobot(BaseTask):
         self.left_hand_quat = self.hands_quat[:, 0, :]
         self.right_hand_quat = self.hands_quat[:, 1, :]
     
+    def _compute_footpoint_pos(self):
+        '''
+        Computes the positions of the footpoints
+        '''
+        self.left_footpoints = \
+            self.left_feet_pos.unsqueeze(1).repeat(1, self.cfg.footpoint.num_footpoints, 1).view(-1, 3) + \
+            quat_apply(self.left_feet_quat.unsqueeze(1).repeat(1, self.cfg.footpoint.num_footpoints, 1).view(-1, 4),
+                       self.footpoint_offset.view(-1, 3))
+        self.left_footpoints = self.left_footpoints.view(
+            -1, self.cfg.footpoint.num_footpoints, 3)
+
+        self.right_footpoints = \
+            self.right_feet_pos.unsqueeze(1).repeat(1, self.cfg.footpoint.num_footpoints, 1).view(-1, 3) + \
+            quat_apply(self.right_feet_quat.unsqueeze(1).repeat(1, self.cfg.footpoint.num_footpoints, 1).view(-1, 4),
+                       self.footpoint_offset.view(-1, 3))
+        self.right_footpoints = self.right_footpoints.view(
+            -1, self.cfg.footpoint.num_footpoints, 3)
+
+        # if self.left_feet_contact:
+        #     ic(self.left_feet_contact, self.left_footpoints)
+        # if self.right_feet_contact:
+        #     ic(self.right_feet_contact, self.right_footpoints)
+        
+        # Compute the valid footpoints
+
+        # Mask for points with z < 1 cm (0.01 m)
+        left_z_mask = self.left_footpoints[:, :, 2] < 0.01  # [N, M] - True if z < 1cm
+        right_z_mask = self.right_footpoints[:, :, 2] < 0.01  # [N, M] - True if z < 1cm
+
+        # Get the index of the smallest z-value footpoint for each foot
+        left_min_z_idx = torch.argmin(self.left_footpoints[:, :, 2], dim=1, keepdim=True)  # [N, 1]
+        right_min_z_idx = torch.argmin(self.right_footpoints[:, :, 2], dim=1, keepdim=True)  # [N, 1]
+
+        # Create masks for the minimum z footpoints
+        left_min_z_mask = torch.zeros_like(left_z_mask, dtype=torch.bool).scatter(1, left_min_z_idx, 1)  # [N, M]
+        right_min_z_mask = torch.zeros_like(right_z_mask, dtype=torch.bool).scatter(1, right_min_z_idx, 1)  # [N, M]
+
+        # Combine the z-height mask and the minimum z-point mask, but only for the feet in contact
+        self.left_footpoints_mask = self.left_feet_contact[..., None] & (left_z_mask | left_min_z_mask)  # [N, M]
+        self.right_footpoints_mask = self.right_feet_contact[..., None] & (right_z_mask | right_min_z_mask)  # [N, M]
+
+    
     def _compute_foot_pose_base(self):
         self.left_feet_pos_base = quat_rotate_inverse(
             self.left_feet_quat,
@@ -917,6 +968,13 @@ class LeggedRobot(BaseTask):
         self.is_lifted = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         self.lifted_time = torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
 
+        # Support polygon-related
+        self.footpoint_offset = to_torch(self.cfg.footpoint.offeset, device=self.device).expand(self.num_envs, -1, -1).contiguous()
+        self.left_footpoints = torch.zeros(self.num_envs, self.cfg.footpoint.num_footpoints, 3, dtype=torch.float, device=self.device, requires_grad=False)
+        self.left_footpoints_mask = torch.zeros(self.num_envs, self.cfg.footpoint.num_footpoints, dtype=torch.bool, device=self.device, requires_grad=False)
+        self.right_footpoints = torch.zeros(self.num_envs, self.cfg.footpoint.num_footpoints, 3, dtype=torch.float, device=self.device, requires_grad=False)
+        self.right_footpoints_mask = torch.zeros(self.num_envs, self.cfg.footpoint.num_footpoints, dtype=torch.bool, device=self.device, requires_grad=False)
+        self.zmp_dist = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
 
         self._compute_hand_pose()
         self._compute_foot_pose()
