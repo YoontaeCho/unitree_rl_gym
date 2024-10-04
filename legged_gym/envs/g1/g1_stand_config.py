@@ -70,7 +70,7 @@ class G1StandCfg( LeggedRobotCfg ):
         # 3+3+3+12+3+12+12
         # 3+3+3+25+3+25+25
         num_envs = 4096
-        num_observations = 126 + 12
+        num_observations = 126 + 16
         # num_observations = 126 + 12 + 5
         num_actions = 37
         num_privileged_obs = None # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise 
@@ -79,12 +79,13 @@ class G1StandCfg( LeggedRobotCfg ):
         # env_spacing = 10.  # not used with heightfields/trimeshes 
         send_timeouts = True # send time out information to the algorithm
         # episode_length_s = 20 # episode length in seconds
-        # episode_length_s = 10 # episode length in seconds
-        episode_length_s = 8 # episode length in seconds
+        episode_length_s = 10 # episode length in seconds
+        # episode_length_s = 8 # episode length in seconds
         test = False
 
         class termination:
             termination_force = 150
+            termination_force_hand = 1
             rpy_thresh = [0.5, 1.5]
 
       
@@ -181,6 +182,8 @@ class G1StandCfg( LeggedRobotCfg ):
         file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/g1/urdf/g1_full.urdf'
         # name = "g1"
         name = "g1_full"
+        ankle_joint_name = "ankle"
+        torso_name = "torso_link"
         foot_name = "ankle_roll"
         elbow_name = "elbow_roll"
         elbow_hand_offset = 0.20 # Distance between robot elbow <-> hand
@@ -193,6 +196,7 @@ class G1StandCfg( LeggedRobotCfg ):
         # terminate_after_contacts_on = ["torso"]
         # terminate_after_contacts_on = ["hip_yaw"]
         terminate_after_contacts_on = ["hip_yaw"]
+        # terminate_after_contacts_on = ["hip_yaw", "two", "four", "six"]
         # self_collisions = 1 # 1 to disable, 0 to enable...bitwise filter
         self_collisions = 0 # 1 to disable, 0 to enable...bitwise filter
         flip_visual_attachments = False
@@ -217,6 +221,8 @@ class G1StandCfg( LeggedRobotCfg ):
                    [0.13, 0.025, -0.032],
                    [-0.055, -0.025, -0.032],
                    [-0.055, 0.025, -0.032]]
+        # epsilon = 0.01
+        epsilon = 0.005
 
 
 
@@ -225,9 +231,12 @@ class G1StandCfg( LeggedRobotCfg ):
         friction_range = [0.5, 1.25]
         randomize_base_mass = False
         added_mass_range = [-1., 1.]
-        push_robots = False
-        push_interval_s = 15
-        max_push_vel_xy = 1.
+        push_robots = True
+        push_interval_s = 3
+        max_push_vel_xy = 4
+        max_push_force_xy = 10000
+        # max_push_force_xy = 5000
+        max_push_vel_rpy = 1.
         randomize_init_orn = True
   
     class rewards( LeggedRobotCfg.rewards ):
@@ -235,7 +244,9 @@ class G1StandCfg( LeggedRobotCfg ):
         base_height_target = 0.728
         class zmp:
             max_dist = 1.5
-            sigma = 4.
+            sigma = 6.
+            sigma_dist = 4.
+            sigma_margin = 10.
         class com:
             max_dist = 1.5
             sigma = 4.
@@ -247,45 +258,54 @@ class G1StandCfg( LeggedRobotCfg ):
             # orientation = -1.0
             # base_height = -10.0
             # termination = -10
-            termination = -20
-            survive = 0.5
+            # survive = 0.5
 
-            # Reward set 1: task-relevant rewards
+            termination = -20
+            survive = 2.0
+            # survive = 1.0
+            # Reward set 1: Standing(balancing) reward
+            stand_foot_orient_v3 = 0.
+            stand_foot_height = 0.
+            stand_foot_vel_v2 = 0.
+            stand_zmp_supp_dist = 0.
+            stand_zmp_dist = -0.5
+            stand_zmp_margin = 1.0
+            # stand_planar_contact = -0.5
+            # stand_ankle_torque = -0.0002
+            stand_ankle_torque_v2 = 0.
+            stand_ankle_limit = 0.
+            # Reward set 2: task-relevant rewards
             # dist_left = 0.5
-            # dist_right = 0.5
-            dist_left_v2 = 2.0
-            dist_right_v2 = 2.0
-            left_contact = 0.5
-            right_contact = 0.5
-            pickup_v2 = 20.
-            # obj_zvel = 10.
-            # obj_xyvel = -1.
-            completion = 1500.
-            lifted = 8.
+            # # dist_right = 0.5
+            # dist_left_v2 = 2.0
+            # dist_right_v2 = 2.0
+            # left_contact = 0.5
+            # right_contact = 0.5
+            # pickup_v2 = 20.
+            # # obj_zvel = 10.
+            # # obj_xyvel = -1.
+            # completion = 1500.
+            # lifted = 8.
             # pelvis_height =0.
             # base_obj_dist = 0.
 
-            # Reward set 2: Balancing reward
             # com_avgfoot_dist = -1.0
             # zmp_avgfoot_dist = 0.
-            zmp_avgfoot_dist_v2 = -0.2
-            com_avgfoot_dist_v2 = 0.
+            # zmp_avgfoot_dist_v2 = -0.2
+            # com_avgfoot_dist_v2 = 0.
             # base_orient = -2.0
             # foot_orient = -0.1
             # foot_orient_v2 = -0.1
-            foot_orient_v3 = -5.
             # foot_vel = -0.05
-            foot_height = -1.0
-            foot_vel_v2 = -0.2
             # single_foot_contact = -0.3
 
             # Reward set 3: Regulation reward
-            dof_vel = -0.000001
-            action_rate = -0.002
+            reg_dof_vel = -0.00001
+            reg_action_rate = -0.002
             # action_double_rate = -0.0005
-            dof_acc = -1e-8
-            torques = -0.0001
-            dof_pos_limits = -0.05
+            reg_dof_acc = -1e-8
+            reg_torques = -0.001
+            reg_dof_pos_limits = -0.05
 
 
         only_positive_rewards = False # if true negative total rewards are clipped at zero (avoids early termination problems)
@@ -311,7 +331,8 @@ class G1StandCfgPPO( LeggedRobotCfgPPO ):
         run_name = ''
         experiment_name = 'g1'
 
-        max_iterations = 20000 # number of policy updates
+        # max_iterations = 10000 # number of policy updates
+        max_iterations = 3000 # number of policy updates
         # max_iterations = 15000 # number of policy updates
         # save_interval = 250
         save_interval = 200

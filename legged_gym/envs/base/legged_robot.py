@@ -788,14 +788,14 @@ class LeggedRobot(BaseTask):
     
     def _compute_foot_pose_base(self):
         self.left_feet_pos_base = quat_rotate_inverse(
-            self.left_feet_quat,
+            self.base_quat,
             self.left_feet_pos - self.root_states[..., :3]
         )
         self.left_feet_ori_base = wrap_to_pi_minuspi(axis_angle_from_quat(quat_multiply(
             self.left_feet_quat, quat_inverse(self.base_quat)))
         )
         self.right_feet_pos_base = quat_rotate_inverse(
-            self.right_feet_quat,
+            self.base_quat,
             self.right_feet_pos - self.root_states[..., :3]
         )
         self.right_feet_ori_base = wrap_to_pi_minuspi(axis_angle_from_quat(quat_multiply(

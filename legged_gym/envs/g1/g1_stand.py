@@ -85,16 +85,22 @@ class G1(BaseTask):
 
             Computing (lin, ang) momentum derivative by subtracting
             control_dt would result in high instability.
+            Actually, this is still very noisy
+            Measuring L_dot and P_dot by finite difference seems like
+            to have major issue.
             '''
-            if i == self.cfg.control.decimation-1:
+            if i == self.cfg.control.decimation-2:
+                self.gym.refresh_actor_root_state_tensor(self.sim)
                 self.gym.refresh_rigid_body_state_tensor(self.sim)
+                self.moment_measured_frame[..., :2] = self.root_states[..., :2]
+                # ic("before:", self.rigid_body_state[..., 0:10, 0])
                 self.prev_lin_momentum, self.prev_ang_momentum = \
                     compute_lin_ang_momentum(
                         self.rb_com,
                         self.rb_inertia,
                         self.rb_mass,
                         self.rigid_body_state,
-                        self.root_states)
+                        self.moment_measured_frame)
                 
         self.post_physics_step()
 
@@ -116,6 +122,7 @@ class G1(BaseTask):
 
         self.episode_length_buf += 1
         self.common_step_counter += 1
+        self.push_counter += 1
 
         # prepare quantities
         self.base_pos[:] = self.root_states[:, 0:3]
@@ -127,7 +134,7 @@ class G1(BaseTask):
     
         self._compute_hand_pose()
         self._compute_foot_pose()
-        self._compute_obj_pose_base()
+        # self._compute_obj_pose_base()
         self._compute_foot_pose_base()
         self._compute_foot_contact()
         self._compute_footpoint_pos()
@@ -137,7 +144,7 @@ class G1(BaseTask):
         self.foot_contacts = torch.norm(self.contact_forces[:, self.feet_indices, :], dim=-1) > 1.
 
         # Update lifted information
-        self.check_lifted()
+        # self.check_lifted()
 
         self.CoM = compute_com(
             self.rb_com,
@@ -145,12 +152,26 @@ class G1(BaseTask):
             self.total_mass,
             self.rigid_body_state)
 
+        # NOTE(ytcho): Why are we measuring the lin, ang momentum
+        # wrt to the base frame at the **previous** timestep?
+        # Since we need the time derivative of the lin, ang momentum,
+        # We need the **fixed** frame to measure it
+        # ic("after:", self.rigid_body_state[..., 0:10, 0])
         self.lin_momentum, self.ang_momentum = compute_lin_ang_momentum(
             self.rb_com,
             self.rb_inertia,
             self.rb_mass,
             self.rigid_body_state,
-            self.root_states)
+            self.moment_measured_frame)
+
+        _, self.centroidal_ang_momentum = \
+            compute_lin_ang_momentum(
+                self.rb_com,
+                self.rb_inertia,
+                self.rb_mass,
+                self.rigid_body_state,
+                self.CoM)
+        # ic(self.centroidal_ang_momentum - self.prev_centroidal_ang_momentum)
 
         self.ZMP = compute_zmp(
             self.total_mass, self.cfg.sim.gravity, 
@@ -159,18 +180,36 @@ class G1(BaseTask):
             self.ang_momentum, self.prev_ang_momentum,
             self.foot_contacts,
             self.CoM,
-            self.root_states)
+            # self.root_states)
+            self.moment_measured_frame)
+        
+        self.ZMP_base = quat_rotate_inverse(
+            self.base_quat,
+            self.ZMP- self.root_states[..., :3]
+        )
 
-        self.zmp_dist = compute_min_distance(
-            torch.cat([self.left_footpoints, self.right_footpoints], dim=1),
-            torch.cat([self.left_footpoints_mask, self.right_footpoints_mask], dim=1),
-            self.ZMP)
+
+        # self.zmp_dist = compute_min_distance(
+        #     torch.cat([self.left_footpoints, self.right_footpoints], dim=1),
+        #     torch.cat([self.left_footpoints_mask, self.right_footpoints_mask], dim=1),
+        #     self.ZMP)
+        
+        reordered_footpoints, convex_hull_idx = compute_convex_hull(
+            torch.cat([self.left_footpoints[..., :2], self.right_footpoints[..., :2]], dim=1),
+            torch.cat([self.left_footpoints_mask, self.right_footpoints_mask], dim=1))
+        
+        self.signed_zmp_dist = compute_signed_distance(
+            reordered_footpoints, convex_hull_idx, self.ZMP[..., :2]
+        )
+        # ic(self.signed_dist)
+        # ic(self.zmp_dist)
         
 
         self._post_physics_step_callback()
 
         # compute observations, rewards, resets, ...
         self.check_termination()
+        self._log_metrics()
         self.compute_reward()
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
         self.reset_idx(env_ids)
@@ -285,6 +324,13 @@ class G1(BaseTask):
         self.contact_buf = torch.any(
             torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) \
                 > self.cfg.env.termination.termination_force, dim=1)
+        
+        # NOTE(ytcho): Temporary workout to avoid hand <-> ground contact
+        fingertip_contact_buf = torch.any(
+            torch.norm(self.contact_forces[:, self.fingertip_indices, :], dim=-1) \
+                > self.cfg.env.termination.termination_force_hand, dim=1)
+        self.contact_buf = self.contact_buf | fingertip_contact_buf
+
         # Termination decided by the base's rpy
         self.rpy_buf = torch.logical_or(
             torch.abs(self.rpy[:,0]) > self.cfg.env.termination.rpy_thresh[0], 
@@ -295,14 +341,15 @@ class G1(BaseTask):
             self.base_pos[..., 2]>1.0, self.base_pos[..., 2]<0.2)
 
         # Termination in case of object falls
-        self.obj_buf = self.obj_root_states[..., 2] < 0
+        # self.obj_buf = self.obj_root_states[..., 2] < 0
 
-        self.completion_buf = self.lifted_time > self.cfg.object.holding_time_threshold
+        # self.completion_buf = self.lifted_time > self.cfg.object.holding_time_threshold
 
         self.time_out_buf = self.episode_length_buf > self.max_episode_length # no terminal reward for time-outs
-        self.reset_buf = self.jump_buf | self.contact_buf | self.rpy_buf | self.height_buf | self.obj_buf | self.time_out_buf | self.completion_buf
+        # self.reset_buf = self.jump_buf | self.contact_buf | self.rpy_buf | self.height_buf | self.obj_buf | self.time_out_buf | self.completion_buf
+        self.reset_buf = self.jump_buf | self.contact_buf | self.rpy_buf | self.height_buf | self.time_out_buf
         # if torch.any(self.reset_buf):
-        #     ic(self.jump_buf, self.contact_buf, self.rpy_buf, self.height_buf, self.obj_buf)
+        #     ic(self.reset_buf, self.jump_buf, self.contact_buf, self.rpy_buf, self.height_buf, self.time_out_buf)
         #     ic(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1))
         #     time.sleep(2)
         # if torch.any(self.contact_buf):
@@ -373,13 +420,13 @@ class G1(BaseTask):
         self.last_dof_vel[env_ids] = 0.
         self.last_contacts[env_ids] = True
         self.last_last_contacts[env_ids] = True
-        self.closest_left[env_ids] = self.cfg.object.initial_hand_obj_dist
-        self.closest_right[env_ids] = self.cfg.object.initial_hand_obj_dist
+        # self.closest_left[env_ids] = self.cfg.object.initial_hand_obj_dist
+        # self.closest_right[env_ids] = self.cfg.object.initial_hand_obj_dist
         self.feet_air_time[env_ids] = 0.
         self.prev_lin_momentum[env_ids] = 0.
         self.prev_ang_momentum[env_ids] = 0.
-        self.is_lifted[env_ids] = False
-        self.lifted_time[env_ids] = 0.
+        # self.is_lifted[env_ids] = False
+        # self.lifted_time[env_ids] = 0.
         # self.episode_length_buf[env_ids] = 0
         self.reset_buf[env_ids] = 1
         # fill extras
@@ -407,12 +454,17 @@ class G1(BaseTask):
         self.extras["stats"]["reset_contact"] = torch.mean(self.contact_buf[env_ids].float())
         self.extras["stats"]["reset_base_rpy"] = torch.mean(self.rpy_buf[env_ids].float())
         self.extras["stats"]["reset_base_height"] = torch.mean(self.height_buf[env_ids].float())
-        self.extras["stats"]["reset_obj_fall"] = torch.mean(self.obj_buf[env_ids].float())
         self.extras["stats"]["reset_time_out"] = torch.mean(self.time_out_buf[env_ids].float())
-        self.extras["stats"]["reset_completion"] = torch.mean(self.completion_buf[env_ids].float())
+        # ic(
+        #     self.extras["stats"]["reset_jump"],
+        #     self.extras["stats"]["reset_contact"],
+        #     self.extras["stats"]["reset_base_rpy"],
+        #     self.extras["stats"]["reset_base_height"],
+        #     self.extras["stats"]["reset_time_out"],
+        #     )
+        # self.extras["stats"]["reset_completion"] = torch.mean(self.completion_buf[env_ids].float())
 
         # Log the maximum height of the object before termination
-        self.extras["stats"]["max_obj_height"] = torch.mean(self.highest_object[env_ids].float())
 
         # if self.cfg.commands.curriculum:
         #     self.extras["episode"]["max_command_x"] = self.command_ranges["lin_vel_x"][1]
@@ -421,7 +473,6 @@ class G1(BaseTask):
             self.extras["time_outs"] = self.time_out_buf
 
         self.episode_length_buf[env_ids] = 0
-        self.highest_object[env_ids] = self.obj_root_states[env_ids, 2]
         # Pelvis height reward only activated during lifting
         self.highest_pelvis[env_ids] = 0.1
     
@@ -451,26 +502,31 @@ class G1(BaseTask):
     def compute_observations(self):
         """ Computes observations
         """
+        # NOTE(ytcho): Modified the observation space
         self.obs_buf = torch.cat((  
             self.base_lin_vel * self.obs_scales.lin_vel, # 3
             self.base_ang_vel  * self.obs_scales.ang_vel, # 3
-            self.projected_gravity, # 3
-            # self.get_body_orientation(), # 2
+            # self.projected_gravity, # 3
+            self.get_body_orientation(), # 2
             # ZMP, foot avg position
             # self.avg_foot_pos_base, #3
-            # self.ZMP_base, #3
+            self.ZMP_base, #3
             # Foot pos, ori, and contact
-            # self.left_feet_pos,
-            # self.left_feet_ori_base,
-            # self.right_feet_pos,
-            # self.right_feet_ori_base,
+            self.left_feet_pos_base, #3
+            # self.left_feet_ori_base[..., 2:3], #1
+            self.left_feet_ori_base, #1
+            self.left_feet_contact[..., None], #1
+            self.right_feet_pos_base, #3
+            # self.right_feet_ori_base[..., 2:3], #1
+            self.right_feet_ori_base, #3
+            self.right_feet_contact[..., None], #1
             # self.foot_contacts,
             # Left hand delta
-            self.obj_pos_wrt_left, # 3
-            self.obj_ori_wrt_left, # 3
+            # self.obj_pos_wrt_left, # 3
+            # self.obj_ori_wrt_left, # 3
             # Right hand delta
-            self.obj_pos_wrt_right, # 3
-            self.obj_ori_wrt_right, # 3
+            # self.obj_pos_wrt_right, # 3
+            # self.obj_ori_wrt_right, # 3
             # Binary fingertip contact information
             torch.norm(self.contact_forces[:, self.fingertip_indices, :], dim=-1) > 0.5, #6
 
@@ -578,15 +634,15 @@ class G1(BaseTask):
             props[0].mass += np.random.uniform(rng[0], rng[1])
         return props
 
-    def _obj_process_rigid_body_props(self, props, env_id):
-        if self.cfg.object.use_curriculum:
-            # rng_mass = self.cfg.object.added_mass_range
-            # rand_mass = np.random.uniform(rng_mass[0], rng_mass[1], size=(1, ))
-            props[0].mass = self.initial_obj_mass * self.mass_multiplier
-        else:
-            pass
+    # def _obj_process_rigid_body_props(self, props, env_id):
+    #     if self.cfg.object.use_curriculum:
+    #         # rng_mass = self.cfg.object.added_mass_range
+    #         # rand_mass = np.random.uniform(rng_mass[0], rng_mass[1], size=(1, ))
+    #         props[0].mass = self.initial_obj_mass * self.mass_multiplier
+    #     else:
+    #         pass
         
-        return props
+    #     return props
     
     def _post_physics_step_callback(self):
         """ Callback called before computing terminations, rewards, and observations
@@ -602,8 +658,13 @@ class G1(BaseTask):
             self.commands[:, 2] = torch.clip(0.5*wrap_to_pi(self.commands[:, 3] - heading), -1., 1.)
         '''
 
-        if self.cfg.domain_rand.push_robots and  (self.common_step_counter % self.cfg.domain_rand.push_interval == 0):
-            self._push_robots()
+        # if self.cfg.domain_rand.push_robots and  (self.common_step_counter % self.cfg.domain_rand.push_interval == 0):
+        #     self._push_robots()
+        if self.cfg.domain_rand.push_robots:
+            push_ids = (self.episode_length_buf % self.cfg.domain_rand.push_interval ==0).nonzero(
+                as_tuple=False).flatten()
+            # ic(self.episode_length_buf, push_ids)
+            self._push_robots(push_ids)
 
     def _compute_torques(self, actions):
         """ Compute torques from actions.
@@ -647,10 +708,14 @@ class G1(BaseTask):
         # NOTE(ytcho): Given the environment index k, corresponding
         # robot agent index is 2*k, and corresponding object index 
         # is 2*k+1
-        env_ids_int32 = 2 * env_ids.clone().to(dtype=torch.int32)
+        # env_ids_int32 = 2 * env_ids.clone().to(dtype=torch.int32)
+        # self.gym.set_dof_state_tensor_indexed(self.sim,
+        #     gymtorch.unwrap_tensor(self.dof_state),
+        #     gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
+        env_ids_int32 = env_ids.to(dtype=torch.int32)
         self.gym.set_dof_state_tensor_indexed(self.sim,
-            gymtorch.unwrap_tensor(self.dof_state),
-            gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
+                                              gymtorch.unwrap_tensor(self.dof_state),
+                                              gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
         # Should be avoided
         # self.gym.set_dof_state_tensor(self.sim, gymtorch.unwrap_tensor(self.dof_state))
 
@@ -686,12 +751,12 @@ class G1(BaseTask):
         # NOTE(ytcho): Temporarily Disable random vel at init!!!
 
         # self.root_states[env_ids, 7:13] = torch_rand_float(-1., 1., (len(env_ids), 6), device=self.device) # [7:10]: lin vel, [10:13]: ang vel
-        self.obj_root_states[env_ids, :3] = self.root_states[env_ids, :3].clone()
+        # self.obj_root_states[env_ids, :3] = self.root_states[env_ids, :3].clone()
 
-        self.obj_root_states[env_ids, 0] += 0.6
-        self.obj_root_states[env_ids, 2] = 0.5 * self.cfg.object.box_size[2] + 0.01
-        self.obj_root_states[env_ids, 3:7] = torch.tensor([0., 0., 0., 1.], device=self.device, requires_grad=False,)
-        self.obj_root_states[env_ids, 7:13] = 0.
+        # self.obj_root_states[env_ids, 0] += 0.6
+        # self.obj_root_states[env_ids, 2] = 0.5 * self.cfg.object.box_size[2] + 0.01
+        # self.obj_root_states[env_ids, 3:7] = torch.tensor([0., 0., 0., 1.], device=self.device, requires_grad=False,)
+        # self.obj_root_states[env_ids, 7:13] = 0.
 
         # Should be avoided
         # self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self._root_states))
@@ -699,23 +764,56 @@ class G1(BaseTask):
         # NOTE(ytcho): Given the environment index k, corresponding
         # robot agent index is 2*k, and corresponding object index 
         # is 2*k+1
-        env_ids_int32 = torch.cat(
-            (2*env_ids.clone().to(dtype=torch.int32), 
-                2*env_ids.clone().to(dtype=torch.int32)+1), 
-            dim=-1)
-        self.gym.set_actor_root_state_tensor_indexed(
-            self.sim,
-            gymtorch.unwrap_tensor(self._root_states),
-            gymtorch.unwrap_tensor(env_ids_int32), 
-            len(env_ids_int32))
+        # env_ids_int32 = torch.cat(
+        #     (2*env_ids.clone().to(dtype=torch.int32), 
+        #         2*env_ids.clone().to(dtype=torch.int32)+1), 
+        #     dim=-1)
+        # self.gym.set_actor_root_state_tensor_indexed(
+        #     self.sim,
+        #     gymtorch.unwrap_tensor(self._root_states),
+        #     gymtorch.unwrap_tensor(env_ids_int32), 
+        #     len(env_ids_int32))
+        env_ids_int32 = env_ids.to(dtype=torch.int32)
+        self.gym.set_actor_root_state_tensor_indexed(self.sim,
+                                                     gymtorch.unwrap_tensor(self.root_states),
+                                                     gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
 
-    def _push_robots(self):
+
+    def _push_robots(self, env_ids):
         """ Random pushes the robots. Emulates an impulse by setting a randomized base velocity. 
         """
+        if len(env_ids) == 0:
+            return
+        '''
         max_vel = self.cfg.domain_rand.max_push_vel_xy
-        self.root_states[:, 7:9] = torch_rand_float(-max_vel, max_vel, (self.num_envs, 2), device=self.device) # lin vel x/y
+        # ic(self.root_states[:10, 7:9])
+        # self.root_states[env_ids, 7:9] = torch_rand_float(
+        #     -max_vel, max_vel, (len(env_ids), 2), device=self.device) # lin vel x/y
+        self.root_states[env_ids, 7:9] = max_vel * \
+            torch_random_dir_2((len(env_ids), 1), device=self.device) # lin vel x/y
+        # self.root_states[env_ids, 10:13] = torch_rand_float(
+        #     -self.cfg.domain_rand.max_push_vel_rpy, 
+        #     self.cfg.domain_rand.max_push_vel_rpy, 
+        #     (len(env_ids), 3), device=self.device) # lin vel x/y
+        # ic(self.root_states[:10, 7:9])
         # self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self.root_states))
-        self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self._root_states))
+        env_ids_int32 = env_ids.to(dtype=torch.int32)
+        self.gym.set_actor_root_state_tensor_indexed(self.sim,
+                                                     gymtorch.unwrap_tensor(self.root_states),
+                                                     gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
+        # self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self._root_states))
+        '''
+        forces = torch.zeros((self.num_envs, self.num_bodies, 3), device=self.device, dtype=torch.float)
+        torques = torch.zeros((self.num_envs, self.num_bodies, 3), device=self.device, dtype=torch.float)
+        # forces[:, 8, :] = -800
+        forces[env_ids, self.torso_idx, 0:2] = \
+            torch_rand_float(0, self.cfg.domain_rand.max_push_force_xy, (len(env_ids), 2), device=self.device) * \
+            torch_random_dir_2((len(env_ids), 1), device=self.device)
+        # torques[:, 1, :] = 500
+        self.gym.apply_rigid_body_force_tensors(
+            self.sim, 
+            gymtorch.unwrap_tensor(forces), 
+            gymtorch.unwrap_tensor(torques))
     
     def _compute_foot_pose(self):
         self.foot_pose = self.rigid_body_state[..., self.feet_indices, :] 
@@ -771,8 +869,10 @@ class G1(BaseTask):
         # Compute the valid footpoints
 
         # Mask for points with z < 1 cm (0.01 m)
-        left_z_mask = self.left_footpoints[:, :, 2] < 0.01  # [N, M] - True if z < 1cm
-        right_z_mask = self.right_footpoints[:, :, 2] < 0.01  # [N, M] - True if z < 1cm
+        # left_z_mask = self.left_footpoints[:, :, 2] < 0.01  # [N, M] - True if z < 1cm
+        # right_z_mask = self.right_footpoints[:, :, 2] < 0.01  # [N, M] - True if z < 1cm
+        left_z_mask = self.left_footpoints[:, :, 2] < self.cfg.footpoint.epsilon  # [N, M] - True if z < 1cm
+        right_z_mask = self.right_footpoints[:, :, 2] < self.cfg.footpoint.epsilon  # [N, M] - True if z < 1cm
 
         # Get the index of the smallest z-value footpoint for each foot
         left_min_z_idx = torch.argmin(self.left_footpoints[:, :, 2], dim=1, keepdim=True)  # [N, 1]
@@ -786,17 +886,19 @@ class G1(BaseTask):
         self.left_footpoints_mask = self.left_feet_contact[..., None] & (left_z_mask | left_min_z_mask)  # [N, M]
         self.right_footpoints_mask = self.right_feet_contact[..., None] & (right_z_mask | right_min_z_mask)  # [N, M]
 
+
+
     
     def _compute_foot_pose_base(self):
         self.left_feet_pos_base = quat_rotate_inverse(
-            self.left_feet_quat,
+            self.base_quat,
             self.left_feet_pos - self.root_states[..., :3]
         )
         self.left_feet_ori_base = wrap_to_pi_minuspi(axis_angle_from_quat(quat_multiply(
             self.left_feet_quat, quat_inverse(self.base_quat)))
         )
         self.right_feet_pos_base = quat_rotate_inverse(
-            self.right_feet_quat,
+            self.base_quat,
             self.right_feet_pos - self.root_states[..., :3]
         )
         self.right_feet_ori_base = wrap_to_pi_minuspi(axis_angle_from_quat(quat_multiply(
@@ -819,33 +921,33 @@ class G1(BaseTask):
             (self.last_contacts[..., 1] | self.foot_contacts[..., 1]),
             self.right_feet_pos[..., 2] < 0.1)
    
-    def _compute_obj_pose_base(self):
-        '''
-        Computes the (pos, quat) of the object wrt the base frame 
-        of the robot. Need to be called after refreshing the 
-        root_state_tensor, and computing the hand states
-        '''
-        self.obj_pos_base = quat_rotate_inverse(
-            self.base_quat,
-            self.obj_root_states[..., :3] - self.root_states[..., :3])
+    # def _compute_obj_pose_base(self):
+    #     '''
+    #     Computes the (pos, quat) of the object wrt the base frame 
+    #     of the robot. Need to be called after refreshing the 
+    #     root_state_tensor, and computing the hand states
+    #     '''
+    #     self.obj_pos_base = quat_rotate_inverse(
+    #         self.base_quat,
+    #         self.obj_root_states[..., :3] - self.root_states[..., :3])
 
-        self.obj_quat_base = quat_multiply(
-            quat_inverse(self.base_quat),
-            self.obj_root_states[..., 3:7])
+    #     self.obj_quat_base = quat_multiply(
+    #         quat_inverse(self.base_quat),
+    #         self.obj_root_states[..., 3:7])
         
-        # Compute the object pose wrt to the hand, in the base frame
-        self.obj_pos_wrt_left = quat_rotate_inverse(
-            self.base_quat,
-            self.obj_root_states[..., :3] - self.left_hand_pos)
+    #     # Compute the object pose wrt to the hand, in the base frame
+    #     self.obj_pos_wrt_left = quat_rotate_inverse(
+    #         self.base_quat,
+    #         self.obj_root_states[..., :3] - self.left_hand_pos)
 
-        self.obj_ori_wrt_left = wrap_to_pi_minuspi(axis_angle_from_quat(quat_multiply(
-            self.obj_root_states[..., 3:7], quat_inverse(self.left_hand_quat))))
+    #     self.obj_ori_wrt_left = wrap_to_pi_minuspi(axis_angle_from_quat(quat_multiply(
+    #         self.obj_root_states[..., 3:7], quat_inverse(self.left_hand_quat))))
 
-        self.obj_pos_wrt_right = quat_rotate_inverse(
-            self.base_quat,
-            self.obj_root_states[..., :3] - self.right_hand_pos)
-        self.obj_ori_wrt_right = wrap_to_pi_minuspi(axis_angle_from_quat(quat_multiply(
-            self.obj_root_states[..., 3:7], quat_inverse(self.right_hand_quat))))
+    #     self.obj_pos_wrt_right = quat_rotate_inverse(
+    #         self.base_quat,
+    #         self.obj_root_states[..., :3] - self.right_hand_pos)
+    #     self.obj_ori_wrt_right = wrap_to_pi_minuspi(axis_angle_from_quat(quat_multiply(
+    #         self.obj_root_states[..., 3:7], quat_inverse(self.right_hand_quat))))
 
     def get_body_orientation(self, return_yaw=False):
         body_angles = wrap_to_pi_minuspi(axis_angle_from_quat(self.base_quat))
@@ -898,10 +1000,10 @@ class G1(BaseTask):
 
 
         # create some wrapper tensors for different slices
-        # self.root_states = gymtorch.wrap_tensor(actor_root_state)
-        self._root_states = gymtorch.wrap_tensor(actor_root_state).view(self.num_envs, 2, 13)
-        self.root_states = self._root_states[..., 0, :]
-        self.obj_root_states = self._root_states[..., 1, :]
+        self.root_states = gymtorch.wrap_tensor(actor_root_state)
+        # self._root_states = gymtorch.wrap_tensor(actor_root_state).view(self.num_envs, 2, 13)
+        # self.root_states = self._root_states[..., 0, :]
+        # self.obj_root_states = self._root_states[..., 1, :]
 
         self.dof_state = gymtorch.wrap_tensor(dof_state_tensor)
         self.dof_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 0]
@@ -909,17 +1011,19 @@ class G1(BaseTask):
         self.base_quat = self.root_states[:, 3:7]
         self.rpy = get_euler_xyz_in_tensor(self.base_quat)
         self.base_pos = self.root_states[:self.num_envs, 0:3]
-        self._contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, self.num_bodies+1, 3) # shape: num_envs, num_bodies, xyz axis
-        self.contact_forces = self._contact_forces[..., :-1, :]
-        self.obj_contact_forces = self._contact_forces[..., -1, :]
-        # self.contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, -1, 3) # shape: num_envs, num_bodies, xyz axis
+        # self._contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, self.num_bodies+1, 3) # shape: num_envs, num_bodies, xyz axis
+        # self.contact_forces = self._contact_forces[..., :-1, :]
+        # self.obj_contact_forces = self._contact_forces[..., -1, :]
+        self.contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, -1, 3) # shape: num_envs, num_bodies, xyz axis
 
-        self._rigid_body_state = gymtorch.wrap_tensor(rigid_body_state_tensor).view(self.num_envs, self.num_bodies + 1, 13)
-        self.rigid_body_state = self._rigid_body_state[:, :-1, :]
-        self.obj_rigid_body_state = self._rigid_body_state[:, -1, :]
+        # self._rigid_body_state = gymtorch.wrap_tensor(rigid_body_state_tensor).view(self.num_envs, self.num_bodies + 1, 13)
+        self.rigid_body_state = gymtorch.wrap_tensor(rigid_body_state_tensor).view(self.num_envs, self.num_bodies, 13)
+        # self.rigid_body_state = self._rigid_body_state[:, :-1, :]
+        # self.obj_rigid_body_state = self._rigid_body_state[:, -1, :]
 
         # initialize some data used later on
         self.common_step_counter = 0
+        self.push_counter = 0
         self.extras = {}
         self.noise_scale_vec = self._get_noise_scale_vec(self.cfg)
         self.gravity_vec = to_torch(get_axis_params(-1., self.up_axis_idx), device=self.device).repeat((self.num_envs, 1))
@@ -933,8 +1037,11 @@ class G1(BaseTask):
         # Momentums
         self.lin_momentum = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.ang_momentum = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
+        self.moment_measured_frame = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.prev_lin_momentum = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.prev_ang_momentum = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
+        self.prev_centroidal_ang_momentum = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
+        self.centroidal_ang_momentum = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         # ZMPs
         self.ZMP = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.last_dof_vel = torch.zeros_like(self.dof_vel)
@@ -954,20 +1061,20 @@ class G1(BaseTask):
         self.contact_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         self.rpy_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         self.height_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
-        self.obj_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+        # self.obj_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         self.CoM = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.left_distance = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
         self.right_distance = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
         self.prev_left_distance = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
         self.prev_right_distance = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
-        self.closest_left = torch.ones(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False) * self.cfg.object.initial_hand_obj_dist
-        self.closest_right= torch.ones(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False) * self.cfg.object.initial_hand_obj_dist
-        self.highest_object= torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+        # self.closest_left = torch.ones(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False) * self.cfg.object.initial_hand_obj_dist
+        # self.closest_right= torch.ones(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False) * self.cfg.object.initial_hand_obj_dist
+        # self.highest_object= torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
         self.highest_pelvis= torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
 
         # Lifted time-related buffers
-        self.is_lifted = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
-        self.lifted_time = torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
+        # self.is_lifted = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+        # self.lifted_time = torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
 
         # Support polygon-related
         self.footpoint_offset = to_torch(self.cfg.footpoint.offeset, device=self.device).expand(self.num_envs, -1, -1).contiguous()
@@ -976,10 +1083,11 @@ class G1(BaseTask):
         self.right_footpoints = torch.zeros(self.num_envs, self.cfg.footpoint.num_footpoints, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.right_footpoints_mask = torch.zeros(self.num_envs, self.cfg.footpoint.num_footpoints, dtype=torch.bool, device=self.device, requires_grad=False)
         self.zmp_dist = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+        self.signed_zmp_dist = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
 
         self._compute_hand_pose()
         self._compute_foot_pose()
-        self._compute_obj_pose_base()
+        # self._compute_obj_pose_base()
         self._compute_foot_pose_base()
         self._compute_foot_contact()
 
@@ -1012,9 +1120,9 @@ class G1(BaseTask):
             self.rb_mass = gymtorch.torch.zeros((self.num_envs, self.num_bodies), device=self.device) # link mass
             self.rb_com = gymtorch.torch.zeros((self.num_envs, self.num_bodies, 3), device = self.device) # [comX, comY, comZ] in link's origin frame 
 
-            self.obj_inertia = gymtorch.torch.zeros((self.num_envs, 3, 3), device=self.device) # [comX, comY, comZ], [Ix, Iy, Iz]
-            self.obj_mass = gymtorch.torch.zeros((self.num_envs), device=self.device) # link mass
-            self.obj_com = gymtorch.torch.zeros((self.num_envs, 3), device = self.device) # [comX, comY, comZ] in link's origin frame 
+            # self.obj_inertia = gymtorch.torch.zeros((self.num_envs, 3, 3), device=self.device) # [comX, comY, comZ], [Ix, Iy, Iz]
+            # self.obj_mass = gymtorch.torch.zeros((self.num_envs), device=self.device) # link mass
+            # self.obj_com = gymtorch.torch.zeros((self.num_envs, 3), device = self.device) # [comX, comY, comZ] in link's origin frame 
             
             # Reconstruct rb_props as tensor        
             for i in range(self.num_envs):
@@ -1028,17 +1136,18 @@ class G1(BaseTask):
                     # see how inertia tensor is made : https://ocw.mit.edu/courses/16-07-dynamics-fall-2009/dd277ec654440f4c2b5b07d6c286c3fd_MIT16_07F09_Lec26.pdf
                     self.rb_mass[i, N] = rb_props.mass
 
-                obj_props = self.gym.get_actor_rigid_body_properties(self.envs[i], self.obj_actor_handles[i])[0]
-                self.obj_com[i, :] = gymtorch.torch.tensor([obj_props.com.x, obj_props.com.y, obj_props.com.z], device=self.device)
-                self.obj_mass[i] = obj_props.mass
-                self.obj_inertia[i, 0, :] = gymtorch.torch.tensor([obj_props.inertia.x.x, -obj_props.inertia.x.y, -obj_props.inertia.x.z], device=self.device)
-                self.obj_inertia[i, 1, :] = gymtorch.torch.tensor([-obj_props.inertia.y.x, obj_props.inertia.y.y, -obj_props.inertia.y.z], device=self.device)
-                self.obj_inertia[i, 2, :] = gymtorch.torch.tensor([-obj_props.inertia.z.x, -obj_props.inertia.z.y, obj_props.inertia.z.z], device=self.device)
+                # obj_props = self.gym.get_actor_rigid_body_properties(self.envs[i], self.obj_actor_handles[i])[0]
+                # self.obj_com[i, :] = gymtorch.torch.tensor([obj_props.com.x, obj_props.com.y, obj_props.com.z], device=self.device)
+                # self.obj_mass[i] = obj_props.mass
+                # self.obj_inertia[i, 0, :] = gymtorch.torch.tensor([obj_props.inertia.x.x, -obj_props.inertia.x.y, -obj_props.inertia.x.z], device=self.device)
+                # self.obj_inertia[i, 1, :] = gymtorch.torch.tensor([-obj_props.inertia.y.x, obj_props.inertia.y.y, -obj_props.inertia.y.z], device=self.device)
+                # self.obj_inertia[i, 2, :] = gymtorch.torch.tensor([-obj_props.inertia.z.x, -obj_props.inertia.z.y, obj_props.inertia.z.z], device=self.device)
 
     def _get_curriculum_value(self, schedule, init_range, final_range, counter):
         return np.clip((counter - schedule[0]) / (schedule[1] - schedule[0]), 0, 1) * (final_range - init_range) + init_range
     
     def update_curriculum(self):
+        raise NotImplementedError
         '''
         Update curriculum values
         '''
@@ -1077,33 +1186,40 @@ class G1(BaseTask):
 
         # metric episode sums
         self.metric_names = [
-                             'left_hand_obj_dist', 
-                             'right_hand_obj_dist', 
-                             'obj_height',
-                             'left_contact',
-                             'right_contact',
-                             'completion',
-                             'base_lin_acc',
-                             'com_avgfoot_dist',
-                             'zmp_avgfoot_dist',
-                             'obj_base_delta_ori',
-                             'dof_vel',
-                             'obj_base_delta_ori',
-                             'left_foot_delta_ori',
-                             'right_foot_delta_ori',
-                             'left_foot_delta_z_axis',
-                             'right_foot_delta_z_axis',
-                             'left_foot_vel',
-                             'right_foot_vel',
-                             'torque',
-                             'obj_zvel',
-                             'obj_xyvel',
-                             'is_lifted',
-                             'single_foot_contact',
-                             'left_foot_height',
-                             'right_foot_height',
-                             'pelvis_height',
-                             'base_obj_dist',
+            # 1. Standing reward
+                # 'com_avgfoot_dist',
+                # 'zmp_avgfoot_dist',
+                'zmp_supp_dist',
+                'zmp_supp_margin',
+                'left_foot_delta_z_axis',
+                'right_foot_delta_z_axis',
+                'left_foot_vel',
+                'right_foot_vel',
+                'left_foot_height',
+                'right_foot_height',
+                'left_ankle_torque',
+                'right_ankle_torque',
+                'left_ankle_limit',
+                'right_ankle_limit',
+                'left_ankle_torque_limit',
+                'right_ankle_torque_limit',
+                # 'pelvis_height',
+            # 2. regularization reward
+                'dof_vel',
+                'torque',
+            # 3. Task-related reward
+            #  'obj_height',
+            # 'left_contact',
+            # 'right_contact',
+            # 'completion',
+            #  'obj_zvel',
+            #  'obj_xyvel',
+            #  'is_lifted',
+            #  'base_obj_dist',
+            # 4. Logs
+                'left_contact_footpoints',
+                'right_contact_footpoints',
+
                              ]
 
         self.episode_metric_sums = {name: torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False) \
@@ -1159,12 +1275,15 @@ class G1(BaseTask):
         # save body names from the asset
         body_names = self.gym.get_asset_rigid_body_names(robot_asset)
         self.body_names_dict = self.gym.get_asset_rigid_body_dict(robot_asset)
+        ic(self.body_names_dict)
 
         self.dof_names = self.gym.get_asset_dof_names(robot_asset)
         self.num_bodies = len(body_names)
         self.num_dofs = len(self.dof_names)
         feet_names = [s for s in body_names if self.cfg.asset.foot_name in s]
         elbow_names = [s for s in body_names if self.cfg.asset.elbow_name in s]
+        ankle_joint_names = [s for s in self.dof_names if self.cfg.asset.ankle_joint_name in s]
+
         penalized_contact_names = []
         for name in self.cfg.asset.penalize_contacts_on:
             penalized_contact_names.extend([s for s in body_names if name in s])
@@ -1191,25 +1310,25 @@ class G1(BaseTask):
         start_pose.p = gymapi.Vec3(*self.base_init_state[:3])
 
         # Object assets
-        asset_options = gymapi.AssetOptions()
-        # asset_options.density = 1000
-        asset_options.density = self.cfg.object.density
-        asset_options.fix_base_link = False
-        asset_options.disable_gravity = False
-        obj_asset = self.gym.create_box(
-            self.sim, 
-            self.cfg.object.box_size[0], 
-            self.cfg.object.box_size[1], 
-            self.cfg.object.box_size[2], 
-            asset_options)
+        # asset_options = gymapi.AssetOptions()
+        # # asset_options.density = 1000
+        # asset_options.density = self.cfg.object.density
+        # asset_options.fix_base_link = False
+        # asset_options.disable_gravity = False
+        # obj_asset = self.gym.create_box(
+        #     self.sim, 
+        #     self.cfg.object.box_size[0], 
+        #     self.cfg.object.box_size[1], 
+        #     self.cfg.object.box_size[2], 
+        #     asset_options)
 
-        obj_start_pose = gymapi.Transform()
+        # obj_start_pose = gymapi.Transform()
 
         self._get_env_origins()
         env_lower = gymapi.Vec3(0., 0., 0.)
         env_upper = gymapi.Vec3(0., 0., 0.)
         self.actor_handles = []
-        self.obj_actor_handles = []
+        # self.obj_actor_handles = []
         self.envs = []
         for i in range(self.num_envs):
             # create env instance
@@ -1234,21 +1353,23 @@ class G1(BaseTask):
 
 
             # Create object instance
-            obj_pos = pos.clone()
-            obj_pos[0] += 1.
-            obj_start_pose.p = gymapi.Vec3(*obj_pos)
-            obj_handle = self.gym.create_actor(env_handle, obj_asset, obj_start_pose, "object", i, self.cfg.asset.self_collisions, 0)
-            self.obj_actor_handles.append(obj_handle)
-            # For segmentation mask(box_id = 1)
-            # self.gym.set_rigid_body_segmentation_id(env_handle, obj_handle, 0, self.cfg.box.box_seg_idx)
-            box_body_props = self.gym.get_actor_rigid_body_properties(env_handle, obj_handle)
-            if i==0:
-                self.initial_obj_mass = box_body_props[0].mass
-            box_body_props = self._obj_process_rigid_body_props(box_body_props, i)
-            self.gym.set_actor_rigid_body_properties(env_handle, obj_handle, box_body_props, recomputeInertia=True)
+            # obj_pos = pos.clone()
+            # obj_pos[0] += 1.
+            # obj_start_pose.p = gymapi.Vec3(*obj_pos)
+            # obj_handle = self.gym.create_actor(env_handle, obj_asset, obj_start_pose, "object", i, self.cfg.asset.self_collisions, 0)
+            # self.obj_actor_handles.append(obj_handle)
+            # # For segmentation mask(box_id = 1)
+            # # self.gym.set_rigid_body_segmentation_id(env_handle, obj_handle, 0, self.cfg.box.box_seg_idx)
+            # box_body_props = self.gym.get_actor_rigid_body_properties(env_handle, obj_handle)
+            # if i==0:
+            #     self.initial_obj_mass = box_body_props[0].mass
+            # box_body_props = self._obj_process_rigid_body_props(box_body_props, i)
+            # self.gym.set_actor_rigid_body_properties(env_handle, obj_handle, box_body_props, recomputeInertia=True)
 
             # Finish the aggretation
             self.gym.end_aggregate(env_handle)
+
+        self.torso_idx = self.gym.find_actor_rigid_body_handle(self.envs[0], self.actor_handles[0], self.cfg.asset.torso_name)
 
         self.feet_indices = torch.zeros(len(feet_names), dtype=torch.long, device=self.device, requires_grad=False)
         for i in range(len(feet_names)):
@@ -1279,6 +1400,12 @@ class G1(BaseTask):
         self.hip_indices = torch.zeros(len(hip_names), dtype=torch.long, device=self.device, requires_grad=False)
         for i in range(len(hip_names)):
             self.hip_indices[i] = self.gym.find_actor_rigid_body_handle(self.envs[0], self.actor_handles[0], hip_names[i])
+
+        self.ankle_joint_indices = torch.zeros(len(ankle_joint_names), dtype=torch.long, device=self.device, requires_grad=False)
+        for i in range(len(ankle_joint_names)):
+            self.ankle_joint_indices[i] = self.gym.find_actor_dof_handle(self.envs[0], self.actor_handles[0], ankle_joint_names[i])
+        # ic(self.ankle_joint_indices)
+        # ic(self.gym.get_asset_joint_dict(robot_asset))
 
     def _get_env_origins(self):
         """ Sets environment origins. On rough terrain the origins are defined by the terrain platforms.
@@ -1330,25 +1457,25 @@ class G1(BaseTask):
         base_height = self.root_states[:, 2]
         return torch.square(base_height - self.cfg.rewards.base_height_target)
     
-    def _reward_torques(self):
+    def _reward_reg_torques(self):
         # Penalize torques
         torque = torch.norm(self.torques, dim=-1)
         self.episode_metric_sums['torque'] += torque
         # return torch.sum(torch.square(self.torques), dim=1)
         return torque
 
-    def _reward_dof_vel(self):
+    def _reward_reg_dof_vel(self):
         # Penalize dof velocities
         # return torch.sum(torch.square(self.dof_vel), dim=1)
         dof_vel = torch.norm(self.dof_vel, dim=-1)
         self.episode_metric_sums['dof_vel'] += dof_vel
         return torch.square(dof_vel)
 
-    def _reward_dof_acc(self):
+    def _reward_reg_dof_acc(self):
         # Penalize dof accelerations
         return torch.sum(torch.square((self.last_dof_vel - self.dof_vel) / self.dt), dim=1)
     
-    def _reward_action_rate(self):
+    def _reward_reg_action_rate(self):
         # Penalize changes in actions
         rew_smooth = torch.sum(torch.square(self.last_actions - self.actions), dim=1)
         return rew_smooth
@@ -1365,20 +1492,21 @@ class G1(BaseTask):
         # Penalize collisions on selected bodies
         return torch.sum(1.*(torch.norm(self.contact_forces[:, self.penalised_contact_indices, :], dim=-1) > 0.1), dim=1)
     
-    def _reward_completion(self):
-        '''
-        Task completion reward
-        '''
-        self.episode_metric_sums['completion'] += self.completion_buf
+    # def _reward_completion(self):
+    #     '''
+    #     Task completion reward
+    #     '''
+    #     self.episode_metric_sums['completion'] += self.completion_buf
 
-        return self.completion_buf
+    #     return self.completion_buf
 
     def _reward_termination(self):
         # Terminal reward / penalty
         # Additionaly don't penalize completion case
-        return self.reset_buf * ~self.time_out_buf * ~self.completion_buf
+        # return self.reset_buf * ~self.time_out_buf * ~self.completion_buf
+        return self.reset_buf * ~self.time_out_buf
     
-    def _reward_dof_pos_limits(self):
+    def _reward_reg_dof_pos_limits(self):
         # Penalize dof positions too close to the limit
         out_of_limits = -(self.dof_pos - self.dof_pos_limits[:, 0]).clip(max=0.) # lower limit
         out_of_limits += (self.dof_pos - self.dof_pos_limits[:, 1]).clip(min=0.)
@@ -1393,131 +1521,131 @@ class G1(BaseTask):
         # penalize torques too close to the limit
         return torch.sum((torch.abs(self.torques) - self.torque_limits*self.cfg.rewards.soft_torque_limit).clip(min=0.), dim=1)
 
-    def _reward_dist_left(self):
-        # Reward based on the hand <-> object distance
-        left_distance = torch.norm(self.left_hand_pos - self.obj_root_states[..., :3], dim=-1)
-        self.episode_metric_sums['left_hand_obj_dist'] += left_distance
-        dist_rew = torch.exp(-5 * torch.square(left_distance))
-        return dist_rew
+    # def _reward_dist_left(self):
+    #     # Reward based on the hand <-> object distance
+    #     left_distance = torch.norm(self.left_hand_pos - self.obj_root_states[..., :3], dim=-1)
+    #     self.episode_metric_sums['left_hand_obj_dist'] += left_distance
+    #     dist_rew = torch.exp(-5 * torch.square(left_distance))
+    #     return dist_rew
 
-    def _reward_dist_right(self):
-        # Reward based on the hand <-> object distance
-        right_distance = torch.norm(self.right_hand_pos - self.obj_root_states[..., :3], dim=-1)
-        self.episode_metric_sums['right_hand_obj_dist'] += right_distance
-        dist_rew = torch.exp(-5 * torch.square(right_distance))
-        return dist_rew
+    # def _reward_dist_right(self):
+    #     # Reward based on the hand <-> object distance
+    #     right_distance = torch.norm(self.right_hand_pos - self.obj_root_states[..., :3], dim=-1)
+    #     self.episode_metric_sums['right_hand_obj_dist'] += right_distance
+    #     dist_rew = torch.exp(-5 * torch.square(right_distance))
+    #     return dist_rew
 
-    def _reward_dist_left_v2(self):
-        '''
-        Compute the distance-based reward between the left face of
-        the object and the left hand
-        '''
-        obj_left = self.obj_root_states[..., :3] + quat_apply(
-            self.obj_root_states[..., 3:7],
-            to_torch([0., 0.5 * self.cfg.object.box_size[1], 0.], device=self.device).expand(self.num_envs, -1))
+    # def _reward_dist_left_v2(self):
+    #     '''
+    #     Compute the distance-based reward between the left face of
+    #     the object and the left hand
+    #     '''
+    #     obj_left = self.obj_root_states[..., :3] + quat_apply(
+    #         self.obj_root_states[..., 3:7],
+    #         to_torch([0., 0.5 * self.cfg.object.box_size[1], 0.], device=self.device).expand(self.num_envs, -1))
 
-        self.left_distance = torch.norm(self.left_hand_pos - obj_left, dim=-1)
-        self.episode_metric_sums['left_hand_obj_dist'] += self.left_distance
+    #     self.left_distance = torch.norm(self.left_hand_pos - obj_left, dim=-1)
+    #     self.episode_metric_sums['left_hand_obj_dist'] += self.left_distance
 
-        dist_delta = self.closest_left - self.left_distance
-        self.closest_left = torch.minimum(self.closest_left, self.left_distance)
-        dist_delta = torch.clip(dist_delta, 0., 3.)
-        reward = torch.tanh(30.0 * dist_delta)
-        # ic(self.closest_left, self.left_distance)
-        # ic(dist_delta, reward)
-        return reward
+    #     dist_delta = self.closest_left - self.left_distance
+    #     self.closest_left = torch.minimum(self.closest_left, self.left_distance)
+    #     dist_delta = torch.clip(dist_delta, 0., 3.)
+    #     reward = torch.tanh(30.0 * dist_delta)
+    #     # ic(self.closest_left, self.left_distance)
+    #     # ic(dist_delta, reward)
+    #     return reward
 
-    def _reward_dist_right_v2(self):
-        '''
-        Compute the distance-based reward between the left face of
-        the object and the right hand
-        '''
-        obj_right = self.obj_root_states[..., :3] + quat_apply(
-            self.obj_root_states[..., 3:7],
-            to_torch([0., -0.5 * self.cfg.object.box_size[1], 0.], device=self.device).expand(self.num_envs, -1))
+    # def _reward_dist_right_v2(self):
+    #     '''
+    #     Compute the distance-based reward between the left face of
+    #     the object and the right hand
+    #     '''
+    #     obj_right = self.obj_root_states[..., :3] + quat_apply(
+    #         self.obj_root_states[..., 3:7],
+    #         to_torch([0., -0.5 * self.cfg.object.box_size[1], 0.], device=self.device).expand(self.num_envs, -1))
 
-        self.right_distance = torch.norm(self.right_hand_pos - obj_right, dim=-1)
-        self.episode_metric_sums['right_hand_obj_dist'] += self.right_distance
+    #     self.right_distance = torch.norm(self.right_hand_pos - obj_right, dim=-1)
+    #     self.episode_metric_sums['right_hand_obj_dist'] += self.right_distance
 
-        dist_delta = self.closest_right- self.right_distance
-        self.closest_right = torch.minimum(self.closest_right, self.right_distance)
-        dist_delta = torch.clip(dist_delta, 0., 3.)
-        reward = torch.tanh(30.0 * dist_delta)
-        # ic(self.right_distance, reward)
-        # ic(reward, reward.mean())
-        return reward
+    #     dist_delta = self.closest_right- self.right_distance
+    #     self.closest_right = torch.minimum(self.closest_right, self.right_distance)
+    #     dist_delta = torch.clip(dist_delta, 0., 3.)
+    #     reward = torch.tanh(30.0 * dist_delta)
+    #     # ic(self.right_distance, reward)
+    #     # ic(reward, reward.mean())
+    #     return reward
 
-    def _reward_dist_left_v3(self):
-        '''
-        Compute the distance-based reward between the left face of
-        the object and the left hand
-        '''
-        obj_left = self.obj_root_states[..., :3] + quat_apply(
-            self.obj_root_states[..., 3:7],
-            to_torch([0., 0.5 * self.cfg.object.box_size[1], 0.], device=self.device).expand(self.num_envs, -1))
+    # def _reward_dist_left_v3(self):
+    #     '''
+    #     Compute the distance-based reward between the left face of
+    #     the object and the left hand
+    #     '''
+    #     obj_left = self.obj_root_states[..., :3] + quat_apply(
+    #         self.obj_root_states[..., 3:7],
+    #         to_torch([0., 0.5 * self.cfg.object.box_size[1], 0.], device=self.device).expand(self.num_envs, -1))
 
-        self.left_distance = torch.norm(self.left_hand_pos - obj_left, dim=-1)
-        self.episode_metric_sums['left_hand_obj_dist'] += self.left_distance
+    #     self.left_distance = torch.norm(self.left_hand_pos - obj_left, dim=-1)
+    #     self.episode_metric_sums['left_hand_obj_dist'] += self.left_distance
 
-        dist_delta = self.prev_left_distance - self.left_distance
-        self.prev_left_distance = self.left_distance
-        dist_delta = torch.clip(dist_delta, -0.5, 0.5)
-        # ic(dist_delta)
-        reward = torch.tanh(30.0 * dist_delta)
-        # ic(reward, reward.mean())
-        return reward
+    #     dist_delta = self.prev_left_distance - self.left_distance
+    #     self.prev_left_distance = self.left_distance
+    #     dist_delta = torch.clip(dist_delta, -0.5, 0.5)
+    #     # ic(dist_delta)
+    #     reward = torch.tanh(30.0 * dist_delta)
+    #     # ic(reward, reward.mean())
+    #     return reward
 
-    def _reward_dist_right_v3(self):
-        '''
-        Compute the distance-based reward between the right face of
-        the object and the right hand
-        '''
-        obj_right = self.obj_root_states[..., :3] + quat_apply(
-            self.obj_root_states[..., 3:7],
-            to_torch([0., -0.5 * self.cfg.object.box_size[1], 0.], device=self.device).expand(self.num_envs, -1))
+    # def _reward_dist_right_v3(self):
+    #     '''
+    #     Compute the distance-based reward between the right face of
+    #     the object and the right hand
+    #     '''
+    #     obj_right = self.obj_root_states[..., :3] + quat_apply(
+    #         self.obj_root_states[..., 3:7],
+    #         to_torch([0., -0.5 * self.cfg.object.box_size[1], 0.], device=self.device).expand(self.num_envs, -1))
 
-        self.right_distance = torch.norm(self.right_hand_pos - obj_right, dim=-1)
-        self.episode_metric_sums['right_hand_obj_dist'] += self.right_distance
+    #     self.right_distance = torch.norm(self.right_hand_pos - obj_right, dim=-1)
+    #     self.episode_metric_sums['right_hand_obj_dist'] += self.right_distance
 
-        dist_delta = self.prev_right_distance - self.right_distance
-        self.prev_right_distance = self.right_distance
-        dist_delta = torch.clip(dist_delta, -0.5, 0.5)
-        # ic(dist_delta)
-        reward = torch.tanh(30.0 * dist_delta)
-        return reward
+    #     dist_delta = self.prev_right_distance - self.right_distance
+    #     self.prev_right_distance = self.right_distance
+    #     dist_delta = torch.clip(dist_delta, -0.5, 0.5)
+    #     # ic(dist_delta)
+    #     reward = torch.tanh(30.0 * dist_delta)
+    #     return reward
 
-    def _reward_pickup(self):
-        # Reward based on the object's z height
-        # Activated only if the fingertip has contact with the object
-        left_close_enough = torch.norm(self.left_hand_pos - self.obj_root_states[..., :3], dim=-1) < self.cfg.object.box_size[0]
-        right_close_enough = torch.norm(self.right_hand_pos - self.obj_root_states[..., :3], dim=-1)< self.cfg.object.box_size[0]
-        close_enough = torch.logical_and(left_close_enough, right_close_enough)
+    # def _reward_pickup(self):
+    #     # Reward based on the object's z height
+    #     # Activated only if the fingertip has contact with the object
+    #     left_close_enough = torch.norm(self.left_hand_pos - self.obj_root_states[..., :3], dim=-1) < self.cfg.object.box_size[0]
+    #     right_close_enough = torch.norm(self.right_hand_pos - self.obj_root_states[..., :3], dim=-1)< self.cfg.object.box_size[0]
+    #     close_enough = torch.logical_and(left_close_enough, right_close_enough)
 
-        # fingertip_contact = torch.any(
-        #     torch.norm(self.contact_forces[:, self.fingertip_indices, :], dim=-1) > 0.5,
-        #     dim=-1)
+    #     # fingertip_contact = torch.any(
+    #     #     torch.norm(self.contact_forces[:, self.fingertip_indices, :], dim=-1) > 0.5,
+    #     #     dim=-1)
 
-        obj_height = torch.maximum(
-            self.obj_root_states[..., 2] - 0.5 * self.cfg.object.box_size[2], 
-            torch.tensor(0, device=self.device))
-        self.episode_metric_sums['obj_height'] += obj_height
+    #     obj_height = torch.maximum(
+    #         self.obj_root_states[..., 2] - 0.5 * self.cfg.object.box_size[2], 
+    #         torch.tensor(0, device=self.device))
+    #     self.episode_metric_sums['obj_height'] += obj_height
 
-        return close_enough * obj_height
+    #     return close_enough * obj_height
 
-    def _reward_pickup_v2(self):
-        left_close_enough = torch.norm(self.left_hand_pos - self.obj_root_states[..., :3], dim=-1) < self.cfg.object.box_size[0]
-        right_close_enough = torch.norm(self.right_hand_pos - self.obj_root_states[..., :3], dim=-1)< self.cfg.object.box_size[0]
-        close_enough = torch.logical_and(left_close_enough, right_close_enough)
+    # def _reward_pickup_v2(self):
+    #     left_close_enough = torch.norm(self.left_hand_pos - self.obj_root_states[..., :3], dim=-1) < self.cfg.object.box_size[0]
+    #     right_close_enough = torch.norm(self.right_hand_pos - self.obj_root_states[..., :3], dim=-1)< self.cfg.object.box_size[0]
+    #     close_enough = torch.logical_and(left_close_enough, right_close_enough)
 
-        obj_height = self.obj_root_states[..., 2]
-        self.episode_metric_sums['obj_height'] += obj_height
+    #     obj_height = self.obj_root_states[..., 2]
+    #     self.episode_metric_sums['obj_height'] += obj_height
 
-        height_delta = obj_height - self.highest_object
-        self.highest_object = torch.maximum(self.highest_object, obj_height)
-        height_delta = torch.clip(height_delta, 0., 10.)
-        lifting_rew = torch.tanh(30.0 * height_delta)
+    #     height_delta = obj_height - self.highest_object
+    #     self.highest_object = torch.maximum(self.highest_object, obj_height)
+    #     height_delta = torch.clip(height_delta, 0., 10.)
+    #     lifting_rew = torch.tanh(30.0 * height_delta)
         
-        return close_enough * lifting_rew * ~(self.is_lifted) * (self.episode_length_buf > 50)
+    #     return close_enough * lifting_rew * ~(self.is_lifted) * (self.episode_length_buf > 50)
 
     def _reward_base_lin_acc(self):
         '''
@@ -1531,27 +1659,27 @@ class G1(BaseTask):
 
     
 
-    def _reward_left_contact(self):
-        left_close_enough = torch.norm(self.left_hand_pos - self.obj_root_states[..., :3], dim=-1) < self.cfg.object.box_size[0]
-        # Reward if there is a contact between the fingertip <-> object
-        left_fingertip_contact = torch.any(
-            torch.norm(self.contact_forces[:, self.left_finger_indices, :], dim=-1) > 0.5,
-            dim=-1)
-        obj_contact = torch.norm(self.obj_contact_forces[..., :2], dim=-1) > 0.5 
-        left_contact_rew = left_close_enough * obj_contact * left_fingertip_contact
-        self.episode_metric_sums['left_contact'] += left_contact_rew
-        return left_contact_rew * ~(self.is_lifted) * (self.episode_length_buf > 50)
+    # def _reward_left_contact(self):
+    #     left_close_enough = torch.norm(self.left_hand_pos - self.obj_root_states[..., :3], dim=-1) < self.cfg.object.box_size[0]
+    #     # Reward if there is a contact between the fingertip <-> object
+    #     left_fingertip_contact = torch.any(
+    #         torch.norm(self.contact_forces[:, self.left_finger_indices, :], dim=-1) > 0.5,
+    #         dim=-1)
+    #     obj_contact = torch.norm(self.obj_contact_forces[..., :2], dim=-1) > 0.5 
+    #     left_contact_rew = left_close_enough * obj_contact * left_fingertip_contact
+    #     self.episode_metric_sums['left_contact'] += left_contact_rew
+    #     return left_contact_rew * ~(self.is_lifted) * (self.episode_length_buf > 50)
 
-    def _reward_right_contact(self):
-        right_close_enough = torch.norm(self.right_hand_pos - self.obj_root_states[..., :3], dim=-1) < self.cfg.object.box_size[0]
-        # Reward if there is a contact between the fingertip <-> object
-        right_fingertip_contact = torch.any(
-            torch.norm(self.contact_forces[:, self.right_finger_indices, :], dim=-1) > 0.5,
-            dim=-1)
-        obj_contact = torch.norm(self.obj_contact_forces[..., :2], dim=-1) > 0.5 
-        right_contact_rew = right_close_enough * obj_contact * right_fingertip_contact
-        self.episode_metric_sums['right_contact'] += right_contact_rew
-        return right_contact_rew * ~(self.is_lifted) * (self.episode_length_buf > 50)
+    # def _reward_right_contact(self):
+    #     right_close_enough = torch.norm(self.right_hand_pos - self.obj_root_states[..., :3], dim=-1) < self.cfg.object.box_size[0]
+    #     # Reward if there is a contact between the fingertip <-> object
+    #     right_fingertip_contact = torch.any(
+    #         torch.norm(self.contact_forces[:, self.right_finger_indices, :], dim=-1) > 0.5,
+    #         dim=-1)
+    #     obj_contact = torch.norm(self.obj_contact_forces[..., :2], dim=-1) > 0.5 
+    #     right_contact_rew = right_close_enough * obj_contact * right_fingertip_contact
+    #     self.episode_metric_sums['right_contact'] += right_contact_rew
+    #     return right_contact_rew * ~(self.is_lifted) * (self.episode_length_buf > 50)
 
     def _reward_survive(self):
         return torch.ones(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
@@ -1614,6 +1742,51 @@ class G1(BaseTask):
         # ic((torch.exp(4 * zmp_avgfoot_dist)-1).mean())
         # return (torch.exp(4 * zmp_avgfoot_dist)-1)
         return (torch.exp(self.cfg.rewards.zmp.sigma * zmp_avgfoot_dist)-1)
+    
+    
+    def _reward_stand_zmp_supp_dist(self):
+        '''
+        Computes reward based on the distance between the ZMP and 
+        the support polygon
+        '''
+
+        zmp_dist = torch.clip(self.signed_zmp_dist, 0, self.cfg.rewards.zmp.max_dist)
+        # self.episode_metric_sums['com_avgfoot_dist'] += com_avgfoot_dist
+        self.episode_metric_sums['zmp_supp_dist'] += zmp_dist
+        # ic(1.0 * zmp_avgfoot_dist)
+        # ic((torch.exp(4 * zmp_avgfoot_dist)-1).mean())
+        # return (torch.exp(4 * zmp_avgfoot_dist)-1)
+        rew = (torch.exp(self.cfg.rewards.zmp.sigma * zmp_dist)-1) + (zmp_dist == 0).float()
+        # ic(zmp_dist)
+        # ic((zmp_dist == 0).float())
+        # ic((torch.exp(self.cfg.rewards.zmp.sigma * zmp_dist)-1))
+        # return (torch.exp(self.cfg.rewards.zmp.sigma * zmp_dist)-1)
+        return rew
+
+    def _reward_stand_zmp_dist(self):
+        '''
+        Computes reward based on the distance between the ZMP and 
+        the support polygon
+        '''
+        # ic(self.signed_dist)
+
+        zmp_dist = torch.clip(self.signed_zmp_dist, 0, self.cfg.rewards.zmp.max_dist)
+        # self.episode_metric_sums['zmp_supp_dist'] += zmp_dist
+        rew = (torch.exp(self.cfg.rewards.zmp.sigma_dist * zmp_dist)-1) + (zmp_dist > 0).float()
+        # ic("dist", rew)
+        return rew
+
+    def _reward_stand_zmp_margin(self):
+        '''
+        Computes reward based on the distance between the ZMP and 
+        the support polygon
+        '''
+
+        zmp_margin = -torch.clip(self.signed_zmp_dist, max=0)
+        # self.episode_metric_sums['zmp_supp_margin'] += zmp_margin
+        rew = (torch.exp(self.cfg.rewards.zmp.sigma_margin * zmp_margin)-1)
+        # ic("margin", rew)
+        return rew
 
     def _reward_com_avgfoot_dist_v2(self):
 
@@ -1623,36 +1796,36 @@ class G1(BaseTask):
         self.episode_metric_sums['com_avgfoot_dist'] += com_avgfoot_dist
         return (torch.exp(self.cfg.rewards.com.sigma * com_avgfoot_dist)-1)
     
-    def _reward_base_orient(self):
-        '''
-        Computes the orientation difference with the robot base and the object
-        only consider pitch and yaw...
-        '''
+    # def _reward_base_orient(self):
+    #     '''
+    #     Computes the orientation difference with the robot base and the object
+    #     only consider pitch and yaw...
+    #     '''
 
-        # Here, we should consider the orientational difference wrt the
-        # Global Frame, not wrt the object
+    #     # Here, we should consider the orientational difference wrt the
+    #     # Global Frame, not wrt the object
 
-        delta_axa = axis_angle_from_quat(self.base_quat)
-        delta_ori = torch.norm(delta_axa[..., 1:], dim=-1)
-        self.episode_metric_sums['obj_base_delta_ori'] += delta_ori
-        return delta_ori
+    #     delta_axa = axis_angle_from_quat(self.base_quat)
+    #     delta_ori = torch.norm(delta_axa[..., 1:], dim=-1)
+    #     self.episode_metric_sums['obj_base_delta_ori'] += delta_ori
+    #     return delta_ori
 
-    def _reward_foot_orient(self):
-        '''
-        Computes the orientation difference with the object and the foot
-        '''
-        delta_left_quat = quat_multiply(quat_inverse(self.obj_root_states[..., 3:7]), self.left_feet_quat)
-        delta_left_axa = axis_angle_from_quat(delta_left_quat)
+    # def _reward_foot_orient(self):
+    #     '''
+    #     Computes the orientation difference with the object and the foot
+    #     '''
+    #     delta_left_quat = quat_multiply(quat_inverse(self.obj_root_states[..., 3:7]), self.left_feet_quat)
+    #     delta_left_axa = axis_angle_from_quat(delta_left_quat)
 
-        delta_right_quat = quat_multiply(quat_inverse(self.obj_root_states[..., 3:7]), self.right_feet_quat)
-        delta_right_axa = axis_angle_from_quat(delta_right_quat)
+    #     delta_right_quat = quat_multiply(quat_inverse(self.obj_root_states[..., 3:7]), self.right_feet_quat)
+    #     delta_right_axa = axis_angle_from_quat(delta_right_quat)
 
-        left_delta_ori = torch.norm(delta_left_axa, dim=-1)
-        right_delta_ori = torch.norm(delta_right_axa, dim=-1)
+    #     left_delta_ori = torch.norm(delta_left_axa, dim=-1)
+    #     right_delta_ori = torch.norm(delta_right_axa, dim=-1)
 
-        self.episode_metric_sums['left_foot_delta_ori'] += left_delta_ori
-        self.episode_metric_sums['right_foot_delta_ori'] += right_delta_ori
-        return left_delta_ori+right_delta_ori
+    #     self.episode_metric_sums['left_foot_delta_ori'] += left_delta_ori
+    #     self.episode_metric_sums['right_foot_delta_ori'] += right_delta_ori
+    #     return left_delta_ori+right_delta_ori
 
     def _reward_foot_orient_v2(self):
         '''
@@ -1681,7 +1854,7 @@ class G1(BaseTask):
 
         return left_delta_z_axis+right_delta_z_axis
 
-    def _reward_foot_orient_v3(self):
+    def _reward_stand_foot_orient_v3(self):
         '''
         Should we constraint our foot to face the forward direction during 
         the pickup process? Probably not....
@@ -1719,7 +1892,7 @@ class G1(BaseTask):
         self.episode_metric_sums['right_foot_vel'] += right_foot_vel
         return left_foot_vel + right_foot_vel
 
-    def _reward_foot_vel_v2(self):
+    def _reward_stand_foot_vel_v2(self):
         '''
         Penalizes the foot velocities
         Changed to square
@@ -1733,7 +1906,7 @@ class G1(BaseTask):
 
         return torch.square(left_foot_vel) + torch.square(right_foot_vel)
 
-    def _reward_foot_height(self):
+    def _reward_stand_foot_height(self):
         '''
         Penalizes the foot height
         Changed to square
@@ -1746,48 +1919,52 @@ class G1(BaseTask):
         self.episode_metric_sums['right_foot_height'] += right_foot_height
 
         # Clamp foot height
+        # height_rew = torch.where(foot_height > 0.1, 
+        #                          torch.tensor(0.1, device=self.device),
+        #                          torch.tensor(0., device=self.device))
         height_rew = torch.where(foot_height > 0.1, 
-                                 torch.tensor(0.1, device=self.device),
+                                 foot_height,
                                  torch.tensor(0., device=self.device))
 
-        height_rew += torch.clip(foot_height, min=0., max=1.)
+        # height_rew += torch.clip(foot_height, min=0., max=1.)
+        height_rew = torch.clip(foot_height, min=0., max=1.)
         height_rew = height_rew.sum(dim=-1)
         # ic(foot_height, height_rew)
         return height_rew
 
 
 
-    def _reward_obj_zvel(self):
-        '''
-        Reward based on the object's z-directional velocity
-        Incentize the lifting behavior
-        '''
-        left_close_enough = torch.norm(self.left_hand_pos - self.obj_root_states[..., :3], dim=-1) < self.cfg.object.box_size[0]
-        right_close_enough = torch.norm(self.right_hand_pos - self.obj_root_states[..., :3], dim=-1)< self.cfg.object.box_size[0]
-        close_enough = torch.logical_and(left_close_enough, right_close_enough)
+    # def _reward_obj_zvel(self):
+    #     '''
+    #     Reward based on the object's z-directional velocity
+    #     Incentize the lifting behavior
+    #     '''
+    #     left_close_enough = torch.norm(self.left_hand_pos - self.obj_root_states[..., :3], dim=-1) < self.cfg.object.box_size[0]
+    #     right_close_enough = torch.norm(self.right_hand_pos - self.obj_root_states[..., :3], dim=-1)< self.cfg.object.box_size[0]
+    #     close_enough = torch.logical_and(left_close_enough, right_close_enough)
 
-        obj_zvel = torch.clip(self.obj_root_states[..., 9], min=0.)
-        self.episode_metric_sums['obj_zvel'] += obj_zvel
+    #     obj_zvel = torch.clip(self.obj_root_states[..., 9], min=0.)
+    #     self.episode_metric_sums['obj_zvel'] += obj_zvel
 
-        return close_enough * torch.clip(obj_zvel, max=0.1) * ~(self.is_lifted) * (self.episode_length_buf > 50)
+    #     return close_enough * torch.clip(obj_zvel, max=0.1) * ~(self.is_lifted) * (self.episode_length_buf > 50)
 
-    def _reward_obj_xyvel(self):
-        '''
-        Reward penelizes the object's xy velocity
-        '''
+    # def _reward_obj_xyvel(self):
+    #     '''
+    #     Reward penelizes the object's xy velocity
+    #     '''
 
-        obj_xyvel = torch.norm(self.obj_root_states[..., 8:10], dim=-1)
-        self.episode_metric_sums['obj_xyvel'] += obj_xyvel
+    #     obj_xyvel = torch.norm(self.obj_root_states[..., 8:10], dim=-1)
+    #     self.episode_metric_sums['obj_xyvel'] += obj_xyvel
 
-        return torch.clip(obj_xyvel, max=1.0)
+    #     return torch.clip(obj_xyvel, max=1.0)
     
-    def _reward_lifted(self):
-        '''
-        Reward if the object lifted over the threshold
-        Enforces the robot to be stable after the lifting
-        '''
-        self.episode_metric_sums['is_lifted'] += self.is_lifted
-        return self.is_lifted * (self.episode_length_buf > 50)
+    # def _reward_lifted(self):
+    #     '''
+    #     Reward if the object lifted over the threshold
+    #     Enforces the robot to be stable after the lifting
+    #     '''
+    #     self.episode_metric_sums['is_lifted'] += self.is_lifted
+    #     return self.is_lifted * (self.episode_length_buf > 50)
 
     def _reward_single_foot_contact(self):
         '''
@@ -1804,37 +1981,131 @@ class G1(BaseTask):
         self.episode_metric_sums['single_foot_contact'] += single_contact
 
         return single_contact
+    
+    def _reward_stand_planar_contact(self):
+        '''
+        Penalize agent if the "portion" of the footpoint is making contact
+        '''
+        left_contact_footpoints = self.left_footpoints_mask.sum(dim=-1)
+        right_contact_footpoints = self.right_footpoints_mask.sum(dim=-1)
 
-    def _reward_pelvis_height(self):
-        # Reward based on the pelvis' z height
-        left_close_enough = torch.norm(self.left_hand_pos - self.obj_root_states[..., :3], dim=-1) < self.cfg.object.box_size[0]
-        right_close_enough = torch.norm(self.right_hand_pos - self.obj_root_states[..., :3], dim=-1)< self.cfg.object.box_size[0]
-        close_enough = torch.logical_and(left_close_enough, right_close_enough)
+        left_partial_contact = torch.where(
+            # torch.logical_or(left_contact_footpoints == 4, left_contact_footpoints == 0),
+            left_contact_footpoints == 4,
+            torch.zeros_like(left_contact_footpoints),
+            torch.ones_like(left_contact_footpoints))
+
+        right_partial_contact = torch.where(
+            # torch.logical_or(right_contact_footpoints == 4, right_contact_footpoints == 0),
+            right_contact_footpoints == 4,
+            torch.zeros_like(right_contact_footpoints),
+            torch.ones_like(right_contact_footpoints))
+
+        # ic(left_contact_footpoints)
+        # ic(left_partial_contact)
+
+        return left_partial_contact+right_partial_contact
+    
+    def _reward_stand_ankle_torque(self):
+        ankle_torque = self.torques[..., self.ankle_joint_indices]
+        self.episode_metric_sums['left_ankle_torque'] += ankle_torque[..., 0:2].norm(dim=-1)
+        self.episode_metric_sums['right_ankle_torque'] += ankle_torque[..., 2:4].norm(dim=-1)
+        # ic(ankle_torque[..., 0:2])
+        # ic(self.torques[..., self.ankle_joint_indices])
+        # ic(self.dof_pos[..., self.ankle_joint_indices])
+        # ic(ankle_torque[..., 2:4])
+        rew = torch.square(ankle_torque.norm(dim=-1))
+        # ic(ankle_torque)
+        # ic(rew)
+        return rew
+
+    def _reward_stand_ankle_torque_v2(self):
+        torque_limit = torch.where(
+            torch.abs(self.torques) >= self.torque_limits,
+            torch.ones_like(self.torques),
+            torch.zeros_like(self.torques))
+        # ic(self.torques[..., self.ankle_joint_indices])
+        # ic(torque_limit[..., self.ankle_joint_indices])
+        self.episode_metric_sums['left_ankle_torque_limit'] += torque_limit[..., 0:2].sum(dim=-1)
+        self.episode_metric_sums['right_ankle_torque_limit'] += torque_limit[..., 2:4].sum(dim=-1)
+
+        rew = torch.sum(torque_limit[..., self.ankle_joint_indices], dim=-1)
+
+        return rew
+
+    def _reward_stand_ankle_limit(self):
+        out_of_limits = -(self.dof_pos - self.dof_pos_limits[:, 0]).clip(max=0.) # lower limit
+        out_of_limits += (self.dof_pos - self.dof_pos_limits[:, 1]).clip(min=0.)
+        ankle_limit = out_of_limits[..., self.ankle_joint_indices]
+        ankle_limit_mask = torch.where(
+            ankle_limit > 0.,
+            torch.ones_like(ankle_limit),
+            torch.zeros_like(ankle_limit))
+        # ic(ankle_limit)
+        # ic(ankle_limit_mask)
+        rew = ankle_limit_mask.sum(dim=-1)
+        # ic(rew)
+        # ic(ankle_torque)
+        # ic(rew)
+        return rew
+    
+    def _log_metrics(self):
+        '''
+        Log some episode metrics in order to compare across different runs
+        '''
+        # 1. zmp_dist
+        zmp_dist = torch.clip(self.signed_zmp_dist, 0, self.cfg.rewards.zmp.max_dist)
+        self.episode_metric_sums['zmp_supp_dist'] += zmp_dist
+
+        # 2. zmp_margin
+        zmp_margin = -torch.clip(self.signed_zmp_dist, max=0)
+        self.episode_metric_sums['zmp_supp_margin'] += zmp_margin
+
+        # 3. number of the contacting footpoints
+        self.episode_metric_sums['left_contact_footpoints'] += self.left_footpoints_mask.sum(dim=-1)
+        self.episode_metric_sums['right_contact_footpoints'] += self.right_footpoints_mask.sum(dim=-1)
+
+        # 4. ankle limits
+        out_of_limits = -(self.dof_pos - self.dof_pos_limits[:, 0]).clip(max=0.) # lower limit
+        out_of_limits += (self.dof_pos - self.dof_pos_limits[:, 1]).clip(min=0.)
+        ankle_limit = out_of_limits[..., self.ankle_joint_indices]
+        ankle_limit_mask = torch.where(
+            ankle_limit > 0.,
+            torch.ones_like(ankle_limit),
+            torch.zeros_like(ankle_limit))
+        self.episode_metric_sums['left_ankle_limit'] += ankle_limit_mask[..., 0:2].sum(dim=-1)
+        self.episode_metric_sums['right_ankle_limit'] += ankle_limit_mask[..., 2:4].sum(dim=-1)
+
+    # def _reward_pelvis_height(self):
+    #     # Reward based on the pelvis' z height
+    #     left_close_enough = torch.norm(self.left_hand_pos - self.obj_root_states[..., :3], dim=-1) < self.cfg.object.box_size[0]
+    #     right_close_enough = torch.norm(self.right_hand_pos - self.obj_root_states[..., :3], dim=-1)< self.cfg.object.box_size[0]
+    #     close_enough = torch.logical_and(left_close_enough, right_close_enough)
 
         
-        self.episode_metric_sums['pelvis_height'] += self.pelvis_pos[..., 2]
+    #     self.episode_metric_sums['pelvis_height'] += self.pelvis_pos[..., 2]
 
-        height_delta = self.pelvis_pos[..., 2] - self.highest_pelvis
-        # Update highest pelvis only for pickup phase
-        self.highest_pelvis= torch.where(close_enough,
-            torch.maximum(self.highest_pelvis, self.pelvis_pos[..., 2]),
-            self.highest_pelvis)
-        height_delta = torch.clip(height_delta, 0., 10.)
-        pelvis_rew = torch.tanh(30.0 * height_delta)
+    #     height_delta = self.pelvis_pos[..., 2] - self.highest_pelvis
+    #     # Update highest pelvis only for pickup phase
+    #     self.highest_pelvis= torch.where(close_enough,
+    #         torch.maximum(self.highest_pelvis, self.pelvis_pos[..., 2]),
+    #         self.highest_pelvis)
+    #     height_delta = torch.clip(height_delta, 0., 10.)
+    #     pelvis_rew = torch.tanh(30.0 * height_delta)
         
-        return close_enough * pelvis_rew * (self.episode_length_buf > 50)
+    #     return close_enough * pelvis_rew * (self.episode_length_buf > 50)
 
-    def _reward_base_obj_dist(self):
-        # Reward based on the base <-> object distance
-        left_close_enough = torch.norm(self.left_hand_pos - self.obj_root_states[..., :3], dim=-1) < self.cfg.object.box_size[0]
-        right_close_enough = torch.norm(self.right_hand_pos - self.obj_root_states[..., :3], dim=-1)< self.cfg.object.box_size[0]
-        close_enough = torch.logical_and(left_close_enough, right_close_enough)
+    # def _reward_base_obj_dist(self):
+    #     # Reward based on the base <-> object distance
+    #     left_close_enough = torch.norm(self.left_hand_pos - self.obj_root_states[..., :3], dim=-1) < self.cfg.object.box_size[0]
+    #     right_close_enough = torch.norm(self.right_hand_pos - self.obj_root_states[..., :3], dim=-1)< self.cfg.object.box_size[0]
+    #     close_enough = torch.logical_and(left_close_enough, right_close_enough)
 
-        distance = torch.norm(self.root_states[..., :3]- self.obj_root_states[..., :3], dim=-1)
-        self.episode_metric_sums['base_obj_dist'] += distance
-        dist_rew = torch.exp(-10 * torch.square(distance))
-        # ic(dist_rew)
-        return close_enough * dist_rew * (self.episode_length_buf > 50)
+    #     distance = torch.norm(self.root_states[..., :3]- self.obj_root_states[..., :3], dim=-1)
+    #     self.episode_metric_sums['base_obj_dist'] += distance
+    #     dist_rew = torch.exp(-10 * torch.square(distance))
+    #     # ic(dist_rew)
+    #     return close_enough * dist_rew * (self.episode_length_buf > 50)
 
 
     '''
