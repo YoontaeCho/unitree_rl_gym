@@ -248,97 +248,133 @@
     <limit lower="-0.2618" upper="0.2618" effort="40" velocity="53"/>
   </joint>
 
-  <link name="left_foot_1_link">
+  <link name="left_footpoint_1_link">
     <inertial>
-      <mass value="0.0"/>
-      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/>
+      <mass value="0.001"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
     </inertial>
-    <visual>
+    <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <sphere radius="0.002"/> <!-- Small sphere with 5cm radius -->
+        <sphere radius="0.001"/> <!-- Small sphere with 5cm radius -->
       </geometry>
       <material name="grey">
         <color rgba="0.5 0.5 0.5 1.0"/> <!-- Grey color -->
       </material>
-    </visual>
+    </collision>
   </link>
-  <joint name="left_foot_1_joint" type="fixed">
+  <joint name="left_footpoint_1_joint" type="fixed">
     <parent link="left_ankle_roll_link"/>
-    <child link="left_foot_1_link"/>
-    <origin xyz="0.13 0.025 -0.032" rpy="0 0 0"/>
-    <axis xyz="0 0 1"/>
-    <limit effort="1.0" velocity="1.0" lower="-1.57" upper="1.57"/>
+    <child link="left_footpoint_1_link"/>
+    <origin xyz="0.12 0.025 -0.034" rpy="0 0 0"/>
   </joint>
 
-  <link name="left_foot_2_link">
+  <link name="left_footpoint_2_link">
     <inertial>
-      <mass value="0.0"/>
-      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/>
+      <mass value="0.001"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
     </inertial>
-    <visual>
+    <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <sphere radius="0.002"/> <!-- Small sphere with 5cm radius -->
+        <sphere radius="0.001"/> <!-- Small sphere with 5cm radius -->
       </geometry>
       <material name="grey">
         <color rgba="0.5 0.5 0.5 1.0"/> <!-- Grey color -->
       </material>
-    </visual>
+    </collision>
   </link>
-  <joint name="left_foot_2_joint" type="fixed">
+  <joint name="left_footpoint_2_joint" type="fixed">
     <parent link="left_ankle_roll_link"/>
-    <child link="left_foot_2_link"/>
-    <origin xyz="0.13 -0.025 -0.032" rpy="0 0 0"/>
-    <axis xyz="0 0 1"/>
-    <limit effort="1.0" velocity="1.0" lower="-1.57" upper="1.57"/>
+    <child link="left_footpoint_2_link"/>
+    <origin xyz="0.12 -0.025 -0.034" rpy="0 0 0"/>
   </joint>
 
-  <link name="left_foot_3_link">
+  <link name="left_footpoint_3_link">
     <inertial>
-      <mass value="0.0"/>
-      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/>
+      <mass value="0.001"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
     </inertial>
-    <visual>
+    <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <sphere radius="0.002"/> <!-- Small sphere with 5cm radius -->
+        <sphere radius="0.001"/> <!-- Small sphere with 5cm radius -->
       </geometry>
       <material name="grey">
         <color rgba="0.5 0.5 0.5 1.0"/> <!-- Grey color -->
       </material>
-    </visual>
+    </collision>
   </link>
-  <joint name="left_foot_3_joint" type="fixed">
+  <joint name="left_footpoint_3_joint" type="fixed">
     <parent link="left_ankle_roll_link"/>
-    <child link="left_foot_3_link"/>
-    <origin xyz="-0.055 0.025 -0.032" rpy="0 0 0"/>
-    <axis xyz="0 0 1"/>
-    <limit effort="1.0" velocity="1.0" lower="-1.57" upper="1.57"/>
+    <child link="left_footpoint_3_link"/>
+    <origin xyz="-0.045 0.025 -0.034" rpy="0 0 0"/>
   </joint>
 
-  <link name="left_foot_4_link">
+  <link name="left_footpoint_4_link">
     <inertial>
-      <mass value="0.0"/>
-      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/>
+      <mass value="0.001"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
     </inertial>
-    <visual>
+    <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <sphere radius="0.002"/> <!-- Small sphere with 5cm radius -->
+        <sphere radius="0.001"/> <!-- Small sphere with 5cm radius -->
       </geometry>
       <material name="grey">
         <color rgba="0.5 0.5 0.5 1.0"/> <!-- Grey color -->
       </material>
-    </visual>
+    </collision>
   </link>
-  <joint name="left_foot_4_joint" type="fixed">
+  <joint name="left_footpoint_4_joint" type="fixed">
     <parent link="left_ankle_roll_link"/>
-    <child link="left_foot_4_link"/>
-    <origin xyz="-0.055 -0.025 -0.032" rpy="0 0 0"/>
-    <axis xyz="0 0 1"/>
-    <limit effort="1.0" velocity="1.0" lower="-1.57" upper="1.57"/>
+    <child link="left_footpoint_4_link"/>
+    <origin xyz="-0.045 -0.025 -0.034" rpy="0 0 0"/>
   </joint>
+
+  <link name="left_footpoint_5_link">
+    <inertial>
+      <mass value="0.001"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
+    </inertial>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.001"/> <!-- Small sphere with 5cm radius -->
+      </geometry>
+      <material name="grey">
+        <color rgba="0.5 0.5 0.5 1.0"/> <!-- Grey color -->
+      </material>
+    </collision>
+  </link>
+  <joint name="left_footpoint_5_joint" type="fixed">
+    <parent link="left_ankle_roll_link"/>
+    <child link="left_footpoint_5_link"/>
+    <origin xyz="-0.064 0 -0.034" rpy="0 0 0"/>
+  </joint>
+
+  <link name="left_footpoint_6_link">
+    <inertial>
+      <mass value="0.001"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
+    </inertial>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.001"/> <!-- Small sphere with 5cm radius -->
+      </geometry>
+      <material name="grey">
+        <color rgba="0.5 0.5 0.5 1.0"/> <!-- Grey color -->
+      </material>
+    </collision>
+  </link>
+  <joint name="left_footpoint_6_joint" type="fixed">
+    <parent link="left_ankle_roll_link"/>
+    <child link="left_footpoint_6_link"/>
+    <origin xyz="0.138 0 -0.034" rpy="0 0 0"/>
+  </joint>
+
+  
   <link name="right_hip_pitch_link">
     <inertial>
       <origin xyz="0.001962 -0.049392 -0.000941" rpy="0 0 0"/>
@@ -538,6 +574,128 @@
     <limit lower="-0.2618" upper="0.2618" effort="40" velocity="53"/>
   </joint>
 
+  <link name="right_footpoint_1_link">
+    <inertial>
+      <mass value="0.001"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
+    </inertial>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.001"/> <!-- Small sphere with 5cm radius -->
+      </geometry>
+      <material name="grey">
+        <color rgba="0.5 0.5 0.5 1.0"/> <!-- Grey color -->
+      </material>
+    </collision>
+  </link>
+  <joint name="right_footpoint_1_joint" type="fixed">
+    <parent link="right_ankle_roll_link"/>
+    <child link="right_footpoint_1_link"/>
+    <origin xyz="0.12 0.025 -0.034" rpy="0 0 0"/>
+  </joint>
+
+  <link name="right_footpoint_2_link">
+    <inertial>
+      <mass value="0.001"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
+    </inertial>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.001"/> <!-- Small sphere with 5cm radius -->
+      </geometry>
+      <material name="grey">
+        <color rgba="0.5 0.5 0.5 1.0"/> <!-- Grey color -->
+      </material>
+    </collision>
+  </link>
+  <joint name="right_footpoint_2_joint" type="fixed">
+    <parent link="right_ankle_roll_link"/>
+    <child link="right_footpoint_2_link"/>
+    <origin xyz="0.12 -0.025 -0.034" rpy="0 0 0"/>
+  </joint>
+
+  <link name="right_footpoint_3_link">
+    <inertial>
+      <mass value="0.001"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
+    </inertial>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.001"/> <!-- Small sphere with 5cm radius -->
+      </geometry>
+      <material name="grey">
+        <color rgba="0.5 0.5 0.5 1.0"/> <!-- Grey color -->
+      </material>
+    </collision>
+  </link>
+  <joint name="right_footpoint_3_joint" type="fixed">
+    <parent link="right_ankle_roll_link"/>
+    <child link="right_footpoint_3_link"/>
+    <origin xyz="-0.045 0.025 -0.034" rpy="0 0 0"/>
+  </joint>
+
+  <link name="right_footpoint_4_link">
+    <inertial>
+      <mass value="0.001"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
+    </inertial>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.001"/> <!-- Small sphere with 5cm radius -->
+      </geometry>
+      <material name="grey">
+        <color rgba="0.5 0.5 0.5 1.0"/> <!-- Grey color -->
+      </material>
+    </collision>
+  </link>
+  <joint name="right_footpoint_4_joint" type="fixed">
+    <parent link="right_ankle_roll_link"/>
+    <child link="right_footpoint_4_link"/>
+    <origin xyz="-0.045 -0.025 -0.034" rpy="0 0 0"/>
+  </joint>
+
+  <link name="right_footpoint_5_link">
+    <inertial>
+      <mass value="0.001"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
+    </inertial>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.001"/> <!-- Small sphere with 5cm radius -->
+      </geometry>
+      <material name="grey">
+        <color rgba="0.5 0.5 0.5 1.0"/> <!-- Grey color -->
+      </material>
+    </collision>
+  </link>
+  <joint name="right_footpoint_5_joint" type="fixed">
+    <parent link="right_ankle_roll_link"/>
+    <child link="right_footpoint_5_link"/>
+    <origin xyz="-0.064 0 -0.034" rpy="0 0 0"/>
+  </joint>
+
+  <link name="right_footpoint_6_link">
+    <inertial>
+      <mass value="0.001"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
+    </inertial>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.001"/> <!-- Small sphere with 5cm radius -->
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_footpoint_6_joint" type="fixed">
+    <parent link="right_ankle_roll_link"/>
+    <child link="right_footpoint_6_link"/>
+    <origin xyz="0.138 0 -0.034" rpy="0 0 0"/>
+  </joint>
   <!-- Torso -->
   <link name="torso_link">
     <inertial>

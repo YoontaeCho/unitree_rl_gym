@@ -70,9 +70,9 @@ def compute_lin_ang_momentum(
 
     # Compute angular momentum for each body
     # Orbital angular momentum L_orb = (position - global com) x (m * v)
-    rb_com_local = rb_com_global 
+    # rb_com_local = rb_com_global 
     # rb_com_local[..., :2] -= measured_frame[..., :2].unsqueeze(-2)
-    rb_com_local -= measured_frame.unsqueeze(-2)
+    rb_com_local = rb_com_global - measured_frame.unsqueeze(-2)
     r_cross_m_v = torch.cross(rb_com_local, linear_momentum_per_body, dim=-1)  # Shape: [num_envs, num_bodies, 3]
 
 
@@ -85,6 +85,7 @@ def compute_lin_ang_momentum(
 
     # Total angular momentum is the sum of orbital and rotational angular momentum
     angular_momentum_per_body = r_cross_m_v + I_times_omega  # Shape: [num_envs, num_bodies, 3]
+    # ic(r_cross_m_v[..., :10, :])
 
     # Sum the angular momenta of all bodies in each environment
     ang_momentum = torch.sum(angular_momentum_per_body, dim=1)  # Shape: [num_envs, 3]
@@ -125,12 +126,14 @@ def compute_zmp(
 
 
     # d_lin_mom = (self.lin_momentum - self.prev_lin_momentum)/self.dt
-    d_lin_mom = (lin_momentum - prev_lin_momentum)/(0.25*dt)
+    # d_lin_mom = (lin_momentum - prev_lin_momentum)/(0.25*dt)
+    d_lin_mom = (lin_momentum - prev_lin_momentum)/(dt)
     # ic(lin_momentum, prev_lin_momentum)
     # ic(ang_momentum, prev_ang_momentum)
     # ic(self.lin_momentum)
     # ic(d_lin_mom)
-    d_ang_mom = (ang_momentum - prev_ang_momentum)/(0.25*dt)
+    # d_ang_mom = (ang_momentum - prev_ang_momentum)/(0.25*dt)
+    d_ang_mom = (ang_momentum - prev_ang_momentum)/(dt)
 
     Fgz = d_lin_mom[..., 2] + Mg
 

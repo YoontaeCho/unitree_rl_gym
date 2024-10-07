@@ -4,7 +4,7 @@ import numpy as np
 class G1StandCfg( LeggedRobotCfg ):
     class init_state( LeggedRobotCfg.init_state ):
         # pos = [0.0, 0.0, 0.8] # x,y,z [m]
-        pos = [0.0, 0.0, 0.75] # x,y,z [m]
+        pos = [0.0, 0.0, 0.8] # x,y,z [m]
         default_joint_angles = { # = target angles [rad] when action = 0.0
             # 'left_hip_pitch_joint': -0.1,
             # 'left_hip_roll_joint': 0,
@@ -70,7 +70,7 @@ class G1StandCfg( LeggedRobotCfg ):
         # 3+3+3+12+3+12+12
         # 3+3+3+25+3+25+25
         num_envs = 4096
-        num_observations = 126 + 16
+        num_observations = 126 + 19
         # num_observations = 126 + 12 + 5
         num_actions = 37
         num_privileged_obs = None # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise 
@@ -216,11 +216,19 @@ class G1StandCfg( LeggedRobotCfg ):
     
     class footpoint:
         # used when computing the support polygon
-        num_footpoints = 4
-        offeset = [[0.13, -0.025, -0.032],
-                   [0.13, 0.025, -0.032],
-                   [-0.055, -0.025, -0.032],
-                   [-0.055, 0.025, -0.032]]
+        num_footpoints = 6
+        # offeset = [[0.13, -0.025, -0.032],
+        #            [0.13, 0.025, -0.032],
+        #            [-0.055, -0.025, -0.032],
+        #            [-0.055, 0.025, -0.032]]
+        offeset = [
+            [0.12, -0.025, -0.034],
+            [0.12, 0.025, -0.034],
+            [-0.045, -0.025, -0.034],
+            [-0.045, 0.025, -0.034],
+            [-0.064, 0., -0.034],
+            [0.138, 0., -0.034],
+        ]
         # epsilon = 0.01
         epsilon = 0.005
 
@@ -243,13 +251,20 @@ class G1StandCfg( LeggedRobotCfg ):
         soft_dof_pos_limit = 0.9
         base_height_target = 0.728
         class zmp:
-            max_dist = 1.5
+            # max_dist = 1.5
+            # max_dist = 1.0
+            max_dist = 0.8
             sigma = 6.
-            sigma_dist = 4.
+            # sigma_dist = 4.
+            sigma_dist = 2.
             sigma_margin = 10.
         class com:
-            max_dist = 1.5
-            sigma = 4.
+            # max_dist = 1.0
+            max_dist = 0.8
+            sigma = 6.
+            # sigma_dist = 4.
+            sigma_dist = 2.
+            sigma_margin = 10.
         class scales( LeggedRobotCfg.rewards.scales ):
             # tracking_lin_vel = 1.0
             # tracking_ang_vel = 0.5
@@ -268,12 +283,14 @@ class G1StandCfg( LeggedRobotCfg ):
             stand_foot_height = 0.
             stand_foot_vel_v2 = 0.
             stand_zmp_supp_dist = 0.
-            stand_zmp_dist = -0.5
-            stand_zmp_margin = 1.0
+            stand_zmp_dist = 0.
+            stand_zmp_margin = 0.
+            stand_com_dist = 0.
+            stand_com_margin = 0.
             # stand_planar_contact = -0.5
             # stand_ankle_torque = -0.0002
             stand_ankle_torque_v2 = 0.
-            stand_ankle_limit = 0.
+            stand_ankle_limit = -0.5
             # Reward set 2: task-relevant rewards
             # dist_left = 0.5
             # # dist_right = 0.5
@@ -304,7 +321,8 @@ class G1StandCfg( LeggedRobotCfg ):
             reg_action_rate = -0.002
             # action_double_rate = -0.0005
             reg_dof_acc = -1e-8
-            reg_torques = -0.001
+            # reg_torques = -0.001
+            reg_torques = -0.00002
             reg_dof_pos_limits = -0.05
 
 
@@ -332,7 +350,8 @@ class G1StandCfgPPO( LeggedRobotCfgPPO ):
         experiment_name = 'g1'
 
         # max_iterations = 10000 # number of policy updates
-        max_iterations = 3000 # number of policy updates
+        # max_iterations = 3000 # number of policy updates
+        max_iterations = 5000 # number of policy updates
         # max_iterations = 15000 # number of policy updates
         # save_interval = 250
         save_interval = 200

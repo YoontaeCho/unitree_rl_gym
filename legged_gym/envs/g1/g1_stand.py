@@ -63,6 +63,30 @@ class G1(BaseTask):
         # step physics and render each frame
         self.render()
         for i in range(self.cfg.control.decimation):
+            '''
+            NOTE(ytcho)
+            Why we compute the linear and angular momentum here?
+            In order to compute **angular momentum**, we need a 
+            **frame** which would be measured with respect to.
+            In theory, the origin should work. However, since we
+            are having a numerous environments, computing ang.
+            momentum wrt origin would result in the angular momentum
+            value much larger than the linear momentum, which
+            probably cause problem during the floating operatin
+            in further zmp calculation....
+            '''
+            if i == 0:
+                self.gym.refresh_actor_root_state_tensor(self.sim)
+                self.gym.refresh_rigid_body_state_tensor(self.sim)
+                self.moment_measured_frame[..., :2] = self.root_states[..., :2]
+                self.prev_lin_momentum, self.prev_ang_momentum = \
+                    compute_lin_ang_momentum(
+                        self.rb_com,
+                        self.rb_inertia,
+                        self.rb_mass,
+                        self.rigid_body_state,
+                        self.moment_measured_frame)
+                
             self.torques = self._compute_torques(self.actions).view(self.torques.shape)
             self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self.torques))
             self.gym.simulate(self.sim)
@@ -75,32 +99,6 @@ class G1(BaseTask):
             if self.device == 'cpu':
                 self.gym.fetch_results(self.sim, True)
             self.gym.refresh_dof_state_tensor(self.sim)
-            '''
-            NOTE(ytcho)
-            Why we compute the linear and angular momentum here?
-            Since the ZMP is calculated based on the **derivative**
-            of the (lin, ang) momentum, in order to accurately 
-            estimate the derivative, we should compute it by subtracting
-            sim_dt, not a control_dt.
-
-            Computing (lin, ang) momentum derivative by subtracting
-            control_dt would result in high instability.
-            Actually, this is still very noisy
-            Measuring L_dot and P_dot by finite difference seems like
-            to have major issue.
-            '''
-            if i == self.cfg.control.decimation-2:
-                self.gym.refresh_actor_root_state_tensor(self.sim)
-                self.gym.refresh_rigid_body_state_tensor(self.sim)
-                self.moment_measured_frame[..., :2] = self.root_states[..., :2]
-                # ic("before:", self.rigid_body_state[..., 0:10, 0])
-                self.prev_lin_momentum, self.prev_ang_momentum = \
-                    compute_lin_ang_momentum(
-                        self.rb_com,
-                        self.rb_inertia,
-                        self.rb_mass,
-                        self.rigid_body_state,
-                        self.moment_measured_frame)
                 
         self.post_physics_step()
 
@@ -164,20 +162,22 @@ class G1(BaseTask):
             self.rigid_body_state,
             self.moment_measured_frame)
 
-        _, self.centroidal_ang_momentum = \
-            compute_lin_ang_momentum(
-                self.rb_com,
-                self.rb_inertia,
-                self.rb_mass,
-                self.rigid_body_state,
-                self.CoM)
-        # ic(self.centroidal_ang_momentum - self.prev_centroidal_ang_momentum)
+        # _, self.centroidal_ang_momentum = \
+        #     compute_lin_ang_momentum(
+        #         self.rb_com,
+        #         self.rb_inertia,
+        #         self.rb_mass,
+        #         self.rigid_body_state,
+        #         self.CoM)
+        # # ic(self.centroidal_ang_momentum - self.prev_centroidal_ang_momentum)
 
         self.ZMP = compute_zmp(
             self.total_mass, self.cfg.sim.gravity, 
             self.dt,
             self.lin_momentum, self.prev_lin_momentum,
+            # self.lin_momentum, self.lin_momentum,
             self.ang_momentum, self.prev_ang_momentum,
+            # self.ang_momentum, self.ang_momentum,
             self.foot_contacts,
             self.CoM,
             # self.root_states)
@@ -186,6 +186,10 @@ class G1(BaseTask):
         self.ZMP_base = quat_rotate_inverse(
             self.base_quat,
             self.ZMP- self.root_states[..., :3]
+        )
+        self.COM_base = quat_rotate_inverse(
+            self.base_quat,
+            self.CoM- self.root_states[..., :3]
         )
 
 
@@ -200,6 +204,9 @@ class G1(BaseTask):
         
         self.signed_zmp_dist = compute_signed_distance(
             reordered_footpoints, convex_hull_idx, self.ZMP[..., :2]
+        )
+        self.signed_com_dist = compute_signed_distance(
+            reordered_footpoints, convex_hull_idx, self.CoM[..., :2]
         )
         # ic(self.signed_dist)
         # ic(self.zmp_dist)
@@ -511,6 +518,7 @@ class G1(BaseTask):
             # ZMP, foot avg position
             # self.avg_foot_pos_base, #3
             self.ZMP_base, #3
+            self.COM_base, #3
             # Foot pos, ori, and contact
             self.left_feet_pos_base, #3
             # self.left_feet_ori_base[..., 2:3], #1
@@ -1084,6 +1092,7 @@ class G1(BaseTask):
         self.right_footpoints_mask = torch.zeros(self.num_envs, self.cfg.footpoint.num_footpoints, dtype=torch.bool, device=self.device, requires_grad=False)
         self.zmp_dist = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
         self.signed_zmp_dist = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+        self.signed_com_dist = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
 
         self._compute_hand_pose()
         self._compute_foot_pose()
@@ -1191,6 +1200,8 @@ class G1(BaseTask):
                 # 'zmp_avgfoot_dist',
                 'zmp_supp_dist',
                 'zmp_supp_margin',
+                'com_supp_dist',
+                'com_supp_margin',
                 'left_foot_delta_z_axis',
                 'right_foot_delta_z_axis',
                 'left_foot_vel',
@@ -1461,8 +1472,8 @@ class G1(BaseTask):
         # Penalize torques
         torque = torch.norm(self.torques, dim=-1)
         self.episode_metric_sums['torque'] += torque
-        # return torch.sum(torch.square(self.torques), dim=1)
-        return torque
+        return torch.sum(torch.square(self.torques), dim=1)
+        # return torque
 
     def _reward_reg_dof_vel(self):
         # Penalize dof velocities
@@ -1788,6 +1799,31 @@ class G1(BaseTask):
         # ic("margin", rew)
         return rew
 
+    def _reward_stand_com_dist(self):
+        '''
+        Computes reward based on the distance between the com and 
+        the support polygon
+        '''
+        # ic(self.signed_dist)
+
+        com_dist = torch.clip(self.signed_com_dist, 0, self.cfg.rewards.com.max_dist)
+        # self.episode_metric_sums['com_supp_dist'] += com_dist
+        rew = (torch.exp(self.cfg.rewards.com.sigma_dist * com_dist)-1) + (com_dist > 0).float()
+        # ic("dist", rew)
+        return rew
+
+    def _reward_stand_com_margin(self):
+        '''
+        Computes reward based on the distance between the com and 
+        the support polygon
+        '''
+
+        com_margin = -torch.clip(self.signed_com_dist, max=0)
+        # self.episode_metric_sums['com_supp_margin'] += com_margin
+        rew = (torch.exp(self.cfg.rewards.com.sigma_margin * com_margin)-1)
+        # ic("margin", rew)
+        return rew
+
     def _reward_com_avgfoot_dist_v2(self):
 
         avg_foot_pos = 0.5 * (self.left_feet_pos + self.right_feet_pos)
@@ -2053,13 +2089,21 @@ class G1(BaseTask):
         '''
         Log some episode metrics in order to compare across different runs
         '''
-        # 1. zmp_dist
+        # # 1. zmp_dist
         zmp_dist = torch.clip(self.signed_zmp_dist, 0, self.cfg.rewards.zmp.max_dist)
         self.episode_metric_sums['zmp_supp_dist'] += zmp_dist
 
-        # 2. zmp_margin
+        # # 2. zmp_margin
         zmp_margin = -torch.clip(self.signed_zmp_dist, max=0)
         self.episode_metric_sums['zmp_supp_margin'] += zmp_margin
+        
+        # 1. com_dist
+        com_dist = torch.clip(self.signed_com_dist, 0, self.cfg.rewards.com.max_dist)
+        self.episode_metric_sums['com_supp_dist'] += com_dist
+
+        # 2. com_margin
+        com_margin = -torch.clip(self.signed_com_dist, max=0)
+        self.episode_metric_sums['com_supp_margin'] += com_margin
 
         # 3. number of the contacting footpoints
         self.episode_metric_sums['left_contact_footpoints'] += self.left_footpoints_mask.sum(dim=-1)
