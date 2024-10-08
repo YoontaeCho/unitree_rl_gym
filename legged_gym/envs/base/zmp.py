@@ -102,7 +102,36 @@ def compute_lin_ang_momentum(
 
     return lin_momentum, ang_momentum
 
+def compute_zmp_v2(contact_force, contact_points, com):
+    # Extract components of contact forces and positions
+    fx = contact_force[:, :, 0]
+    fy = contact_force[:, :, 1]
+    fz = contact_force[:, :, 2]
 
+    px = contact_points[:, :, 0]
+    py = contact_points[:, :, 1]
+    pz = contact_points[:, :, 2]
+
+    # Avoid division by zero by adding a small epsilon to the sum of vertical forces
+    epsilon = 1e-8
+    fz_sum = torch.sum(fz, dim=1, keepdim=True) + epsilon
+
+    # Check if all contact forces are zero for each environment
+    all_zero_forces = torch.all(fz_sum < 1, dim=1)
+
+    # Compute ZMP coordinates considering horizontal forces and vertical positions
+    alpha = fz / fz_sum
+    zmp_x = torch.sum(px * alpha, dim=1)
+    zmp_y = torch.sum(py * alpha, dim=1)
+
+    # Stack zmp_x and zmp_y to form the final ZMP tensor
+    zmp = torch.zeros_like(com)
+    zmp[..., :2] = torch.stack((zmp_x, zmp_y), dim=1)
+
+    # Replace ZMP with center of mass if all contact forces are zero
+    zmp[all_zero_forces, :2] = com[all_zero_forces, :2]
+
+    return zmp
 
 def compute_zmp(
         total_mass, gravity,

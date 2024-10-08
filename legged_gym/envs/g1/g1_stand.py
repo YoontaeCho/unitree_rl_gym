@@ -76,16 +76,17 @@ class G1(BaseTask):
             in further zmp calculation....
             '''
             if i == 0:
-                self.gym.refresh_actor_root_state_tensor(self.sim)
-                self.gym.refresh_rigid_body_state_tensor(self.sim)
-                self.moment_measured_frame[..., :2] = self.root_states[..., :2]
-                self.prev_lin_momentum, self.prev_ang_momentum = \
-                    compute_lin_ang_momentum(
-                        self.rb_com,
-                        self.rb_inertia,
-                        self.rb_mass,
-                        self.rigid_body_state,
-                        self.moment_measured_frame)
+                pass
+                # self.gym.refresh_actor_root_state_tensor(self.sim)
+                # self.gym.refresh_rigid_body_state_tensor(self.sim)
+                # self.moment_measured_frame[..., :2] = self.root_states[..., :2]
+                # self.prev_lin_momentum, self.prev_ang_momentum = \
+                #     compute_lin_ang_momentum(
+                #         self.rb_com,
+                #         self.rb_inertia,
+                #         self.rb_mass,
+                #         self.rigid_body_state,
+                #         self.moment_measured_frame)
                 
             self.torques = self._compute_torques(self.actions).view(self.torques.shape)
             self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self.torques))
@@ -134,8 +135,8 @@ class G1(BaseTask):
         self._compute_foot_pose()
         # self._compute_obj_pose_base()
         self._compute_foot_pose_base()
-        self._compute_foot_contact()
         self._compute_footpoint_pos()
+        self._compute_foot_contact()
 
         self._compute_pelvis_pose()
         # Update foot contact information
@@ -155,12 +156,12 @@ class G1(BaseTask):
         # Since we need the time derivative of the lin, ang momentum,
         # We need the **fixed** frame to measure it
         # ic("after:", self.rigid_body_state[..., 0:10, 0])
-        self.lin_momentum, self.ang_momentum = compute_lin_ang_momentum(
-            self.rb_com,
-            self.rb_inertia,
-            self.rb_mass,
-            self.rigid_body_state,
-            self.moment_measured_frame)
+        # self.lin_momentum, self.ang_momentum = compute_lin_ang_momentum(
+        #     self.rb_com,
+        #     self.rb_inertia,
+        #     self.rb_mass,
+        #     self.rigid_body_state,
+        #     self.moment_measured_frame)
 
         # _, self.centroidal_ang_momentum = \
         #     compute_lin_ang_momentum(
@@ -171,21 +172,27 @@ class G1(BaseTask):
         #         self.CoM)
         # # ic(self.centroidal_ang_momentum - self.prev_centroidal_ang_momentum)
 
-        self.ZMP = compute_zmp(
-            self.total_mass, self.cfg.sim.gravity, 
-            self.dt,
-            self.lin_momentum, self.prev_lin_momentum,
-            # self.lin_momentum, self.lin_momentum,
-            self.ang_momentum, self.prev_ang_momentum,
-            # self.ang_momentum, self.ang_momentum,
-            self.foot_contacts,
-            self.CoM,
-            # self.root_states)
-            self.moment_measured_frame)
+        self.ZMP_v2 = compute_zmp_v2(
+            torch.cat([self.contact_forces[:, self.left_footpoint_indices, :], self.contact_forces[:, self.right_footpoint_indices, :]], dim=1),
+            torch.cat([self.rigid_body_state[:, self.left_footpoint_indices, :3], self.rigid_body_state[:, self.right_footpoint_indices, :3]], dim=1),
+            self.CoM
+        )
+
+        # self.ZMP = compute_zmp(
+        #     self.total_mass, self.cfg.sim.gravity, 
+        #     self.dt,
+        #     self.lin_momentum, self.prev_lin_momentum,
+        #     # self.lin_momentum, self.lin_momentum,
+        #     self.ang_momentum, self.prev_ang_momentum,
+        #     # self.ang_momentum, self.ang_momentum,
+        #     self.foot_contacts,
+        #     self.CoM,
+        #     # self.root_states)
+        #     self.moment_measured_frame)
         
         self.ZMP_base = quat_rotate_inverse(
             self.base_quat,
-            self.ZMP- self.root_states[..., :3]
+            self.ZMP_v2- self.root_states[..., :3]
         )
         self.COM_base = quat_rotate_inverse(
             self.base_quat,
@@ -198,12 +205,15 @@ class G1(BaseTask):
         #     torch.cat([self.left_footpoints_mask, self.right_footpoints_mask], dim=1),
         #     self.ZMP)
         
+        # reordered_footpoints, convex_hull_idx = compute_convex_hull(
+        #     torch.cat([self.left_footpoints[..., :2], self.right_footpoints[..., :2]], dim=1),
+        #     torch.cat([self.left_footpoints_mask, self.right_footpoints_mask], dim=1))
         reordered_footpoints, convex_hull_idx = compute_convex_hull(
-            torch.cat([self.left_footpoints[..., :2], self.right_footpoints[..., :2]], dim=1),
+            torch.cat([self.rigid_body_state[:, self.left_footpoint_indices, :2], self.rigid_body_state[:, self.right_footpoint_indices, :2]], dim=1),
             torch.cat([self.left_footpoints_mask, self.right_footpoints_mask], dim=1))
         
         self.signed_zmp_dist = compute_signed_distance(
-            reordered_footpoints, convex_hull_idx, self.ZMP[..., :2]
+            reordered_footpoints, convex_hull_idx, self.ZMP_v2[..., :2]
         )
         self.signed_com_dist = compute_signed_distance(
             reordered_footpoints, convex_hull_idx, self.CoM[..., :2]
@@ -240,7 +250,8 @@ class G1(BaseTask):
         """
         # self.gym.refresh_rigid_body_state_tensor(self.sim)
         sphere_geom_a = gymutil.WireframeSphereGeometry(0.05, 4, 4, None, color=(1, 0, 0))
-        sphere_geom_b = gymutil.WireframeSphereGeometry(0.05, 4, 4, None, color=(0, 1, 0))
+        sphere_geom_b = gymutil.WireframeSphereGeometry(0.05, 4, 4, None, color=(0, 0, 1))
+        sphere_geom_c = gymutil.WireframeSphereGeometry(0.05, 4, 4, None, color=(0, 1, 0))
         sphere_geom_3 = gymutil.WireframeSphereGeometry(0.05, 4, 4, None, color=(0, 1, 1))
         sphere_geom_2 = gymutil.WireframeSphereGeometry(0.05, 4, 4, None, color=(0, 0, 1))
 
@@ -285,22 +296,21 @@ class G1(BaseTask):
             #                 self.CoM[i, 1], 
             #                 0.), 
             #     r=None)
-            sphere_pose_a = gymapi.Transform(
-                gymapi.Vec3(self.ZMP[i, 0],
-                            self.ZMP[i, 1], 
+            # sphere_pose_a = gymapi.Transform(
+            #     gymapi.Vec3(self.ZMP[i, 0],
+            #                 self.ZMP[i, 1], 
+            #                 0.), 
+            #     r=None)
+            # gymutil.draw_lines(sphere_geom_a, self.gym, 
+            #                    self.viewer, self.envs[i], sphere_pose_a) 
+
+            sphere_pose_b = gymapi.Transform(
+                gymapi.Vec3(self.ZMP_v2[i, 0],
+                            self.ZMP_v2[i, 1], 
                             0.), 
                 r=None)
-            gymutil.draw_lines(sphere_geom_a, self.gym, 
-                               self.viewer, self.envs[i], sphere_pose_a) 
-
-            # sphere_pose_b = gymapi.Transform(
-            #     gymapi.Vec3(
-            #                 self.left_footpoints[i, 2, 0],
-            #                 self.left_footpoints[i, 2, 1],
-            #                 self.left_footpoints[i, 2, 2]),
-            #     r=None)
-            # gymutil.draw_lines(sphere_geom_b, self.gym, 
-            #                    self.viewer, self.envs[i], sphere_pose_b) 
+            gymutil.draw_lines(sphere_geom_b, self.gym, 
+                               self.viewer, self.envs[i], sphere_pose_b) 
 
             # obj_right = self.obj_root_states[..., :3] + quat_apply(
             #     self.obj_root_states[..., 3:7],
@@ -316,7 +326,7 @@ class G1(BaseTask):
                             self.CoM[i, 1],
                             0.),
                 r=None)
-            gymutil.draw_lines(sphere_geom_b, self.gym, 
+            gymutil.draw_lines(sphere_geom_c, self.gym, 
                                self.viewer, self.envs[i], sphere_pose_c) 
             
 
@@ -354,7 +364,8 @@ class G1(BaseTask):
 
         self.time_out_buf = self.episode_length_buf > self.max_episode_length # no terminal reward for time-outs
         # self.reset_buf = self.jump_buf | self.contact_buf | self.rpy_buf | self.height_buf | self.obj_buf | self.time_out_buf | self.completion_buf
-        self.reset_buf = self.jump_buf | self.contact_buf | self.rpy_buf | self.height_buf | self.time_out_buf
+        # self.reset_buf = self.jump_buf | self.contact_buf | self.rpy_buf | self.height_buf | self.time_out_buf
+        self.reset_buf = self.contact_buf | self.rpy_buf | self.height_buf | self.time_out_buf
         # if torch.any(self.reset_buf):
         #     ic(self.reset_buf, self.jump_buf, self.contact_buf, self.rpy_buf, self.height_buf, self.time_out_buf)
         #     ic(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1))
@@ -891,8 +902,11 @@ class G1(BaseTask):
         right_min_z_mask = torch.zeros_like(right_z_mask, dtype=torch.bool).scatter(1, right_min_z_idx, 1)  # [N, M]
 
         # Combine the z-height mask and the minimum z-point mask, but only for the feet in contact
-        self.left_footpoints_mask = self.left_feet_contact[..., None] & (left_z_mask | left_min_z_mask)  # [N, M]
-        self.right_footpoints_mask = self.right_feet_contact[..., None] & (right_z_mask | right_min_z_mask)  # [N, M]
+        # self.left_footpoints_mask = self.left_feet_contact[..., None] & (left_z_mask | left_min_z_mask)  # [N, M]
+        # self.right_footpoints_mask = self.right_feet_contact[..., None] & (right_z_mask | right_min_z_mask)  # [N, M]
+
+        self.left_footpoints_mask = torch.norm(self.contact_forces[..., self.left_footpoint_indices, :], dim=-1) > 1
+        self.right_footpoints_mask = torch.norm(self.contact_forces[..., self.right_footpoint_indices, :], dim=-1) > 1
 
 
 
@@ -921,13 +935,16 @@ class G1(BaseTask):
         '''
         Compute if there is contact with the foot <-> ground
         '''
-        self.left_feet_contact = torch.logical_and(
-            (self.last_contacts[..., 0] | self.foot_contacts[..., 0]),
-            self.left_feet_pos[..., 2] < 0.1)
+        # self.left_feet_contact = torch.logical_and(
+        #     (self.last_contacts[..., 0] | self.foot_contacts[..., 0]),
+        #     self.left_feet_pos[..., 2] < 0.1)
 
-        self.right_feet_contact = torch.logical_and(
-            (self.last_contacts[..., 1] | self.foot_contacts[..., 1]),
-            self.right_feet_pos[..., 2] < 0.1)
+        # self.right_feet_contact = torch.logical_and(
+        #     (self.last_contacts[..., 1] | self.foot_contacts[..., 1]),
+        #     self.right_feet_pos[..., 2] < 0.1)
+
+        self.left_feet_contact = torch.any(self.left_footpoints_mask, dim=-1)
+        self.right_feet_contact = torch.any(self.right_footpoints_mask, dim=-1)
    
     # def _compute_obj_pose_base(self):
     #     '''
@@ -1052,6 +1069,7 @@ class G1(BaseTask):
         self.centroidal_ang_momentum = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         # ZMPs
         self.ZMP = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
+        self.ZMP_v2 = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.last_dof_vel = torch.zeros_like(self.dof_vel)
         self.last_root_vel = torch.zeros_like(self.root_states[:, 7:13])
         # self.commands = torch.zeros(self.num_envs, self.cfg.commands.num_commands, dtype=torch.float, device=self.device, requires_grad=False) # x vel, y vel, yaw vel, heading
@@ -1292,6 +1310,8 @@ class G1(BaseTask):
         self.num_bodies = len(body_names)
         self.num_dofs = len(self.dof_names)
         feet_names = [s for s in body_names if self.cfg.asset.foot_name in s]
+        left_footpoint_names = [s for s in body_names if "left_footpoint" in s]
+        right_footpoint_names = [s for s in body_names if "right_footpoint" in s]
         elbow_names = [s for s in body_names if self.cfg.asset.elbow_name in s]
         ankle_joint_names = [s for s in self.dof_names if self.cfg.asset.ankle_joint_name in s]
 
@@ -1362,6 +1382,11 @@ class G1(BaseTask):
             self.envs.append(env_handle)
             self.actor_handles.append(actor_handle)
 
+            # props = self.gym.get_actor_rigid_shape_properties(env_handle,i)
+            # props[self.body_names_dict['left_ankle_roll_link']].filter = 1
+            # props[self.body_names_dict['right_ankle_roll_link']].filter = 1
+            # self.gym.set_actor_rigid_shape_properties(env_handle, i, props)
+
 
             # Create object instance
             # obj_pos = pos.clone()
@@ -1385,6 +1410,14 @@ class G1(BaseTask):
         self.feet_indices = torch.zeros(len(feet_names), dtype=torch.long, device=self.device, requires_grad=False)
         for i in range(len(feet_names)):
             self.feet_indices[i] = self.gym.find_actor_rigid_body_handle(self.envs[0], self.actor_handles[0], feet_names[i])
+            
+        self.left_footpoint_indices = torch.zeros(len(left_footpoint_names), dtype=torch.long, device=self.device, requires_grad=False)
+        for i in range(len(left_footpoint_names)):
+            self.left_footpoint_indices[i] = self.gym.find_actor_rigid_body_handle(self.envs[0], self.actor_handles[0], left_footpoint_names[i])
+
+        self.right_footpoint_indices = torch.zeros(len(right_footpoint_names), dtype=torch.long, device=self.device, requires_grad=False)
+        for i in range(len(right_footpoint_names)):
+            self.right_footpoint_indices[i] = self.gym.find_actor_rigid_body_handle(self.envs[0], self.actor_handles[0], right_footpoint_names[i])
 
         self.elbow_indices = torch.zeros(len(elbow_names), dtype=torch.long, device=self.device, requires_grad=False)
         for i in range(len(elbow_names)):
