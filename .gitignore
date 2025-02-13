@@ -160,3 +160,10 @@ cython_debug/
 
 # logs
 logs
+
+# Replays
+
+rosbag2_*/
+*.txt
+*.csv
+*.png
