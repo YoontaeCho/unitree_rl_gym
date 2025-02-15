@@ -418,7 +418,7 @@ class Controller:
         
         # Data buffers
         self.obs = np.zeros(config.num_obs, dtype=np.float32)
-        self.cmd = np.array([0.0, 0, 0])
+        self.cmd = np.array([0.0, 0, 0, 0])
         self.counter = 0
 
         # ROS handles & helpers
@@ -574,12 +574,19 @@ class Controller:
         self.counter += 1
 
         # TODO(ycho): consider using `cmd` for `hands_command`
-        # self.cmd[0] = self.remote_controller.ly
-        # self.cmd[1] = self.remote_controller.lx * -1
-        # self.cmd[2] = self.remote_controller.rx * -1
+        # left stick : left-right
+        self.cmd[0] = self.remote_controller.ly
+        self.cmd[1] = self.remote_controller.lx * -1
+        # right stick : up-down
+        self.cmd[2] = self.remote_controller.ry
+        self.cmd[3] = self.remote_controller.rx * -1
+        
 
         # FIXME(ycho): implement `_hands_command_`
         _hands_command_ = np.zeros(6)
+
+        _hands_command_[0] = (self.cmd[0] + self.cmd[1]) * 0.1
+        _hands_command_[2] = (self.cmd[2] + self.cmd[3]) * 0.1
 
         self.obs[:] = self.obsmap(self.low_state,
                                   self.action,
