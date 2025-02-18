@@ -79,11 +79,11 @@ class IKCtrl:
 
         # NOTE(ycho): build index map between pin.q and other set(s) of ordered
         # joints.
-        act_from_pin = []
+        pin_from_act = []
         for j in act_joints:
-            act_from_pin.append(robot.index(j) - 1)
+            pin_from_act.append(robot.index(j) - 1)
         self.frame = frame
-        self.act_from_pin = np.asarray(act_from_pin, dtype=np.int32)
+        self.pin_from_act = np.asarray(pin_from_act, dtype=np.int32)
         self.task = FrameTask(frame, position_cost=1.0, orientation_cost=0.0)
         self.sqlmda = sqlmda
         self.cfg = pink.Configuration(robot.model, robot.data,
@@ -129,13 +129,22 @@ class IKCtrl:
         # jacobian
         self.task.set_target(T0)
         jac = self.task.compute_jacobian(self.cfg)
-        jac = jac[:, self.act_from_pin]
+        jac = jac[:, self.pin_from_act]
 
         # error&ik
         dT = T1.actInv(T0)
         dpose = pin.log(dT).vector
         dq = dls_ik(dpose, jac, self.sqlmda)
-        return dq
+
+        # optionally also compute gravity related terms ?
+        h = pin.nonLinearEffects(robot.model,
+                                 robot.data,
+                                 q0,
+                                 # FIXME(ycho): use true velocity here.
+                                 np.zeros_like(q0))
+        tau_arm = h[self.pin_from_act]
+
+        return dq, tau_arm
 
 
 def main():
@@ -163,7 +172,7 @@ def main():
         viz_from_mot[i_mot] = i_viz
     q_viz[viz_from_mot] = q_mot
 
-    ctrl = IKCtrl(urdf_path, data['act_joint'])
+    ctrl = IKCtrl(urdf_path, data['arm_joint'])
 
     q_pin = np.zeros_like(ctrl.cfg.q)
     pin_from_mot = np.zeros(len(data['motor_joint']),
@@ -172,9 +181,9 @@ def main():
         i_pin = ctrl.joint_names.index(j)
         pin_from_mot[i_mot] = i_pin
 
-    mot_from_act = np.zeros(len(data['act_joint']),
+    mot_from_act = np.zeros(len(data['arm_joint']),
                             dtype=np.int32)
-    for i_act, j in enumerate(data['act_joint']):
+    for i_act, j in enumerate(data['arm_joint']):
         i_mot = data['motor_joint'].index(j)
         mot_from_act[i_act] = i_mot
 
@@ -196,7 +205,7 @@ def main():
             target_pose = pin.SE3ToXYZQUAT(T)
             target_pose[..., 3:7] = xyzw2wxyz(target_pose[..., 3:7])
         q_pin[pin_from_mot] = q_mot
-        dq = ctrl(q_pin, target_pose, rel=False)
+        dq, dT = ctrl(q_pin, target_pose, rel=False)
         q_mot[mot_from_act] += dq
 
         q_viz[viz_from_mot] = q_mot

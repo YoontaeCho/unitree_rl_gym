@@ -46,13 +46,17 @@ wrap_to_pi = math_utils.as_np(math_utils.wrap_to_pi)
 combine_frame_transforms = math_utils.as_np(
     math_utils.combine_frame_transforms)
 
+
 class GlobalClock:
     def __init__(self, node):
         self.node = node
 
     def get_time(self):
         return self.node.get_clock().now()
+
+
 clock = None
+
 
 def body_pose(
         tf_buffer,
@@ -63,7 +67,7 @@ def body_pose(
     """ --> tf does not exist """
     if stamp is None:
         stamp = rp.time.Time()
-        #stamp = clock.get_time()
+        # stamp = clock.get_time()
     try:
         # t = "ref{=pelvis}_from_frame" transform
         t = tf_buffer.lookup_transform(
@@ -157,9 +161,9 @@ class eetrack:
         # self.eetrack_midpt = root_state_w.clone()
         # self.eetrack_midpt[..., 1] += 0.3
         self.eetrack_midpt = (
-                root_state_w[..., :3] +
-                quat_rotate(root_state_w[0, 3:7].detach().cpu().numpy(),
-                    np.array([0.3, 0.0, 0.0]))[None]
+            root_state_w[..., :3] +
+            quat_rotate(root_state_w[0, 3:7].detach().cpu().numpy(),
+                        np.array([0.3, 0.0, 0.0]))[None]
         )
         self.eetrack_end = None
         self.eetrack_subgoal = None
@@ -188,12 +192,12 @@ class eetrack:
             delta_body1 = [0, -dx, dz]
 
             self.eetrack_start += math_utils.quat_rotate(
-                    root_state_w[..., 3:7].float(),
-                    th.as_tensor(delta_body0, dtype=th.float32)[None]
+                root_state_w[..., 3:7].float(),
+                th.as_tensor(delta_body0, dtype=th.float32)[None]
             )
             self.eetrack_end += math_utils.quat_rotate(
-                    root_state_w[..., 3:7].float(),
-                    th.as_tensor(delta_body1, dtype=th.float32)[None]
+                root_state_w[..., 3:7].float(),
+                th.as_tensor(delta_body1, dtype=th.float32)[None]
             )
             # self.eetrack_start[..., 2] += eetrack_offset
             # self.eetrack_end[..., 2] += eetrack_offset
@@ -209,12 +213,12 @@ class eetrack:
             delta_body0 = [0, dx, +dz]
             delta_body1 = [0, dx, -dz]
             self.eetrack_start += math_utils.quat_rotate(
-                    root_state_w[..., 3:7],
-                    th.as_tensor(delta_body0)[None]
+                root_state_w[..., 3:7],
+                th.as_tensor(delta_body0)[None]
             )
             self.eetrack_end += math_utils.quat_rotate(
-                    root_state_w[..., 3:7],
-                    th.as_tensor(delta_body1)[None]
+                root_state_w[..., 3:7],
+                th.as_tensor(delta_body1)[None]
             )
 
         return self.eetrack_start, self.eetrack_end
@@ -256,7 +260,7 @@ class eetrack:
         # print(rp.time.Time().nanoseconds)
         time = (clock.get_time() - self.init_time).nanoseconds / 1e9
         if (time >= 1.0):
-            self.sg_idx = int((time-1)/ 0.1 + 1)
+            self.sg_idx = int((time - 1) / 0.1 + 1)
         print(time, self.sg_idx)
         # self.sg_idx.clamp_(0, self.number_of_subgoals + 1)
         self.sg_idx = min(self.sg_idx, self.number_of_subgoals)
@@ -328,7 +332,7 @@ class Observation:
                 'world',
                 'pelvis',
                 rp.time.Time()
-                #clock.get_time()
+                # clock.get_time()
             )
             rxn = world_from_pelvis.transform.rotation
             quat = np.array([rxn.w, rxn.x, rxn.y, rxn.z])
@@ -401,7 +405,7 @@ class Observation:
             'world',
             'pelvis',
             rp.time.Time()
-            #clock.get_time()
+            # clock.get_time()
         )
         pelvis_height = [world_from_pelvis.transform.translation.z]
 
@@ -663,7 +667,7 @@ class Controller:
 
         # Set world_from_pelvis quaternion based on IMU state
         # TODO(ycho): consider applying 90-deg offset?
-        qw, qx, qy, qz = [float(x) for x in self.target_pose[3:7] ]
+        qw, qx, qy, qz = [float(x) for x in self.target_pose[3:7]]
         t.transform.rotation.x = qx
         t.transform.rotation.y = qy
         t.transform.rotation.z = qz
@@ -701,13 +705,13 @@ class Controller:
                     xyz1, quat_wxyz1)
             else:
                 xyz, quat = body_pose(
-                        self.tf_buffer,
-                        'left_hand_palm_link',
-                        'world',
-                        rot_type='quat'
+                    self.tf_buffer,
+                    'left_hand_palm_link',
+                    'world',
+                    rot_type='quat'
                 )
             self.target_pose = np.concatenate([xyz, quat])
-            #print('validation...',
+            # print('validation...',
             #      self.target_pose,
             #      body_pose(self.tf_buffer,
             #                'left_hand_palm_link',
@@ -736,7 +740,6 @@ class Controller:
             self.eetrack = eetrack(torch.from_numpy(root_state_w)[None],
                                    self.tf_buffer)
 
-
         if True:
             _hands_command_ = self.eetrack.get_command(
                 torch.from_numpy(root_state_w)[None])[0].detach().cpu().numpy()
@@ -744,8 +747,7 @@ class Controller:
             # NOTE(ycho) EETRACK version
             if True:
                 self.target_pose = np.copy(
-                        self.eetrack.next_command_s_left.squeeze().detach().cpu().numpy()
-                        )
+                    self.eetrack.next_command_s_left.squeeze().detach().cpu().numpy())
                 self.publish_hand_target()
         else:
             _hands_command_ = np.zeros(6)
@@ -766,10 +768,10 @@ class Controller:
                         current_pose.rotation).coeffs())
                 else:
                     cur_xyz, cur_quat = body_pose(
-                            self.tf_buffer,
-                            'left_hand_palm_link',
-                            'world',
-                            rot_type='quat'
+                        self.tf_buffer,
+                        'left_hand_palm_link',
+                        'world',
+                        rot_type='quat'
                     )
                 _hands_command_ = np.zeros(6)
                 _hands_command_[0:3] = (self.target_pose[:3] - cur_xyz)
@@ -790,17 +792,17 @@ class Controller:
                     rot_type='quat'
                 )
                 dst_xyz, dst_quat = combine_frame_transforms(
-                        pelvis_from_world[0],
-                        pelvis_from_world[1],
-                        self.target_pose[..., :3],
-                        self.target_pose[..., 3:7]
+                    pelvis_from_world[0],
+                    pelvis_from_world[1],
+                    self.target_pose[..., :3],
+                    self.target_pose[..., 3:7]
                 )
 
                 cur_xyz, cur_quat = body_pose(
-                        self.tf_buffer,
-                        'left_hand_palm_link',
-                        rot_type='quat')
-                
+                    self.tf_buffer,
+                    'left_hand_palm_link',
+                    rot_type='quat')
+
                 _hands_command_ = np.zeros(6)
                 _hands_command_[0:3] = (dst_xyz - cur_xyz)
                 # q_target @ q_current^{-1}
@@ -851,18 +853,18 @@ class Controller:
         # np.save(F'{logpath}/act{self.counter:03d}.npy',
         #         self.action)
 
-        target_dof_pos = self.actmap(
+        target_dof_pos, target_dof_eff = self.actmap(
             self.obs,
             self.action,
-            #root_state_w[3:7]
+            # root_state_w[3:7]
         )
 
         q_mot = np.asarray(
-                [self.low_state.motor_state[i_mot].q for i_mot in range(29)]
+            [self.low_state.motor_state[i_mot].q for i_mot in range(29)]
         )
         target_dof_pos = (
-                0.7 * q_mot +
-                0.3 * target_dof_pos
+            0.7 * q_mot +
+            0.3 * target_dof_pos
         )
         # print('??',
         #         target_dof_pos,
@@ -877,7 +879,7 @@ class Controller:
             self.low_cmd.motor_cmd[i].dq = 0.0
             self.low_cmd.motor_cmd[i].kp = 0.5 * float(self.config.kps[i])
             self.low_cmd.motor_cmd[i].kd = 0.5 * float(self.config.kds[i])
-            self.low_cmd.motor_cmd[i].tau = 0.0
+            self.low_cmd.motor_cmd[i].tau = float(target_dof_eff[i])
 
         # reduce KP for non-arm joints
         for i in self.mot_from_nonarm:

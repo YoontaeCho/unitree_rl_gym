@@ -110,7 +110,7 @@ class ActToDof:
         target_xyz = source_xyz + hands_command_b[..., :3]
         target_quat = quat_mul(d_quat, source_quat)
         target = np.concatenate([target_xyz, target_quat])
-        res_q_ik = self.ikctrl(
+        res_q_ik, arm_nle = self.ikctrl(
             q_pin,
             target
         )
@@ -132,6 +132,9 @@ class ActToDof:
         target_dof_pos += q_mot
         target_dof_pos[self.mot_from_arm] += res_q_ik
 
+        target_dof_eff = np.zeros(29)
+        target_dof_eff[self.mot_from_arm] += arm_nle
+
         if True:
             target_dof_pos[self.mot_from_arm] += np.clip(
                 0.3 * left_arm_residual,
@@ -151,7 +154,7 @@ class ActToDof:
             #     self.lim_hi_pin[self.pin_from_mot]
             # )
 
-        return target_dof_pos
+        return target_dof_pos, target_dof_eff
 
 
 def main():
@@ -188,7 +191,7 @@ def main():
         target_dof_pos = np.zeros_like(dof_lab)
         target_dof_pos[:] = dof_lab[lab_from_mot]
 
-        dof = act_to_dof(obs, act)
+        dof, eff = act_to_dof(obs, act)
 
         export = target_dof_pos
         calc = dof
