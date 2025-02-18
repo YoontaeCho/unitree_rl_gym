@@ -110,9 +110,14 @@ class ActToDof:
         target_xyz = source_xyz + hands_command_b[..., :3]
         target_quat = quat_mul(d_quat, source_quat)
         target = np.concatenate([target_xyz, target_quat])
+
+        v_lab = obs[..., 61:90]
+        v_pin = np.zeros_like(self.ikctrl.cfg.q)
+        v_pin[self.pin_from_lab] = v_lab
         res_q_ik, arm_nle = self.ikctrl(
             q_pin,
-            target
+            target,
+            v0=v_pin,
         )
         # print('res_q_ik', res_q_ik)
 

@@ -98,7 +98,8 @@ class IKCtrl:
     def __call__(self,
                  q0: np.ndarray,
                  target_pose: np.ndarray,
-                 rel: bool = False
+                 rel: bool = False,
+                 v0: np.ndarray = None
                  ):
         """
         Arg:
@@ -137,11 +138,13 @@ class IKCtrl:
         dq = dls_ik(dpose, jac, self.sqlmda)
 
         # optionally also compute gravity related terms ?
+        if v0 is None:
+            v0 = np.zeros_like(q0)
         h = pin.nonLinearEffects(robot.model,
                                  robot.data,
                                  q0,
                                  # FIXME(ycho): use true velocity here.
-                                 np.zeros_like(q0))
+                                 v0)
         tau_arm = h[self.pin_from_act]
 
         return dq, tau_arm

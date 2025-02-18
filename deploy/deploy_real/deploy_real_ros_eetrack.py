@@ -170,8 +170,10 @@ class eetrack:
         self.number_of_subgoals = 30
         self.eetrack_line_length = 0.3
         self.device = "cpu"
-        self.create_eetrack(root_state_w)
-        self.eetrack_subgoal = self.create_subgoal()
+        self.waypoints = self.create_eetrack(root_state_w)
+        self.eetrack_subgoal = self.create_subgoal(
+                root_state_w,
+                self.waypoints)
         self.sg_idx = 0
         # first subgoal sampling time = 1.0s
         # self.init_time = rp.time.Time()#.nanoseconds / 1e9 + 1.0
@@ -183,9 +185,35 @@ class eetrack:
         is_hor = rd.choice([True, False])
         eetrack_offset = rd.uniform(-0.5, 0.5)
         # For testing
+        is_box = True
         is_hor = True
+
         eetrack_offset = 0.0
-        if is_hor:
+        if is_box:
+            waypoints = []
+
+            dx = (self.eetrack_line_length) / 2.
+            dy = (self.eetrack_line_length) / 2.
+            dz = eetrack_offset
+
+            deltas = [
+                    [+dy, +dx, dz],
+                    [+dy, -dx, dz],
+                    [-dy, -dx, dz],
+                    [-dy, +dx, dz],
+                    [+dy, +dx, dz]
+            ]
+
+            for delta in deltas:
+                waypoint = self.eetrack_midpt.clone()
+                waypoint += math_utils.quat_rotate(
+                    root_state_w[..., 3:7].float(),
+                    th.as_tensor(delta, dtype=th.float32)[None]
+                )
+                waypoints.append( waypoint )
+            return waypoints
+
+        elif is_hor:
             dx = (self.eetrack_line_length) / 2.
             dz = eetrack_offset
             delta_body0 = [0, +dx, dz]
@@ -239,22 +267,29 @@ class eetrack:
             euler[:, 0], euler[:, 1], euler[:, 2])
         return quat
 
-    def create_subgoal(self):
-        eetrack_subgoals = interpolate_position(
-            self.eetrack_start, self.eetrack_end, self.number_of_subgoals)
-        eetrack_subgoals = [
-            (
-                l.clone().to(self.device, dtype=torch.float32)
-                if isinstance(l, torch.Tensor)
-                else torch.tensor(l, device=self.device, dtype=torch.float32)
-            )
-            for l in eetrack_subgoals
-        ]
-        eetrack_subgoals = torch.stack(eetrack_subgoals, axis=1)
-        eetrack_ori = self.create_direction().unsqueeze(
-            1).repeat(1, self.number_of_subgoals + 1, 1)
-        # welidng_subgoals -> Nenv x Npoints x (3 + 4)
-        return torch.cat([eetrack_subgoals, eetrack_ori], dim=2)
+    def create_subgoal(self, root_state_w, waypoints):
+        qs = []
+        for p0, p1 in zip(waypoints[:-1], waypoints[1:]):
+            eetrack_subgoals = interpolate_position(
+                p0, p1, self.number_of_subgoals)
+            eetrack_subgoals = [
+                (
+                    l.clone().to(self.device, dtype=torch.float32)
+                    if isinstance(l, torch.Tensor)
+                    else torch.tensor(l, device=self.device, dtype=torch.float32)
+                )
+                for l in eetrack_subgoals
+            ]
+            eetrack_subgoals = torch.stack(eetrack_subgoals, axis=1)
+
+            eetrack_ori = self.create_direction().unsqueeze(
+                1).repeat(1, self.number_of_subgoals + 1, 1)
+            if True:
+                eetrack_ori[..., :] = root_state_w[..., None, 3:7]
+            # welidng_subgoals -> Nenv x Npoints x (3 + 4)
+            q = torch.cat([eetrack_subgoals, eetrack_ori], dim=2)
+            qs.append(q)
+        return torch.cat(qs, dim=1)
 
     def update_command(self):
         # print(rp.time.Time().nanoseconds)
@@ -263,7 +298,9 @@ class eetrack:
             self.sg_idx = int((time - 1) / 0.1 + 1)
         print(time, self.sg_idx)
         # self.sg_idx.clamp_(0, self.number_of_subgoals + 1)
-        self.sg_idx = min(self.sg_idx, self.number_of_subgoals)
+        self.sg_idx = min(
+                self.sg_idx,
+                self.eetrack_subgoal.shape[-2] - 1)
         self.next_command_s_left = self.eetrack_subgoal[...,
                                                         self.sg_idx, :]
 
@@ -461,9 +498,9 @@ class Controller:
         )
         self.lab_from_mot = index_map(self.config.lab_joint,
                                       self.config.motor_joint)
-        self.config.default_angles = np.asarray(self.config.lab_joint_offsets)[
-            self.lab_from_mot
-        ]
+        # self.config.default_angles = np.asarray(self.config.lab_joint_offsets)[
+        #     self.lab_from_mot
+        # ]
 
         # Data buffers
         self.obs = np.zeros(config.num_obs, dtype=np.float32)
@@ -876,10 +913,11 @@ class Controller:
         # Build low cmd
         for i in range(len(self.config.motor_joint)):
             self.low_cmd.motor_cmd[i].q = float(target_dof_pos[i])
+            # self.low_cmd.motor_cmd[i].q = q_mot[i]
             self.low_cmd.motor_cmd[i].dq = 0.0
             self.low_cmd.motor_cmd[i].kp = 0.5 * float(self.config.kps[i])
             self.low_cmd.motor_cmd[i].kd = 0.5 * float(self.config.kds[i])
-            self.low_cmd.motor_cmd[i].tau = float(target_dof_eff[i])
+            # self.low_cmd.motor_cmd[i].tau = 0.7 * float(target_dof_eff[i])
 
         # reduce KP for non-arm joints
         for i in self.mot_from_nonarm:
