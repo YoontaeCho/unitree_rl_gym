@@ -194,14 +194,13 @@ class eetrack:
 
             dx = (self.eetrack_line_length) / 2.
             dy = (self.eetrack_line_length) / 2.
-            dz = eetrack_offset
 
             deltas = [
-                    [+dy, +dx, dz],
-                    [+dy, -dx, dz],
-                    [-dy, -dx, dz],
-                    [-dy, +dx, dz],
-                    [+dy, +dx, dz]
+                    [0, +dy, +dx],
+                    [0, +dy, -dx],
+                    [0, -dy, -dx],
+                    [0, -dy, +dx],
+                    [0, +dy, +dx]
             ]
 
             for delta in deltas:
