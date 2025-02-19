@@ -9,6 +9,10 @@ from pathlib import Path
 import rclpy as rp
 from unitree_hg.msg import LowCmd as LowCmdHG, LowState as LowStateHG
 from unitree_go.msg import LowCmd as LowCmdGo, LowState as LowStateGo
+
+from nav_msgs.msg import Path as PathMsg
+from geometry_msgs.msg import PoseStamped
+
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
@@ -167,7 +171,7 @@ class eetrack:
         )
         self.eetrack_end = None
         self.eetrack_subgoal = None
-        self.number_of_subgoals = 30
+        self.number_of_subgoals = 60
         self.eetrack_line_length = 0.3
         self.device = "cpu"
         self.waypoints = self.create_eetrack(root_state_w)
@@ -196,11 +200,11 @@ class eetrack:
             dy = (self.eetrack_line_length) / 2.
 
             deltas = [
-                    [0, +dy, +dx],
-                    [0, +dy, -dx],
-                    [0, -dy, -dx],
-                    [0, -dy, +dx],
-                    [0, +dy, +dx]
+                    [0, +dy, +dx + 0.1],
+                    [0, +dy, -dx + 0.1],
+                    [0, -dy, -dx + 0.1],
+                    [0, -dy, +dx + 0.1],
+                    [0, +dy, +dx + 0.1]
             ]
 
             for delta in deltas:
@@ -555,6 +559,13 @@ class Controller:
         else:
             raise ValueError("Invalid msg_type")
 
+        self.goalpath_publisher = self._node.create_publisher(
+                PathMsg, 'goalpath', 10)
+        self.truepath_publisher = self._node.create_publisher(
+                PathMsg, 'truepath', 10)
+        self.goalpath = PathMsg()
+        self.truepath = PathMsg()
+
         # wait for the subscriber to receive data
         # self.wait_for_low_state()
 
@@ -776,6 +787,27 @@ class Controller:
             self.eetrack = eetrack(torch.from_numpy(root_state_w)[None],
                                    self.tf_buffer)
 
+            self.goalpath.header.frame_id = 'world'
+            self.goalpath.header.stamp = clock.get_time().to_msg()
+            wpts = self.eetrack.waypoints
+            for p in wpts:
+                p = p.detach().cpu().numpy().squeeze(axis=0)
+                p = [float(x) for x in p]
+                msg = PoseStamped()
+                msg.header.frame_id = 'world'
+                msg.header.stamp = clock.get_time().to_msg()
+                msg.pose.position.x = p[0]
+                msg.pose.position.y = p[1]
+                msg.pose.position.z = p[2]
+                # msg.pose.quaternion.w = p[3]
+                # msg.pose.quaternion.x = p[4]
+                # msg.pose.quaternion.y = p[5]
+                # msg.pose.quaternion.z = p[6]
+                self.goalpath.poses.append(msg)
+            self.truepath.header.frame_id = 'world'
+            self.truepath.header.stamp = clock.get_time().to_msg()
+                        
+
         if True:
             _hands_command_ = self.eetrack.get_command(
                 torch.from_numpy(root_state_w)[None])[0].detach().cpu().numpy()
@@ -858,10 +890,10 @@ class Controller:
         self.obs[:] = self.obsmap(self.low_state,
                                   self.action,
                                   _hands_command_)
-        # logpath = Path('/tmp/eet8/')
-        # logpath.mkdir(parents=True, exist_ok=True)
-        # np.save(F'{logpath}/obs{self.counter:03d}.npy',
-        #         self.obs)
+        logpath = Path('/tmp/eet12/')
+        logpath.mkdir(parents=True, exist_ok=True)
+        np.save(F'{logpath}/obs{self.counter:03d}.npy',
+                self.obs)
 
         # Get the action from the policy network
         obs_tensor = torch.from_numpy(self.obs).unsqueeze(0)
@@ -886,8 +918,8 @@ class Controller:
             non_arm_target = np.load('/tmp/eet5/act064.npy')[0][:22]
             self.action[..., :22] = non_arm_target
 
-        # np.save(F'{logpath}/act{self.counter:03d}.npy',
-        #         self.action)
+        np.save(F'{logpath}/act{self.counter:03d}.npy',
+                self.action)
 
         target_dof_pos, target_dof_eff = self.actmap(
             self.obs,
@@ -906,17 +938,17 @@ class Controller:
         #         target_dof_pos,
         #         [self.low_state.motor_state[i_mot].q for i_mot in range(29)])
 
-        # np.save(F'{logpath}/dof{self.counter:03d}.npy',
-        #         target_dof_pos)
+        np.save(F'{logpath}/dof{self.counter:03d}.npy',
+                target_dof_pos)
 
         # Build low cmd
         for i in range(len(self.config.motor_joint)):
             self.low_cmd.motor_cmd[i].q = float(target_dof_pos[i])
             # self.low_cmd.motor_cmd[i].q = q_mot[i]
             self.low_cmd.motor_cmd[i].dq = 0.0
-            self.low_cmd.motor_cmd[i].kp = 0.5 * float(self.config.kps[i])
-            self.low_cmd.motor_cmd[i].kd = 0.5 * float(self.config.kds[i])
-            # self.low_cmd.motor_cmd[i].tau = 0.7 * float(target_dof_eff[i])
+            self.low_cmd.motor_cmd[i].kp = 0.8 * float(self.config.kps[i])
+            self.low_cmd.motor_cmd[i].kd = 0.8 * float(self.config.kds[i])
+            self.low_cmd.motor_cmd[i].tau = 1.0 * float(target_dof_eff[i])
 
         # reduce KP for non-arm joints
         for i in self.mot_from_nonarm:
@@ -925,6 +957,26 @@ class Controller:
 
         # send the command
         self.send_cmd(self.low_cmd)
+
+        if True:
+            msg = PoseStamped()
+            msg.header.frame_id='world'
+            msg.header.stamp=clock.get_time().to_msg()
+            cur_xyz, cur_quat = body_pose(
+                self.tf_buffer,
+                'left_hand_palm_link',
+                'world',
+                rot_type='quat')
+            msg.pose.position.x = float(cur_xyz[0])
+            msg.pose.position.y = float(cur_xyz[1])
+            msg.pose.position.z = float(cur_xyz[2])
+            msg.pose.orientation.w = float(cur_quat[0])
+            msg.pose.orientation.x = float(cur_quat[1])
+            msg.pose.orientation.y = float(cur_quat[2])
+            msg.pose.orientation.z = float(cur_quat[3])
+            self.truepath.poses.append(msg)
+            self.goalpath_publisher.publish(self.goalpath)
+            self.truepath_publisher.publish(self.truepath)
 
     def run_wrapper(self):
         # print("hello", self.mode,
