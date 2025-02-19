@@ -229,6 +229,7 @@ if __name__ == "__main__":
     # define context variables
     action = np.zeros(config.num_actions, dtype=np.float32)
     target_dof_pos = config.default_angles.copy()
+    target_dof_eff = 0
     obs = np.zeros(config.num_obs, dtype=np.float32)
     ikctrl = IKCtrl(
         "../../resources/robots/g1_description/g1_29dof_with_hand_rev_1_0.urdf",
@@ -262,17 +263,13 @@ if __name__ == "__main__":
                 d.qvel[6:],
                 config.kds
             )
-            d.ctrl[:] = tau
+            d.ctrl[:] = tau #+ target_dof_eff
             mujoco.mj_step(m, d)
             counter += 1
             if counter % config.control_decimation == 0:
                 # eetrack visualization
                 eetrack.vis(viewer)
                 print("=================== STEP ===================")
-                l_h_p, l_h_q = get_link_pose_quat_root_frame(m, d, "left_hand_palm_link")
-                l_h_p_w, l_h_q_w = get_link_pose_quat_world_frame(m, d, "left_hand_palm_link")
-                print(f"root : {l_h_p} {l_h_q}")
-                print(f"world : {l_h_p_w} {l_h_q_w}")
                 # create observation
                 """
                 base_ang_vel 0:3
@@ -307,7 +304,9 @@ if __name__ == "__main__":
                 # hands_command 119:125
                 root_state_w = np.concatenate(get_link_pose_quat_world_frame(m, d, "pelvis"))
                 hand_state_w = np.concatenate(get_link_pose_quat_world_frame(m, d, "left_hand_palm_link"))
-                hands_command = eetrack.get_command(m, d, root_state_w, hand_state_w)
+                print("hand_root  : ", np.concatenate(get_link_pose_quat_root_frame(m, d, "left_hand_palm_link")))
+                print("hand_world : ",np.concatenate(get_link_pose_quat_world_frame(m, d, "left_hand_palm_link")))
+                hands_command = eetrack.get_command(root_state_w, hand_state_w)
                 # hands_command = np.zeros(6)
                 # right_arm_com 125:128
                 right_arm_com = get_right_arm_com(m,d)
@@ -346,8 +345,9 @@ if __name__ == "__main__":
                 obs = obs_tensor.numpy().squeeze()
 
                 # solve IK
-                target_dof_pos = actmap(obs, action) # raw joint order
+                target_dof_pos, target_dof_eff = actmap(obs, action) # raw joint order
 
+                # TODO mjkim : qpos가 정확하게 뭔데?
                 # smoothing
                 # target_dof_pos = (0.7 * d.qpos[7:] + 0.3 * target_dof_pos)
 

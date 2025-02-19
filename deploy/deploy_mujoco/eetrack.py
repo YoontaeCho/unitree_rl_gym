@@ -130,9 +130,9 @@ class EETrack:
         self.sg_idx = int(min(self.sg_idx, self.number_of_subgoals))
         self.next_command_s_left = self.eetrack_subgoal[self.sg_idx, :]
 
-    def get_command(self, model, data, root_w, hand_w) :
+    def get_command(self, root_w, hand_w) :
         self.update_command()
-        # print("get_command:", self.next_command_s_left)
+        print("eetrack target:", self.next_command_s_left)
         pos_hand_b_left, quat_hand_b_left = subtract_frame_transforms(
             root_w[:3],
             root_w[3:7],

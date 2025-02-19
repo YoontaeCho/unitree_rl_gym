@@ -165,3 +165,4 @@ logs
 # mjkim
 isaacgym/
 *.TXT
+deploy_log/

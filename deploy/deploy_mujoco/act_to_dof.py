@@ -71,11 +71,12 @@ class ActToDof :
         )
 
     def __call__ (self, obs, action):
-        hands_command_b = obs[..., 119:125]
+        hands_command_w = obs[..., 119:125]
         non_arm_joint_pos = action[..., :22]
         left_arm_residual = action[..., 22:29]
 
-        q_lab = obs[..., 32:61] # current : lab joint order
+        # obs: lab joint order
+        q_lab = obs[..., 32:61]
         
         # pin : pin joint order
         q_pin = np.zeros_like (self.ikctrl.cfg.q)
@@ -85,6 +86,8 @@ class ActToDof :
         q_mot = np.zeros(29)
         q_mot[self.mot_from_lab] = q_lab + np.asarray(self.config.lab_joint_offsets)
 
+        hands_command_b = hands_command_w
+
         axa = hands_command_b[..., 3:]
         angle = np.asarray(np.linalg.norm(axa, axis=-1))
         axis = axa / np.maximum(angle, 1e-6)
@@ -93,16 +96,28 @@ class ActToDof :
         source_pose = self.ikctrl.fk(q_pin)
         source_xyz = source_pose.translation
         source_quat = xyzw2wxyz(pin.Quaternion(source_pose.rotation).coeffs())
-        print('fk_source', np.concatenate([source_xyz, source_quat]))
         target_xyz = source_xyz + hands_command_b[..., :3]
         target_quat = quat_mul(d_quat, source_quat)
         target = np.concatenate([target_xyz, target_quat])
-        print("fk_target", target)
-        res_q_ik = self.ikctrl(q_pin, target)
+        # TODO(mjkim) : fk failed (source_pose is not correct)
+        print("fk_source  :", np.concatenate([source_xyz, source_quat]))
+        print("fk_target  :", target)
+        v_lab = obs[..., 61:90]
+        v_pin = np.zeros_like(self.ikctrl.cfg.q)
+        v_pin[self.pin_from_lab] = v_lab
+        res_q_ik, arm_nle = self.ikctrl(
+            q_pin,
+            target,
+            v0=v_pin,
+        )
 
         target_dof_pos = np.zeros(29)
         target_dof_pos += q_mot
-        target_dof_pos[self.mot_from_arm] = res_q_ik
+        target_dof_pos[self.mot_from_arm] += res_q_ik
+
+        target_dof_eff = np.zeros(29)
+        target_dof_eff[self.mot_from_arm] += arm_nle
+
 
         target_dof_pos[self.mot_from_arm] += np.clip(
             0.3 * left_arm_residual, -0.2, 0.2
@@ -112,5 +127,5 @@ class ActToDof :
             self.default_nonarm + 0.5 * non_arm_joint_pos
         )
 
-        return target_dof_pos
+        return target_dof_pos, target_dof_eff
 
