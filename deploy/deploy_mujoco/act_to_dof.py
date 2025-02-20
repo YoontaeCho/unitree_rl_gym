@@ -81,11 +81,10 @@ class ActToDof :
         # pin : pin joint order
         q_pin = np.zeros_like (self.ikctrl.cfg.q)
         q_pin[self.pin_from_lab] = q_lab + np.asarray(self.config.lab_joint_offsets)
-        
+
         # mot : lab joint order
         q_mot = np.zeros(29)
         q_mot[self.mot_from_lab] = q_lab + np.asarray(self.config.lab_joint_offsets)
-
         hands_command_b = hands_command_w
 
         axa = hands_command_b[..., 3:]
@@ -96,6 +95,14 @@ class ActToDof :
         source_pose = self.ikctrl.fk(q_pin)
         source_xyz = source_pose.translation
         source_quat = xyzw2wxyz(pin.Quaternion(source_pose.rotation).coeffs())
+        
+        # source from obs
+        # source_xyz = obs[...,18:21]
+        # source_angle = np.asarray(np.linalg.norm(obs[...,24:27], axis=-1))
+        # source_axis = axa / np.maximum(source_angle, 1e-6)
+        # source_quat = quat_from_angle_axis(source_angle, source_axis)
+        # source_quat = quat_from_angle_axis(np.linalg.norm(source_axis), source_axis)
+        
         target_xyz = source_xyz + hands_command_b[..., :3]
         target_quat = quat_mul(d_quat, source_quat)
         target = np.concatenate([target_xyz, target_quat])

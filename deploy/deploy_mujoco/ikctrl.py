@@ -64,7 +64,8 @@ class IKCtrl:
     def __init__(self,
                  urdf_path: str,
                  act_joints: Tuple[str, ...],
-                 frame: str = 'left_hand_palm_link',
+                #  frame: str = 'left_hand_palm_link',
+                 frame: str = 'left_wrist_yaw_link',
                  sqlmda: float = 0.05**2):
         path = Path(urdf_path)
         with with_dir(path.parent):

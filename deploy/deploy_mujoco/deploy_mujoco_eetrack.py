@@ -1,5 +1,5 @@
 import time
-
+from pathlib import Path
 import mujoco.viewer
 import mujoco
 import numpy as np
@@ -12,12 +12,11 @@ import math_utils_np as math_np
 from xml_helper import extract_link_data
 from typing import List, Union
 import pinocchio as pin
-from ikctrl import IKCtrl
+from ikctrl import IKCtrl, xyzw2wxyz
 from config import Config
 from eetrack import EETrack
-from act_to_dof import ActToDof
+from act_to_dof import ActToDof, index_map
 DEBUG = True
-
 from math_utils import (
     as_np,
     quat_from_angle_axis,
@@ -43,6 +42,21 @@ quat_from_euler_xyz = as_np(quat_from_euler_xyz)
 compute_pose_error = as_np(compute_pose_error)
 
 
+
+def print_obs(obs):
+    # print("base_ang_vel", obs[0:3])
+    # print("projected_gravity", obs[3:6])
+    # print("foot_pose", obs[6:18])
+    print("hand_pose", obs[18:30])
+    # print("projected_com", obs[30:32])
+    # print("joint_pos", obs[32:61])
+    # print("joint_vel", obs[61:90])
+    # print("actions", obs[90:119])
+    print("hands_command", obs[119:125])
+    # print("right_arm_com", obs[125:128])
+    # print("left_arm_com", obs[128:131])
+    # print("pelvis_height", obs[131:132])
+
 def get_gravity_orientation(quaternion):
     qw = quaternion[0]
     qx = quaternion[1]
@@ -59,6 +73,9 @@ def get_gravity_orientation(quaternion):
 
 def get_link_pose_quat_world_frame(model, data, link_name):
     link_idx = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, link_name)
+    if (link_idx == -1):
+        print(f"Link {link_name} not found in model")
+        exit()
     return (data.xpos[link_idx],data.xquat[link_idx])
 
 def get_link_pose_quat_root_frame(model, data, link_name):
@@ -69,23 +86,19 @@ def get_link_pose_quat_root_frame(model, data, link_name):
 def get_foot_pos(model, data):
     fp_l_p, fp_l_q = get_link_pose_quat_root_frame(model, data, "left_ankle_roll_link")
     fp_r_p, fp_r_q = get_link_pose_quat_root_frame(model, data, "right_ankle_roll_link")
-    fp_l_a = axis_angle_from_quat(fp_l_q)
-    fp_l_a = wrap_to_pi(fp_l_a)
-    fp_r_a = axis_angle_from_quat(fp_r_q)
-    fp_r_a = wrap_to_pi(fp_r_a)
-    return np.concatenate([fp_l_p, fp_l_a, fp_r_p, fp_r_a])
+    fp_l_a = wrap_to_pi(axis_angle_from_quat(fp_l_q))
+    fp_r_a = wrap_to_pi(axis_angle_from_quat(fp_r_q))
+    return np.concatenate([fp_l_p, fp_r_p, fp_l_a, fp_r_a])
 
 def get_hand_pos(model, data):
-    hp_l_p, hp_l_q = get_link_pose_quat_root_frame(model, data, "left_hand_palm_link")
-    hp_r_p, hp_r_q = get_link_pose_quat_root_frame(model, data, "right_hand_palm_link")
-    hp_l_a = axis_angle_from_quat(hp_l_q)
-    hp_l_a = wrap_to_pi(hp_l_a)
-    hp_r_a = axis_angle_from_quat(hp_r_q)
-    hp_r_a = wrap_to_pi(hp_r_a)
-    return np.concatenate([hp_l_p, hp_l_a, hp_r_p, hp_r_a])
+    hp_l_p, hp_l_q = get_link_pose_quat_root_frame(model, data, "left_wrist_yaw_link")
+    hp_r_p, hp_r_q = get_link_pose_quat_root_frame(model, data, "right_wrist_yaw_link")
+    hp_l_a = wrap_to_pi(axis_angle_from_quat(hp_l_q))
+    hp_r_a = wrap_to_pi(axis_angle_from_quat(hp_r_q))
+    return np.concatenate([hp_l_p, hp_r_p, hp_l_a, hp_r_a])
 
 def compute_com(model, data, body_frames: Union[List, None] = None):
-    com_data = extract_link_data("../../resources/robots/g1_description/g1_29dof_rev_1_0.xml")
+    com_data = extract_link_data(config.xml_path)
     mass_list = []
     com_list = []
     if body_frames is None:
@@ -223,7 +236,9 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("config_file", type=str, help="config file name in the config folder")
+    parser.add_argument("use_log", type=int, help="use log or not")
     args = parser.parse_args()
+    USE_LOG = args.use_log
     config_file = args.config_file
     config = Config(f"{LEGGED_GYM_ROOT_DIR}/deploy/deploy_mujoco/configs/{config_file}")
     # define context variables
@@ -232,9 +247,11 @@ if __name__ == "__main__":
     target_dof_eff = 0
     obs = np.zeros(config.num_obs, dtype=np.float32)
     ikctrl = IKCtrl(
-        "../../resources/robots/g1_description/g1_29dof_with_hand_rev_1_0.urdf",
-        config.arm_joint)
-    actmap = ActToDof(config, ikctrl)
+        # "../../resources/robots/g1_description/g1_29dof_with_hand_rev_1_0.urdf",
+        "../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf",
+        config.arm_joint
+    )
+    actmap = ActToDof(config, ikctrl)  
     counter = 0
 
     # Load robot model
@@ -242,9 +259,8 @@ if __name__ == "__main__":
     m = mujoco.MjModel.from_xml_path(config.xml_path)
     d = mujoco.MjData(m)
     m.opt.timestep = config.simulation_dt
-
-    # load policy
     policy = torch.jit.load(config.policy_path)
+    logpath = Path("deploy_log/eet9")
 
     with mujoco.viewer.launch_passive(m, d) as viewer:
         # Close the viewer automatically after simulation_duration wall-seconds.
@@ -258,15 +274,16 @@ if __name__ == "__main__":
             tau = pd_control(
                 target_dof_pos,
                 d.qpos[7:],
-                config.kps,
+                np.multiply(1.0, config.kps),
                 np.zeros_like(config.kds),
                 d.qvel[6:],
-                config.kds
+                np.multiply(1.0, config.kds)
             )
             d.ctrl[:] = tau #+ target_dof_eff
             mujoco.mj_step(m, d)
             counter += 1
             if counter % config.control_decimation == 0:
+                # input()
                 # eetrack visualization
                 eetrack.vis(viewer)
                 print("=================== STEP ===================")
@@ -286,7 +303,7 @@ if __name__ == "__main__":
                 pelvis_height 131:132
                 """
                 # base_ang_vel 0:3
-                base_angl_vel = d.qvel[3:6]
+                base_ang_vel = quat_rotate_inverse(d.qpos[3:7], d.qvel[3:6])
                 # projected_gravity 3:6
                 projected_gravity = get_gravity_orientation(d.qpos[3:7])
                 # foot_pose 6:18
@@ -295,7 +312,10 @@ if __name__ == "__main__":
                 hand_pose = get_hand_pos(m,d)
                 # projected_com 30:32
                 projected_com = compute_com(m,d)[:2]
+                projected_com += np.random.normal(size=projected_com.shape) * 0.01
+
                 # joint_pos 32:61
+
                 joint_pos = d.qpos[7:] # raw joint order
                 # joint_vel 61:90
                 joint_vel = d.qvel[6:] # raw joint order
@@ -303,21 +323,24 @@ if __name__ == "__main__":
                 actions = action # lab joint order
                 # hands_command 119:125
                 root_state_w = np.concatenate(get_link_pose_quat_world_frame(m, d, "pelvis"))
-                hand_state_w = np.concatenate(get_link_pose_quat_world_frame(m, d, "left_hand_palm_link"))
-                print("hand_root  : ", np.concatenate(get_link_pose_quat_root_frame(m, d, "left_hand_palm_link")))
-                print("hand_world : ",np.concatenate(get_link_pose_quat_world_frame(m, d, "left_hand_palm_link")))
+                hand_state_w = np.concatenate(get_link_pose_quat_world_frame(m, d, "left_wrist_yaw_link"))
+                
+                print("hand_root  : ", np.concatenate(get_link_pose_quat_root_frame(m, d, "left_wrist_yaw_link")))
+                # print("hand_world : ", np.concatenate(get_link_pose_quat_world_frame(m, d, "left_hand_palm_link")))
                 hands_command = eetrack.get_command(root_state_w, hand_state_w)
                 # hands_command = np.zeros(6)
                 # right_arm_com 125:128
-                right_arm_com = get_right_arm_com(m,d)
+                right_arm_com = get_right_arm_com(m,d) 
+                right_arm_com += np.random.normal(size=right_arm_com.shape) * 0.01
                 # left_arm_com 128:131
                 left_arm_com = get_left_arm_com(m,d)
+                left_arm_com += np.random.normal(size=left_arm_com.shape) * 0.01
                 # pelvis_height 131:132
-                pelvis_height = np.asarray([get_link_pose_quat_world_frame(m, d, "pelvis")[0][2]])
-                # pelvis_height = np.asarray([d.qpos[2]])
+                # pelvis_height = np.asarray([get_link_pose_quat_world_frame(m, d, "pelvis")[0][2]])
+                pelvis_height = np.asarray([d.qpos[2]])
 
                 obs =[
-                    base_angl_vel,
+                    base_ang_vel,
                     projected_gravity,
                     foot_pose,
                     hand_pose,
@@ -333,23 +356,40 @@ if __name__ == "__main__":
 
                 obs = np.concatenate(obs, axis=-1)
                 obs_tensor = torch.from_numpy(obs).unsqueeze(0).float()
-                # raw -> lab
+                # raw -> lab for joint pos and vel
                 obs_tensor[..., 32:61] = obs_tensor[..., 32:61] @ mapping_tensor.transpose(0, 1)
                 obs_tensor[..., 61:90] = obs_tensor[..., 61:90] @ mapping_tensor.transpose(0, 1)
                 # subtract joint offset
-                obs_tensor[...,32:61] -= torch.Tensor(config.lab_joint_offsets)
+                obs_tensor[..., 32:61] -= torch.Tensor(config.lab_joint_offsets)
 
+
+                print("muj obs")
+                print_obs(obs)
+                if USE_LOG :
+                    obs = np.load(F"{logpath}/obs{counter:03d}.npy")
+                    obs_tensor = torch.from_numpy(obs).unsqueeze(0)
+                    obs_tensor = obs_tensor.detach().clone()
+                    print("log obs")
+                    print_obs(obs)
+
+                obs_tensor.add_(1e-3 * torch.randn_like(obs_tensor))
                 action = policy(obs_tensor).detach().numpy().squeeze()
+
+                if USE_LOG :
+                    action = np.load(F"{logpath}/act{counter:03d}.npy")
 
                 # act_to_dof need lab joint order
                 obs = obs_tensor.numpy().squeeze()
 
                 # solve IK
                 target_dof_pos, target_dof_eff = actmap(obs, action) # raw joint order
-
-                # TODO mjkim : qpos가 정확하게 뭔데?
+                # if USE_LOG :
+                #     print("muj dof", target_dof_pos)
+                #     target_dof_pos = np.load(F"{logpath}/dof{counter:03d}.npy")
+                #     print("log dof", target_dof_pos)
                 # smoothing
-                # target_dof_pos = (0.7 * d.qpos[7:] + 0.3 * target_dof_pos)
+                scale = 0.3
+                target_dof_pos = (scale * d.qpos[7:] + (1-scale) * target_dof_pos)
 
             # Pick up changes to the physics state, apply perturbations, update options from GUI.
             viewer.sync()
