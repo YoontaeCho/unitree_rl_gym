@@ -160,3 +160,9 @@ cython_debug/
 
 # logs
 logs
+
+
+# mjkim
+isaacgym/
+*.TXT
+deploy_log/
