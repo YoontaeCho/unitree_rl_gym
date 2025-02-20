@@ -285,8 +285,16 @@ class Controller:
                 self.low_cmd.motor_cmd[motor_idx].tau = 0.0
             self.send_cmd(self.low_cmd)
         else:
-            self._mode_change = True
-            self.mode = Mode.policy
+            try:
+                current_left_tf = self.tf_buffer.lookup_transform( 
+                                "world",
+                                "left_ankle_roll_link", 
+                                rp.time.Time())
+                self._mode_change = True
+                self.mode = Mode.policy
+            except Exception as ex:
+                print(ex)
+           
 
     def tf_to_pose(self, tf, order='xyzw'):
         pos = to_array(tf.transform.translation)
@@ -445,7 +453,7 @@ class Controller:
         base_pose_w = self.tf_to_pose(self.tf_buffer.lookup_transform(
             "world", "pelvis",
                                         rp.time.Time()), 'wxyz')
-        dt_left = dt_right = 0.0
+        # dt_left = dt_right = 0.0
         step_command = self.get_command(base_pose_w,
                         lf_b,
                         rf_b,
@@ -473,15 +481,17 @@ class Controller:
         # if not self._saved:
         #     torch.save(obs_tensor, "obs.pt")
         #     self._saved = True
+        obs_tensor[76:78] = obs_tensor[76:78].clamp(-2, 2)
+        obs_tensor[84:87] = obs_tensor[84:87].clamp(-2, 2)
         self._obs_buf.append(obs_tensor.clone())
 
-        self.action = self.policy(obs_tensor).detach().numpy().squeeze()
+        self.action = self.policy(obs_tensor).clamp(-1, 1).detach().numpy().squeeze()
         # self.action = self.action * mask.numpy()
         # Reorder the actions
         self.action = self.action @ mapping_tensor.detach().cpu().numpy()
 
         # transform action to target_dof_pos
-        target_dof_pos = self.config.default_angles + self.action * self.config.action_scale *0.8
+        target_dof_pos = self.config.default_angles + self.action * self.config.action_scale *1.0
 
         # Build low cmd
         if True:
@@ -518,14 +528,7 @@ class Controller:
             if self._mode_change:
                 print("Enter default pos state.")
                 print("Waiting for the Button A signal...")
-                try:
-                    current_left_tf = self.tf_buffer.lookup_transform( 
-                                    "world",
-                                    "left_ankle_roll_link", 
-                                    rp.time.Time())
-                    self._mode_change = False
-                except Exception as ex:
-                    print(ex)
+                self._mode_change = False
             self.default_pos_state()
         elif self.mode == Mode.policy:
             if self._mode_change:
