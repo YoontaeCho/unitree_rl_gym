@@ -58,7 +58,7 @@ class StepCommand:
         self.next_ctarget_right = current_right_pose.copy()
         self.next_ctime_left = 0.4
         self.next_ctime_right = 0.4
-        self.delta_ctime = 0.4  # Fixed time delta for a new step
+        self.delta_ctime = 0.5  # Fixed time delta for a new step
         self.max_range = {
             'x_range': (-0.2, 0.2),
             'y_range': (0.2, 0.4),

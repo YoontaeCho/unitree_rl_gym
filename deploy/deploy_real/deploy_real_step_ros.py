@@ -28,6 +28,8 @@ from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 from tf2_ros import TransformBroadcaster, TransformStamped, StaticTransformBroadcaster
 
+from icecream import ic
+
 class Mode(Enum):
     wait = 0
     zero_torque = 1
@@ -184,6 +186,7 @@ class Controller:
         self._timer = self._node.create_timer(self.config.control_dt, self.run_wrapper)
         self._terminate = False
         self._obs_buf = []
+        self._pose_buf = []
         try:
             rp.spin(self._node)
         except KeyboardInterrupt:
@@ -194,7 +197,8 @@ class Controller:
             self.send_cmd(self.low_cmd)
             self._node.destroy_node()
             rp.shutdown()
-            torch.save(torch.cat(self._obs_buf, dim=0), "obs6.pt")
+            torch.save(torch.cat(self._pose_buf, dim=0), "pose7.pt")
+            torch.save(torch.cat(self._obs_buf, dim=0), "obs7.pt")
             print("Exit")
 
     def LowStateHgHandler(self, msg: LowStateHG):
@@ -346,6 +350,9 @@ class Controller:
                                                                             pelvis_w[3:7],
                                                                             ctarget_right_w[:3],
                                                                             ctarget_right_w[3:7])
+        ic(ctarget_left_w, ctarget_right_w)
+        ic(ctarget_left_b_pos, ctarget_right_b_pos)
+        ic(foot_right_b, foot_left_b)
         pos_delta_left, axa_delta_left = compute_pose_error(foot_left_b[:3],
                                                             foot_left_b[3:7],
                                                             ctarget_left_b_pos,
@@ -354,7 +361,8 @@ class Controller:
                                                             foot_right_b[3:7],
                                                             ctarget_right_b_pos,
                                                             ctarget_right_b_quat)
-        return np.concatenate((pos_delta_left, axa_delta_left, pos_delta_right, axa_delta_right), axis=0)
+        ic(pos_delta_left, pos_delta_right)
+        return np.concatenate((pos_delta_right, axa_delta_right, pos_delta_left, axa_delta_left), axis=0)
 
     def run_policy(self):
         if self._step_command is None:
@@ -478,14 +486,17 @@ class Controller:
         obs_tensor[..., 30 + num_actions : 30 + num_actions * 2] = obs_tensor[..., 30 + num_actions : 30 + num_actions * 2] @ mapping_tensor.transpose(0, 1)
         obs_tensor[..., 30 + num_actions * 2 : 30 + num_actions * 3] = obs_tensor[..., 30 + num_actions * 2 : 30 + num_actions * 3] @ mapping_tensor.transpose(0, 1)
 
+        ic(base_pose_w, obs_tensor[..., 30:30+num_actions])
+
         # if not self._saved:
         #     torch.save(obs_tensor, "obs.pt")
         #     self._saved = True
-        obs_tensor[76:78] = obs_tensor[76:78].clamp(-2, 2)
-        obs_tensor[84:87] = obs_tensor[84:87].clamp(-2, 2)
+        # obs_tensor[76:78] = obs_tensor[76:78].clamp(-2, 2)
+        # obs_tensor[84:87] = obs_tensor[84:87].clamp(-2, 2)
         self._obs_buf.append(obs_tensor.clone())
+        self._pose_buf.append(torch.from_numpy(base_pose_w).unsqueeze(0))
 
-        self.action = self.policy(obs_tensor).clamp(-1, 1).detach().numpy().squeeze()
+        self.action = self.policy(obs_tensor).detach().numpy().squeeze()
         # self.action = self.action * mask.numpy()
         # Reorder the actions
         self.action = self.action @ mapping_tensor.detach().cpu().numpy()
@@ -498,8 +509,8 @@ class Controller:
             for i, motor_idx in enumerate(self.config.joint2motor_idx):
                 self.low_cmd.motor_cmd[motor_idx].q = float(target_dof_pos[i])
                 self.low_cmd.motor_cmd[motor_idx].dq = 0.0
-                self.low_cmd.motor_cmd[motor_idx].kp = float(self.config.kps[i])
-                self.low_cmd.motor_cmd[motor_idx].kd = float(self.config.kds[i])
+                self.low_cmd.motor_cmd[motor_idx].kp = float(self.config.kps[i]*0.7)
+                self.low_cmd.motor_cmd[motor_idx].kd = float(self.config.kds[i]*0.8)
                 self.low_cmd.motor_cmd[motor_idx].tau = 0.0
         # send the command
         self.send_cmd(self.low_cmd)

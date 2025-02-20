@@ -317,7 +317,7 @@ class Controller:
                                                             foot_right_b[3:7],
                                                             ctarget_right_b_pos,
                                                             ctarget_right_b_quat)
-        return np.concatenate((pos_delta_left, axa_delta_left, pos_delta_right, axa_delta_right), axis=0)
+        return np.concatenate((pos_delta_right, axa_delta_right, pos_delta_left, axa_delta_left), axis=0)
 
     def run_wrapper(self):
         t = time.time()
