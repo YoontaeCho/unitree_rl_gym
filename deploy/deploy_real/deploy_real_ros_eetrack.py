@@ -312,7 +312,7 @@ class eetrack:
 
         pos_hand_b_left, quat_hand_b_left = body_pose(
             self.tf_buffer,
-            "left_hand_palm_link",
+            "left_rubber_hand",
             rot_type='quat'
         )
 
@@ -400,8 +400,8 @@ class Observation:
         fp_r = body_pose(self.tf_buffer, 'right_ankle_roll_link')
         foot_pose = np.concatenate([fp_l[0], fp_r[0], fp_l[1], fp_r[1]])
 
-        hp_l = body_pose(self.tf_buffer, 'left_hand_palm_link')
-        hp_r = body_pose(self.tf_buffer, 'right_hand_palm_link')
+        hp_l = body_pose(self.tf_buffer, 'left_rubber_hand')
+        hp_r = body_pose(self.tf_buffer, 'right_rubber_hand')
         hand_pose = np.concatenate([hp_l[0], hp_r[0], hp_l[1], hp_r[1]])
 
         # FIXME(ycho): implement com_pos_wrt_pelvis
@@ -476,8 +476,9 @@ class Controller:
         self.policy = torch.jit.load(config.policy_path)
         self.action = np.zeros(config.num_actions, dtype=np.float32)
         self.ikctrl = IKCtrl(
-            '../../resources/robots/g1_description/g1_29dof_with_hand_rev_1_0.urdf',
-            config.arm_joint)
+            '../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf',
+            config.arm_joint,
+            frame='left_rubber_hand')
         self.actmap = ActToDof(config, self.ikctrl)
         self.lim_lo_pin = self.ikctrl.robot.model.lowerPositionLimit
         self.lim_hi_pin = self.ikctrl.robot.model.upperPositionLimit
@@ -501,9 +502,9 @@ class Controller:
         )
         self.lab_from_mot = index_map(self.config.lab_joint,
                                       self.config.motor_joint)
-        # self.config.default_angles = np.asarray(self.config.lab_joint_offsets)[
-        #     self.lab_from_mot
-        # ]
+        self.config.default_angles = np.asarray(self.config.lab_joint_offsets)[
+            self.lab_from_mot
+        ]
 
         # Data buffers
         self.obs = np.zeros(config.num_obs, dtype=np.float32)
@@ -521,7 +522,7 @@ class Controller:
         self.tf_listener = TransformListener(self.tf_buffer, self._node)
         self.tf_broadcaster = TransformBroadcaster(self._node)
         self.obsmap = Observation(
-            '../../resources/robots/g1_description/g1_29dof_with_hand_rev_1_0.urdf',
+            '../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf',
             config, self.tf_buffer)
         # FIXME(ycho): give `root_state_w`
         self.eetrack = None
@@ -675,24 +676,66 @@ class Controller:
             self.mode = Mode.damping
 
     def default_pos_state(self):
+        qoff = [
+                -0.10313098877668381  ,
+        0.06024283543229103  ,
+        -0.010646557435393333,
+        -0.008505071513354778 ,
+        -0.02882762998342514  ,
+        0.0011540573323145509,
+        -0.10576919466257095 ,
+        0.056535713374614716,
+        -0.008744907565414906,
+        0.022975623607635498  ,
+        -0.016416382044553757,
+        -0.0035046685952693224,
+        -0.021119019016623497,
+        0.4062911570072174   ,
+        -0.49479222297668457 ,
+        0.05265868455171585,
+        -0.015843145549297333,
+        -0.008796420879662037,
+        0.0631568655371666  ,
+        0.0006950850365683436,
+        0.015102041885256767,
+        -0.0023009711876511574    ,
+        0.06383996456861496,
+        -0.016801884397864342,
+        -0.0049135321751236916,
+        0.05879461020231247,
+        -0.008568720892071724,
+        0.013499031774699688,
+        -0.0007363108452409506,
+        ]
+
         if self.remote_controller.button[KeyMap.A] != 1:
-            for i in range(len(self.config.leg_joint2motor_idx)):
-                motor_idx = self.config.leg_joint2motor_idx[i]
-                self.low_cmd.motor_cmd[motor_idx].q = float(
-                    self.config.default_angles[i])
-                self.low_cmd.motor_cmd[motor_idx].dq = 0.0
-                self.low_cmd.motor_cmd[motor_idx].kp = self._kps[i]
-                self.low_cmd.motor_cmd[motor_idx].kd = self._kds[i]
-                self.low_cmd.motor_cmd[motor_idx].tau = 0.0
-            for i in range(len(self.config.arm_waist_joint2motor_idx)):
-                motor_idx = self.config.arm_waist_joint2motor_idx[i]
-                self.low_cmd.motor_cmd[motor_idx].q = float(
-                    self.config.arm_waist_target[i])
-                self.low_cmd.motor_cmd[motor_idx].dq = 0.0
-                self.low_cmd.motor_cmd[motor_idx].kp = self._kps[i]
-                self.low_cmd.motor_cmd[motor_idx].kd = self._kds[i]
-                self.low_cmd.motor_cmd[motor_idx].tau = 0.0
+            for i in range(29):
+                self.low_cmd.motor_cmd[i].q = float(
+                    0.0#self.config.default_angles[i]
+                    # -qoff[i]
+                )
+
+                #print(i, self.config.default_angles[i])
+                self.low_cmd.motor_cmd[i].kp = 40.0#self._kps[i]
+                self.low_cmd.motor_cmd[i].kd = 5.0#self._kds[i]
             self.send_cmd(self.low_cmd)
+            # for i in range(len(self.config.leg_joint2motor_idx)):
+            #     motor_idx = self.config.leg_joint2motor_idx[i]
+            #     self.low_cmd.motor_cmd[motor_idx].q = float(
+            #         self.config.default_angles[i])
+            #     self.low_cmd.motor_cmd[motor_idx].dq = 0.0
+            #     self.low_cmd.motor_cmd[motor_idx].kp = self._kps[i]
+            #     self.low_cmd.motor_cmd[motor_idx].kd = self._kds[i]
+            #     self.low_cmd.motor_cmd[motor_idx].tau = 0.0
+            # for i in range(len(self.config.arm_waist_joint2motor_idx)):
+            #     motor_idx = self.config.arm_waist_joint2motor_idx[i]
+            #     self.low_cmd.motor_cmd[motor_idx].q = float(
+            #         self.config.arm_waist_target[i])
+            #     self.low_cmd.motor_cmd[motor_idx].dq = 0.0
+            #     self.low_cmd.motor_cmd[motor_idx].kp = self._kps[i]
+            #     self.low_cmd.motor_cmd[motor_idx].kd = self._kds[i]
+            #     self.low_cmd.motor_cmd[motor_idx].tau = 0.0
+            # self.send_cmd(self.low_cmd)
         else:
             self._mode_change = True
             self.mode = Mode.policy
@@ -753,7 +796,7 @@ class Controller:
             else:
                 xyz, quat = body_pose(
                     self.tf_buffer,
-                    'left_hand_palm_link',
+                    'left_rubber_hand',
                     'world',
                     rot_type='quat'
                 )
@@ -761,7 +804,7 @@ class Controller:
             # print('validation...',
             #      self.target_pose,
             #      body_pose(self.tf_buffer,
-            #                'left_hand_palm_link',
+            #                'left_rubber_hand',
             #                'world', rot_type='quat'))
 
         if False:
@@ -837,7 +880,7 @@ class Controller:
                 else:
                     cur_xyz, cur_quat = body_pose(
                         self.tf_buffer,
-                        'left_hand_palm_link',
+                        'left_rubber_hand',
                         'world',
                         rot_type='quat'
                     )
@@ -868,7 +911,7 @@ class Controller:
 
                 cur_xyz, cur_quat = body_pose(
                     self.tf_buffer,
-                    'left_hand_palm_link',
+                    'left_rubber_hand',
                     rot_type='quat')
 
                 _hands_command_ = np.zeros(6)
@@ -890,7 +933,7 @@ class Controller:
         self.obs[:] = self.obsmap(self.low_state,
                                   self.action,
                                   _hands_command_)
-        logpath = Path('/tmp/eet12/')
+        logpath = Path('/tmp/eet18/')
         logpath.mkdir(parents=True, exist_ok=True)
         np.save(F'{logpath}/obs{self.counter:03d}.npy',
                 self.obs)
@@ -911,6 +954,7 @@ class Controller:
             obs_tensor[..., 122:125] = math_utils.quat_rotate(
                 world_from_body_quat[None],
                 obs_tensor[..., 122:125])
+
         if True:
             self.action = self.policy(obs_tensor).detach().numpy().squeeze()
 
@@ -919,7 +963,7 @@ class Controller:
             self.action[..., :22] = non_arm_target
 
         np.save(F'{logpath}/act{self.counter:03d}.npy',
-                self.action)
+                 self.action)
 
         target_dof_pos, target_dof_eff = self.actmap(
             self.obs,
@@ -927,33 +971,37 @@ class Controller:
             # root_state_w[3:7]
         )
 
+        np.save(F'{logpath}/dof{self.counter:03d}.npy',
+                target_dof_pos)
+
         q_mot = np.asarray(
             [self.low_state.motor_state[i_mot].q for i_mot in range(29)]
         )
         target_dof_pos = (
-            0.7 * q_mot +
-            0.3 * target_dof_pos
+            0.6 * q_mot +
+            0.4 * target_dof_pos
         )
         # print('??',
         #         target_dof_pos,
         #         [self.low_state.motor_state[i_mot].q for i_mot in range(29)])
 
-        np.save(F'{logpath}/dof{self.counter:03d}.npy',
-                target_dof_pos)
+        # np.save(F'{logpath}/dof{self.counter:03d}.npy',
+        #         target_dof_pos)
 
         # Build low cmd
         for i in range(len(self.config.motor_joint)):
             self.low_cmd.motor_cmd[i].q = float(target_dof_pos[i])
             # self.low_cmd.motor_cmd[i].q = q_mot[i]
             self.low_cmd.motor_cmd[i].dq = 0.0
-            self.low_cmd.motor_cmd[i].kp = 0.8 * float(self.config.kps[i])
-            self.low_cmd.motor_cmd[i].kd = 0.8 * float(self.config.kds[i])
+            self.low_cmd.motor_cmd[i].kp = 1.0 * float(self.config.kps[i])
+            self.low_cmd.motor_cmd[i].kd = 1.0 * float(self.config.kds[i])
             self.low_cmd.motor_cmd[i].tau = 1.0 * float(target_dof_eff[i])
 
         # reduce KP for non-arm joints
         for i in self.mot_from_nonarm:
-            self.low_cmd.motor_cmd[i].kp = 0.2 * float(self.config.kps[i])
-            self.low_cmd.motor_cmd[i].kd = 0.2 * float(self.config.kds[i])
+            self.low_cmd.motor_cmd[i].kp = 1.0 * float(self.config.kps[i])
+            # self.low_cmd.motor_cmd[i].kd = 0.5 * float(self.config.kds[i])
+            self.low_cmd.motor_cmd[i].kd = 1.0 * float(self.config.kds[i])
 
         # send the command
         self.send_cmd(self.low_cmd)
@@ -964,7 +1012,7 @@ class Controller:
             msg.header.stamp=clock.get_time().to_msg()
             cur_xyz, cur_quat = body_pose(
                 self.tf_buffer,
-                'left_hand_palm_link',
+                'left_rubber_hand',
                 'world',
                 rot_type='quat')
             msg.pose.position.x = float(cur_xyz[0])

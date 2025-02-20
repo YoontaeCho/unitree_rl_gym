@@ -31,7 +31,7 @@ class Controller:
         self.remote_controller = RemoteController()
 
         act_joint = config.arm_joint
-        self.ikctrl = IKCtrl('../../resources/robots/g1_description/g1_29dof_with_hand_rev_1_0.urdf',
+        self.ikctrl = IKCtrl('../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf',
                              act_joint)
         self.lim_lo_pin = self.ikctrl.robot.model.lowerPositionLimit
         self.lim_hi_pin = self.ikctrl.robot.model.upperPositionLimit
