@@ -101,14 +101,10 @@ def body_pose(
 from common.xml_helper import extract_link_data
 
 
-def compute_com(tf_buffer, body_frames: List[str]):
+def compute_com(tf_buffer, com_data, body_frames: List[str]):
     """compute com of body frames"""
     mass_list = []
     com_list = []
-
-    # bring default values
-    com_data = extract_link_data(
-        '../../resources/robots/g1_description/g1_29dof_rev_1_0.xml')
 
     # iterate for frames
     for frame in body_frames:
@@ -351,6 +347,9 @@ class Observation:
         self.tf_buffer = tf_buffer
         self.lab_from_mot = index_map(config.lab_joint,
                                       config.motor_joint)
+        # bring default values
+        self.com_data = extract_link_data(
+            '../../resources/robots/g1_description/g1_29dof_rev_1_0.xml')
 
     def __call__(self,
                  low_state: LowStateHG,
@@ -405,7 +404,7 @@ class Observation:
         hand_pose = np.concatenate([hp_l[0], hp_r[0], hp_l[1], hp_r[1]])
 
         # FIXME(ycho): implement com_pos_wrt_pelvis
-        projected_com = compute_com(self.tf_buffer, self.links)[..., :2]
+        projected_com = compute_com(self.tf_buffer, self.com_data, self.links)[..., :2]
         # projected_zmp = _ # IMPOSSIBLE
 
         # Map `low_state` to index-mapped joint_{pos,vel}
@@ -423,7 +422,7 @@ class Observation:
         # Given as delta_pos {xyz,axa}; i.e. 6D vector
         # hands_command = self.eetrack.get_command()
 
-        right_arm_com = compute_com(self.tf_buffer, [
+        right_arm_com = compute_com(self.tf_buffer, self.com_data, [
             "right_shoulder_pitch_link",
             "right_shoulder_roll_link",
             "right_shoulder_yaw_link",
@@ -432,7 +431,7 @@ class Observation:
             "right_wrist_roll_link",
             "right_wrist_yaw_link"
         ])
-        left_arm_com = compute_com(self.tf_buffer, [
+        left_arm_com = compute_com(self.tf_buffer, self.com_data, [
             "left_shoulder_pitch_link",
             "left_shoulder_roll_link",
             "left_shoulder_yaw_link",
