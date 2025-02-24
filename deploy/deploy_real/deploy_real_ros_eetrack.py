@@ -933,10 +933,10 @@ class Controller:
         self.obs[:] = self.obsmap(self.low_state,
                                   self.action,
                                   _hands_command_)
-        # logpath = Path('/tmp/eet18/')
-        # logpath.mkdir(parents=True, exist_ok=True)
-        # np.save(F'{logpath}/obs{self.counter:03d}.npy',
-        #         self.obs)
+        logpath = Path('/tmp/eet28/')
+        logpath.mkdir(parents=True, exist_ok=True)
+        np.save(F'{logpath}/obs{self.counter:03d}.npy',
+                self.obs)
 
         # Get the action from the policy network
         obs_tensor = torch.from_numpy(self.obs).unsqueeze(0)
@@ -955,15 +955,18 @@ class Controller:
                 world_from_body_quat[None],
                 obs_tensor[..., 122:125])
 
-        if True:
+        if self.action is None:
             self.action = self.policy(obs_tensor).detach().numpy().squeeze()
+        else:
+            action = self.policy(obs_tensor).detach().numpy().squeeze()
+            self.action = (0.7 * self.action + 0.3 * action)
 
         if False:
             non_arm_target = np.load('/tmp/eet5/act064.npy')[0][:22]
             self.action[..., :22] = non_arm_target
 
-        # np.save(F'{logpath}/act{self.counter:03d}.npy',
-        #          self.action)
+        np.save(F'{logpath}/act{self.counter:03d}.npy',
+                 self.action)
 
         target_dof_pos, target_dof_eff = self.actmap(
             self.obs,
@@ -971,20 +974,26 @@ class Controller:
             # root_state_w[3:7]
         )
 
-        # np.save(F'{logpath}/dof{self.counter:03d}.npy',
-        #         target_dof_pos)
+        np.save(F'{logpath}/dof{self.counter:03d}.npy',
+                target_dof_pos)
 
         q_mot = np.asarray(
             [self.low_state.motor_state[i_mot].q for i_mot in range(29)]
         )
-        target_dof_pos = (
-            0.4 * q_mot +
-            0.6 * target_dof_pos
-        )
+        # print(self.counter)
+        if self.counter <= 100:
+            target_dof_pos = (
+                0.8 * q_mot +
+                0.2 * target_dof_pos
+            )
+        else:
+            target_dof_pos = (
+                0.2 * q_mot +
+                0.8 * target_dof_pos
+            )
         # print('??',
         #         target_dof_pos,
         #         [self.low_state.motor_state[i_mot].q for i_mot in range(29)])
-
         # np.save(F'{logpath}/dof{self.counter:03d}.npy',
         #         target_dof_pos)
 
@@ -993,16 +1002,16 @@ class Controller:
             self.low_cmd.motor_cmd[i].q = float(target_dof_pos[i])
             # self.low_cmd.motor_cmd[i].q = q_mot[i]
             self.low_cmd.motor_cmd[i].dq = 0.0
-            self.low_cmd.motor_cmd[i].kp = 0.0 * float(self.config.kps[i])
-            self.low_cmd.motor_cmd[i].kd = 0.0 * float(self.config.kds[i])
+            self.low_cmd.motor_cmd[i].kp = 0.8 * float(self.config.kps[i])
+            self.low_cmd.motor_cmd[i].kd = 1.0 * float(self.config.kds[i])
             self.low_cmd.motor_cmd[i].tau = 1.0 * float(target_dof_eff[i])
 
         # reduce KP for non-arm joints
         for i in self.mot_from_nonarm:
             # self.low_cmd.motor_cmd[i].kp = 1.0 * float(self.config.kps[i])
-            self.low_cmd.motor_cmd[i].kp = 0.0 * float(self.config.kps[i])
+            self.low_cmd.motor_cmd[i].kp = 0.8 * float(self.config.kps[i])
             # self.low_cmd.motor_cmd[i].kd = 0.5 * float(self.config.kds[i])
-            self.low_cmd.motor_cmd[i].kd = 0.0 * float(self.config.kds[i])
+            self.low_cmd.motor_cmd[i].kd = 1.0 * float(self.config.kds[i])
 
         # send the command
         self.send_cmd(self.low_cmd)
