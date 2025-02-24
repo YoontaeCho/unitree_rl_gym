@@ -456,6 +456,7 @@ class Observation:
             hand_pose,
             projected_com,
             joint_pos,
+            # 0.2 * joint_vel,
             joint_vel,
             actions,
             hands_command,
@@ -933,10 +934,10 @@ class Controller:
         self.obs[:] = self.obsmap(self.low_state,
                                   self.action,
                                   _hands_command_)
-        logpath = Path('/tmp/eet18/')
-        logpath.mkdir(parents=True, exist_ok=True)
-        np.save(F'{logpath}/obs{self.counter:03d}.npy',
-                self.obs)
+        # logpath = Path('/tmp/eet18/')
+        # logpath.mkdir(parents=True, exist_ok=True)
+        # np.save(F'{logpath}/obs{self.counter:03d}.npy',
+        #         self.obs)
 
         # Get the action from the policy network
         obs_tensor = torch.from_numpy(self.obs).unsqueeze(0)
@@ -962,8 +963,8 @@ class Controller:
             non_arm_target = np.load('/tmp/eet5/act064.npy')[0][:22]
             self.action[..., :22] = non_arm_target
 
-        np.save(F'{logpath}/act{self.counter:03d}.npy',
-                 self.action)
+        # np.save(F'{logpath}/act{self.counter:03d}.npy',
+        #          self.action)
 
         target_dof_pos, target_dof_eff = self.actmap(
             self.obs,
@@ -971,15 +972,15 @@ class Controller:
             # root_state_w[3:7]
         )
 
-        np.save(F'{logpath}/dof{self.counter:03d}.npy',
-                target_dof_pos)
+        # np.save(F'{logpath}/dof{self.counter:03d}.npy',
+        #         target_dof_pos)
 
         q_mot = np.asarray(
             [self.low_state.motor_state[i_mot].q for i_mot in range(29)]
         )
         target_dof_pos = (
-            0.6 * q_mot +
-            0.4 * target_dof_pos
+            0.4 * q_mot +
+            0.6 * target_dof_pos
         )
         # print('??',
         #         target_dof_pos,
@@ -999,6 +1000,7 @@ class Controller:
 
         # reduce KP for non-arm joints
         for i in self.mot_from_nonarm:
+            # self.low_cmd.motor_cmd[i].kp = 1.0 * float(self.config.kps[i])
             self.low_cmd.motor_cmd[i].kp = 1.0 * float(self.config.kps[i])
             # self.low_cmd.motor_cmd[i].kd = 0.5 * float(self.config.kds[i])
             self.low_cmd.motor_cmd[i].kd = 1.0 * float(self.config.kds[i])
