@@ -994,16 +994,16 @@ class Controller:
             self.low_cmd.motor_cmd[i].q = float(target_dof_pos[i])
             # self.low_cmd.motor_cmd[i].q = q_mot[i]
             self.low_cmd.motor_cmd[i].dq = 0.0
-            self.low_cmd.motor_cmd[i].kp = 1.0 * float(self.config.kps[i])
-            self.low_cmd.motor_cmd[i].kd = 1.0 * float(self.config.kds[i])
+            self.low_cmd.motor_cmd[i].kp = 0.0 * float(self.config.kps[i])
+            self.low_cmd.motor_cmd[i].kd = 0.0 * float(self.config.kds[i])
             self.low_cmd.motor_cmd[i].tau = 1.0 * float(target_dof_eff[i])
 
         # reduce KP for non-arm joints
         for i in self.mot_from_nonarm:
             # self.low_cmd.motor_cmd[i].kp = 1.0 * float(self.config.kps[i])
-            self.low_cmd.motor_cmd[i].kp = 1.0 * float(self.config.kps[i])
+            self.low_cmd.motor_cmd[i].kp = 0.0 * float(self.config.kps[i])
             # self.low_cmd.motor_cmd[i].kd = 0.5 * float(self.config.kds[i])
-            self.low_cmd.motor_cmd[i].kd = 1.0 * float(self.config.kds[i])
+            self.low_cmd.motor_cmd[i].kd = 0.0 * float(self.config.kds[i])
 
         # send the command
         self.send_cmd(self.low_cmd)
