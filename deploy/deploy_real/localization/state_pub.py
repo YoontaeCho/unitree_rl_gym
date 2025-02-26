@@ -42,14 +42,15 @@ class StatePublisher(Node):
         self.joint_pub.publish(joint_state)
     
     def run(self):
-        loop_rate = self.create_rate(10)
-        try:
-            # rclpy.spin()
-            while rclpy.ok():
-                rclpy.spin_once(self)
-                loop_rate.sleep()
-        except KeyboardInterrupt:
-            pass
+        # loop_rate = self.create_rate(10)
+        # try:
+        #     # rclpy.spin()
+        #     while rclpy.ok():
+        #         rclpy.spin_once(self)
+        #         loop_rate.sleep()
+        rclpy.spin()
+        # except KeyboardInterrupt:
+        #     pass
 
 
 

@@ -147,6 +147,8 @@ class Controller:
 
         self._cur_time = None
 
+        self.pos_target = self.target_dof_pos.copy()
+
         if config.msg_type == "hg":
             # g1 and h1_2 use the hg msg type
 
@@ -461,7 +463,7 @@ class Controller:
         base_pose_w = self.tf_to_pose(self.tf_buffer.lookup_transform(
             "world", "pelvis",
                                         rp.time.Time()), 'wxyz')
-        # dt_left = dt_right = 0.0
+        dt_left = dt_right = 0.0
         step_command = self.get_command(base_pose_w,
                         lf_b,
                         rf_b,
@@ -503,6 +505,10 @@ class Controller:
 
         # transform action to target_dof_pos
         target_dof_pos = self.config.default_angles + self.action * self.config.action_scale *1.0
+
+        target_dof_pos_with_ema = 0.5 * target_dof_pos + 0.5 * self.pos_target
+        self.pos_target = target_dof_pos_with_ema
+        target_dof_pos = target_dof_pos_with_ema
 
         # Build low cmd
         if True:

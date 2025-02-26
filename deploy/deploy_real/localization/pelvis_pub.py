@@ -85,6 +85,7 @@ class PelvistoTrack(Node):
             )
         except Exception as ex:
             print(f'Could not transform mid360_link_IMU to pelvis as world to camera_init is yet published: {ex}')
+            return
         try:
             t = TransformStamped()
 
@@ -94,7 +95,8 @@ class PelvistoTrack(Node):
             t_lidar_pelvis = self.tf_buffer.lookup_transform(
                 'mid360_link_IMU', 
                 # 'zed2_camera_center',
-                'pelvis', rclpy.time.Time()
+                'pelvis', rclpy.time.Time(),
+                # rclpy.duration.Duration(seconds=0.05)
             )
 
             t.header.stamp = self.get_clock().now().to_msg()
