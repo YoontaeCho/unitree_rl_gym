@@ -578,9 +578,9 @@ class Controller:
 
         # NOTE(ycho):
         # if running from real robot:
-        self.mode = Mode.wait
+        # self.mode = Mode.wait
         # if running from rosbag:
-        # self.mode = Mode.policy
+        self.mode = Mode.policy
 
         self._mode_change = True
         self._timer = self._node.create_timer(
@@ -935,8 +935,8 @@ class Controller:
                                   _hands_command_)
         logpath = Path('/tmp/eet28/')
         logpath.mkdir(parents=True, exist_ok=True)
-        np.save(F'{logpath}/obs{self.counter:03d}.npy',
-                self.obs)
+        # np.save(F'{logpath}/obs{self.counter:03d}.npy',
+        #         self.obs)
 
         # Get the action from the policy network
         obs_tensor = torch.from_numpy(self.obs).unsqueeze(0)
@@ -965,8 +965,8 @@ class Controller:
             non_arm_target = np.load('/tmp/eet5/act064.npy')[0][:22]
             self.action[..., :22] = non_arm_target
 
-        np.save(F'{logpath}/act{self.counter:03d}.npy',
-                 self.action)
+        # np.save(F'{logpath}/act{self.counter:03d}.npy',
+        #          self.action)
 
         target_dof_pos, target_dof_eff = self.actmap(
             self.obs,
@@ -974,8 +974,8 @@ class Controller:
             # root_state_w[3:7]
         )
 
-        np.save(F'{logpath}/dof{self.counter:03d}.npy',
-                target_dof_pos)
+        # np.save(F'{logpath}/dof{self.counter:03d}.npy',
+        #         target_dof_pos)
 
         q_mot = np.asarray(
             [self.low_state.motor_state[i_mot].q for i_mot in range(29)]
@@ -990,7 +990,13 @@ class Controller:
             target_dof_pos = (
                 0.2 * q_mot +
                 0.8 * target_dof_pos
+                
             )
+        # target_dof_pos[..., [2,5,8]] = 0
+        # target_dof_pos = (
+        #         0.2 * q_mot +
+        #         0.8 * target_dof_pos
+        # )
         # print('??',
         #         target_dof_pos,
         #         [self.low_state.motor_state[i_mot].q for i_mot in range(29)])
@@ -1004,7 +1010,7 @@ class Controller:
             self.low_cmd.motor_cmd[i].dq = 0.0
             self.low_cmd.motor_cmd[i].kp = 0.8 * float(self.config.kps[i])
             self.low_cmd.motor_cmd[i].kd = 1.0 * float(self.config.kds[i])
-            self.low_cmd.motor_cmd[i].tau = 1.0 * float(target_dof_eff[i])
+            self.low_cmd.motor_cmd[i].tau = 0.0 * float(target_dof_eff[i])
 
         # reduce KP for non-arm joints
         for i in self.mot_from_nonarm:
@@ -1016,7 +1022,7 @@ class Controller:
         # send the command
         self.send_cmd(self.low_cmd)
 
-        if True:
+        if False:
             msg = PoseStamped()
             msg.header.frame_id='world'
             msg.header.stamp=clock.get_time().to_msg()
