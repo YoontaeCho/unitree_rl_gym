@@ -539,6 +539,17 @@ class Controller:
         if True:
             hands_command = self.eetrack.get_command(
                 torch.from_numpy(root_state_w)[None])[0].detach().cpu().numpy()
+
+            # == clip hands_command...? to prevent rapid switches ==
+            # likely not necessary for the policy, but potentially
+            # necessary for the IK controller.
+            if False:
+                hands_command[..., 0:3] = np.clip(hands_command[..., 0:3],
+                    -0.1, 0.1) # 10cm
+                hands_command[..., 3:6] = np.clip(hands_command[..., 3:6],
+                    -np.deg2rad(5),
+                    np.deg2rad(5)) # 5deg
+
             self.target_pose = np.copy(
                 self.eetrack.next_command_s_left.squeeze().detach().cpu().numpy()
             )

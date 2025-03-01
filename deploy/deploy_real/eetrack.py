@@ -122,16 +122,17 @@ class eetrack:
         if is_box:
             waypoints = []
 
-            dx = (self.eetrack_line_length) / 2.
+            dx = (self.eetrack_line_length) / 2 - 0.1
+            # dx = -0.5
             dy = (self.eetrack_line_length) / 2.
 
             deltas = [
-                    [0, +dy, +dx -0.1],
-                    [0, -dy, +dx -0.1],
-                    # [0, +dy, -dx -0.1],
-                    # [0, -dy, -dx -0.1],
-                    # [0, -dy, +dx -0.1],
-                    [0, +dy, +dx -0.1]
+                    [0, +dy, +dx ],
+                    [0, -dy, +dx ],
+                    # [0, +dy, -dx ],
+                    # [0, -dy, -dx ],
+                    # [0, -dy, +dx ],
+                    [0, +dy, +dx ]
             ]
 
             for delta in deltas:
