@@ -521,7 +521,9 @@ class Controller:
             self.eetrack = eetrack(torch.from_numpy(root_state_w)[None],
                                    self.tf_buffer,
                                    clock,
-                                   height=0.0
+                                   height=-0.45
+                                #    height=-0.4
+                                #    height=-0.35
                                    )
 
             self.goalpath.header.frame_id = 'world'
@@ -603,16 +605,16 @@ class Controller:
         )
 
 
-        # if self.counter <= 100:
-        #     target_dof_pos = (
-        #         0.8 * q_mot +
-        #         0.2 * target_dof_pos
-        #     )
-        # else:
-        target_dof_pos = (
-            0.3 * q_mot +
-            0.7 * target_dof_pos
-        )
+        if self.counter <= 100:
+            target_dof_pos = (
+                0.7 * q_mot +
+                0.3 * target_dof_pos
+            )
+        else:
+            target_dof_pos = (
+                0.3 * q_mot +
+                0.7 * target_dof_pos
+            )
 
         # target_dof_pos = (
         #     0.6 * q_mot +
@@ -631,7 +633,7 @@ class Controller:
             self.low_cmd.motor_cmd[i].q = float(target_dof_pos[i])
             self.low_cmd.motor_cmd[i].dq = 0.0
             # FIXME(ycho) ad-hoc 0.8x reduction
-            self.low_cmd.motor_cmd[i].kp = 0.8 * float(config.kps[i])
+            self.low_cmd.motor_cmd[i].kp = 0.9 * float(config.kps[i])
             self.low_cmd.motor_cmd[i].kd = 1.0 * float(config.kds[i])
             self.low_cmd.motor_cmd[i].tau = 0.0 * float(target_dof_eff[i])
             # self.low_cmd.motor_cmd[i].q = 0. * float(target_dof_pos[i])
@@ -643,7 +645,7 @@ class Controller:
         # reduce KP for non-arm joints
         for i in self.mot_from_nonarm:
             # FIXME(ycho) ad-hoc 0.8x reduction
-            self.low_cmd.motor_cmd[i].kp = 0.8 * float(config.kps[i])
+            self.low_cmd.motor_cmd[i].kp = 0.9 * float(config.kps[i])
             self.low_cmd.motor_cmd[i].kd = 1.0 * float(config.kds[i])
             # self.low_cmd.motor_cmd[i].kp = 0. * float(config.kps[i])
             # self.low_cmd.motor_cmd[i].kd = 0.0 * float(config.kds[i])
