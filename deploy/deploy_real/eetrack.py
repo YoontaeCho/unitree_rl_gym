@@ -92,7 +92,9 @@ class eetrack:
         self.eetrack_midpt = (
             root_state_w[..., :3] +
             quat_rotate(root_state_w[0, 3:7].detach().cpu().numpy(),
-                        np.array([0.3, 0.0, 0.0]))[None]
+                        # np.array([0.3, 0.0, 0.0]))[None]
+                        np.array([0.35, 0.0, 0.0]))[None] # squatting
+                        # np.array([0.4, 0.0, 0.0]))[None] # squatting
         )
         self.eetrack_end = None
         self.eetrack_subgoal = None
@@ -122,17 +124,19 @@ class eetrack:
         if is_box:
             waypoints = []
 
-            dx = (self.eetrack_line_length) / 2 - 0.1
-            # dx = -0.5
+            # dx = (self.eetrack_line_length) / 2 - 0.1
+            dx = -0.2
             dy = (self.eetrack_line_length) / 2.
 
             deltas = [
+                    [0, +dy, -dx + 0.2 ], # checkpoint?
                     [0, +dy, +dx ],
                     [0, -dy, +dx ],
                     # [0, +dy, -dx ],
                     # [0, -dy, -dx ],
                     # [0, -dy, +dx ],
-                    [0, +dy, +dx ]
+                    [0, +dy, +dx ],
+                    [0, +dy, -dx + 0.2 ], # checkpoint?
             ]
 
             for delta in deltas:

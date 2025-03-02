@@ -553,7 +553,7 @@ class Controller:
             self.target_pose = np.copy(
                 self.eetrack.next_command_s_left.squeeze().detach().cpu().numpy()
             )
-            # self.publish_hand_target()
+            self.publish_hand_target()
 
         obs = self.obsmap(self.low_state,
                         self.action_eetrack,
@@ -592,16 +592,46 @@ class Controller:
         )
 
 
+        if self.counter <= 100:
+            target_dof_pos = (
+                0.8 * q_mot +
+                0.2 * target_dof_pos
+            )
         # if self.counter <= 100:
         #     target_dof_pos = (
-        #         0.8 * q_mot +
-        #         0.2 * target_dof_pos
+        #         0.7 * q_mot +
+        #         0.3 * target_dof_pos
         #     )
-        # else:
-        target_dof_pos = (
-            0.2 * q_mot +
-            0.8 * target_dof_pos
-        )
+        # if self.counter <= 150:
+        #     target_dof_pos = (
+        #         0.6 * q_mot +
+        #         0.4 * target_dof_pos
+        #     )
+        # if self.counter <= 200:
+        #     target_dof_pos = (
+        #         0.5 * q_mot +
+        #         0.5 * target_dof_pos
+        #     )
+        # if self.counter <= 250:
+        #     target_dof_pos = (
+        #         0.4 * q_mot +
+        #         0.6 * target_dof_pos
+        #     )
+        # if self.counter <= 300:
+        #     target_dof_pos = (
+        #         0.3 * q_mot +
+        #         0.7 * target_dof_pos
+        #     )
+        else:
+            target_dof_pos = (
+                0.3 * q_mot +
+                0.7 * target_dof_pos
+            )
+
+        # target_dof_pos = (
+        #     0.6 * q_mot +
+        #     0.4 * target_dof_pos
+        # )
 
         # NOTE(ycho): Optionally,
         # try to reduce control targets on waist joints
@@ -618,12 +648,19 @@ class Controller:
             self.low_cmd.motor_cmd[i].kp = 0.8 * float(config.kps[i])
             self.low_cmd.motor_cmd[i].kd = 1.0 * float(config.kds[i])
             self.low_cmd.motor_cmd[i].tau = 0.0 * float(target_dof_eff[i])
+            # self.low_cmd.motor_cmd[i].q = 0. * float(target_dof_pos[i])
+            # self.low_cmd.motor_cmd[i].dq = 0.0
+            # self.low_cmd.motor_cmd[i].kp = 0. * float(config.kps[i])
+            # self.low_cmd.motor_cmd[i].kd = 0.0 * float(config.kds[i])
+            # self.low_cmd.motor_cmd[i].tau = 0.0 * float(target_dof_eff[i])
 
         # reduce KP for non-arm joints
         for i in self.mot_from_nonarm:
             # FIXME(ycho) ad-hoc 0.8x reduction
             self.low_cmd.motor_cmd[i].kp = 0.8 * float(config.kps[i])
             self.low_cmd.motor_cmd[i].kd = 1.0 * float(config.kds[i])
+            # self.low_cmd.motor_cmd[i].kp = 0. * float(config.kps[i])
+            # self.low_cmd.motor_cmd[i].kd = 0.0 * float(config.kds[i])
 
         # send the command
         self.send_cmd(self.low_cmd)

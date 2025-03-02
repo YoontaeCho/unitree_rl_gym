@@ -590,7 +590,7 @@ class Controller:
 
         # NOTE(OKJ):
         # ADD: step response test parameters (measuring controller delay)
-        self.logpath = Path('/tmp/eet28/')
+        self.logpath = Path('/tmp/eet28/delay_test')
         self.logpath.mkdir(parents=True, exist_ok=True)
         
         self.target_motor_idx = 0
@@ -615,6 +615,8 @@ class Controller:
         
         self.offset = 0.0
         
+        self.first_time = True
+        self.motor_change = True
         self.all_done = False
 
         try:
@@ -634,11 +636,12 @@ class Controller:
         self.mode_machine_ = self.low_state.mode_machine
         self.remote_controller.set(self.low_state.wireless_remote)
         
-        if self.mode == Mode.policy and self.start_tick != None:
+        if self.mode == Mode.policy and not self.motor_change:
             current_tick = self.low_state.tick
             tick_diff = current_tick - self.start_tick
+            motor_movement_diff = self.low_state.motor_state[self.target_motor_idx].q - self.q_initial[self.target_motor_idx]
             self.motor_movement['real_tick'].append(tick_diff)
-            self.motor_movement['real_movement'].append(self.low_state.motor_state[self.target_motor_idx].q)
+            self.motor_movement['real_movement'].append(motor_movement_diff)
 
     def LowStateGoHandler(self, msg: LowStateGo):
         self.low_state = msg
@@ -804,18 +807,15 @@ class Controller:
         self.tf_broadcaster.sendTransform(t)
 
     def run_step(self):
-        if self.all_done:
-            return
-
-        if self.counter == 0:
+        if self.motor_change:
             self.start_tick = self.low_state.tick
             self.state_start_tick = self.low_state.tick
             self.q_initial = np.zeros(len(self.config.motor_joint))
             for i in range(len(self.q_initial)):
                 # self.q_initial[i] = self.low_state.motor_state[i].q
                 self.q_initial[i] = self.config.default_angles[i]
-        
-        self.counter += 1
+            self.motor_change = False
+            return
         
         current_tick = self.low_state.tick
         elapsed_in_state = current_tick - self.state_start_tick
@@ -850,7 +850,10 @@ class Controller:
                             json.dump(self.motor_movement, f, indent=4)
                         print(f"[Motor {self.target_motor_idx}] All tests finished. Results saved to {filename}")
                         
-                        self.target_motor_idx += 1
+                        if not self.first_time:
+                            self.target_motor_idx += 1
+                        self.first_time = False
+
                         self.test_idx = 0
                         self.iteration_idx = 0
                         
@@ -862,9 +865,10 @@ class Controller:
                         }
                         
                         if self.target_motor_idx < self.num_motors:
-                            self.counter = 0
+                            self.motor_change = True
                             self.state = 0
                             print(f"Moving on to next motor {self.target_motor_idx}...")
+                            return
                         else:
                             print("All motors tested. Experiment complete.")
                             self.all_done = True
@@ -885,12 +889,8 @@ class Controller:
         goal_current_tick = self.low_state.tick
         goal_tick_diff = goal_current_tick - self.start_tick
         
-        self.motor_movement.setdefault('goal_tick', []).append(goal_tick_diff)
-        self.motor_movement.setdefault('goal_movement', []).append(q_target[self.target_motor_idx])
-        
-        real_val = self.low_state.motor_state[self.target_motor_idx].q
-        self.motor_movement.setdefault('real_tick', []).append(goal_tick_diff)
-        self.motor_movement.setdefault('real_movement', []).append(real_val)
+        self.motor_movement['goal_tick'].append(goal_tick_diff)
+        self.motor_movement['goal_movement'].append(self.offset)
 
         self.send_cmd(self.low_cmd)
 
