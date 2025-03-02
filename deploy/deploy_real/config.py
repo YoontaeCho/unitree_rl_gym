@@ -50,3 +50,5 @@ class Config:
 
             self.num_actions = config["num_actions"]
             self.num_obs = config["num_obs"]
+
+            self.obs_prev_action_scale = config["obs_prev_action_scale"]

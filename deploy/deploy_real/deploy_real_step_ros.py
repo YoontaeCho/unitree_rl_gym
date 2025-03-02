@@ -149,6 +149,8 @@ class Controller:
 
         self.pos_target = self.target_dof_pos.copy()
 
+        self._time_mask = 0.0
+
         if config.msg_type == "hg":
             # g1 and h1_2 use the hg msg type
 
@@ -352,9 +354,9 @@ class Controller:
                                                                             pelvis_w[3:7],
                                                                             ctarget_right_w[:3],
                                                                             ctarget_right_w[3:7])
-        ic(ctarget_left_w, ctarget_right_w)
-        ic(ctarget_left_b_pos, ctarget_right_b_pos)
-        ic(foot_right_b, foot_left_b)
+        # ic(ctarget_left_w, ctarget_right_w)
+        # ic(ctarget_left_b_pos, ctarget_right_b_pos)
+        # ic(foot_right_b, foot_left_b)
         pos_delta_left, axa_delta_left = compute_pose_error(foot_left_b[:3],
                                                             foot_left_b[3:7],
                                                             ctarget_left_b_pos,
@@ -363,7 +365,7 @@ class Controller:
                                                             foot_right_b[3:7],
                                                             ctarget_right_b_pos,
                                                             ctarget_right_b_quat)
-        ic(pos_delta_left, pos_delta_right)
+        # ic(pos_delta_left, pos_delta_right)
         return np.concatenate((pos_delta_right, axa_delta_right, pos_delta_left, axa_delta_left), axis=0)
 
     def run_policy(self):
@@ -386,6 +388,9 @@ class Controller:
             current_right_pose[2] = 0.0
             current_right_pose[3:7] = yaw_quat(current_right_pose[3:7])
             self._step_command = StepCommand(current_left_pose, current_right_pose) 
+
+        if  self.remote_controller.button[KeyMap.B] == 1:
+            self._time_mask = 1.0
         
         if self.remote_controller.button[KeyMap.select] == 1:
             self._mode_change = True
@@ -396,7 +401,7 @@ class Controller:
         next_ctarget = self._step_command.get_next_ctarget(
                                                     self.remote_controller,
                                                     self.counter * self.config.control_dt)
-        print(next_ctarget)
+        # print(next_ctarget)
         next_ctarget_left, next_ctarget_right, dt_left, dt_right = next_ctarget
         self.publish_step_command(next_ctarget_left, next_ctarget_right)
         
@@ -463,7 +468,9 @@ class Controller:
         base_pose_w = self.tf_to_pose(self.tf_buffer.lookup_transform(
             "world", "pelvis",
                                         rp.time.Time()), 'wxyz')
-        dt_left = dt_right = 0.0
+        dt_left *= self._time_mask
+        dt_right *= self._time_mask
+
         step_command = self.get_command(base_pose_w,
                         lf_b,
                         rf_b,
@@ -479,7 +486,7 @@ class Controller:
         self.obs[18:30] = rel_hand
         self.obs[30 : 30 + num_actions] = qj_obs
         self.obs[30 + num_actions : 30 + num_actions * 2] = dqj_obs
-        self.obs[30 + num_actions * 2 : 30 + num_actions * 3] = self.action
+        self.obs[30 + num_actions * 2 : 30 + num_actions * 3] = self.action * self.config.obs_prev_action_scale
         self.obs[30 + num_actions * 3 : 30 + num_actions * 3 + 14] = step_command
 
         # Get the action from the policy network
@@ -488,7 +495,8 @@ class Controller:
         obs_tensor[..., 30 + num_actions : 30 + num_actions * 2] = obs_tensor[..., 30 + num_actions : 30 + num_actions * 2] @ mapping_tensor.transpose(0, 1)
         obs_tensor[..., 30 + num_actions * 2 : 30 + num_actions * 3] = obs_tensor[..., 30 + num_actions * 2 : 30 + num_actions * 3] @ mapping_tensor.transpose(0, 1)
 
-        ic(base_pose_w, obs_tensor[..., 30:30+num_actions])
+        # ic(base_pose_w, obs_tensor[..., 30:30+num_actions])
+        ic(step_command)
 
         # if not self._saved:
         #     torch.save(obs_tensor, "obs.pt")
@@ -515,8 +523,8 @@ class Controller:
             for i, motor_idx in enumerate(self.config.joint2motor_idx):
                 self.low_cmd.motor_cmd[motor_idx].q = float(target_dof_pos[i])
                 self.low_cmd.motor_cmd[motor_idx].dq = 0.0
-                self.low_cmd.motor_cmd[motor_idx].kp = float(self.config.kps[i]*0.7)
-                self.low_cmd.motor_cmd[motor_idx].kd = float(self.config.kds[i]*0.8)
+                self.low_cmd.motor_cmd[motor_idx].kp = float(self.config.kps[i])
+                self.low_cmd.motor_cmd[motor_idx].kd = float(self.config.kds[i])
                 self.low_cmd.motor_cmd[motor_idx].tau = 0.0
         # send the command
         self.send_cmd(self.low_cmd)
