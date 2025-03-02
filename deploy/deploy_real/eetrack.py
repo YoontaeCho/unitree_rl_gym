@@ -84,7 +84,8 @@ def body_pose(
 
 
 class eetrack:
-    def __init__(self, root_state_w, tf_buffer, clock):
+    def __init__(self, root_state_w, tf_buffer, clock, height:float):
+        self._height = height
         self.clock=clock
         self.tf_buffer = tf_buffer
         # self.eetrack_midpt = root_state_w.clone()
@@ -110,6 +111,7 @@ class eetrack:
         # self.init_time = rp.time.Time()#.nanoseconds / 1e9 + 1.0
         self.init_time = self.clock.get_time()
         self._offset = None
+        
 
     def create_eetrack(self, root_state_w):
         self.eetrack_start = self.eetrack_midpt.clone()
@@ -125,18 +127,20 @@ class eetrack:
             waypoints = []
 
             # dx = (self.eetrack_line_length) / 2 - 0.1
-            dx = -0.2
+            # dx = -0.4
+            dx=self._height
+            # dx = 0.0
             dy = (self.eetrack_line_length) / 2.
 
             deltas = [
-                    [0, +dy, -dx + 0.2 ], # checkpoint?
+                    # [0, +dy, -dx + 0.2 ], # checkpoint?
                     [0, +dy, +dx ],
                     [0, -dy, +dx ],
                     # [0, +dy, -dx ],
                     # [0, -dy, -dx ],
                     # [0, -dy, +dx ],
                     [0, +dy, +dx ],
-                    [0, +dy, -dx + 0.2 ], # checkpoint?
+                    # [0, +dy, -dx + 0.2 ], # checkpoint?
             ]
 
             for delta in deltas:
@@ -195,8 +199,8 @@ class eetrack:
         angle_from_xyplane_in_global_frame = torch.rand(
             1, device=self.device) * 0
         roll = torch.zeros(1, device=self.device)
-        pitch = angle_from_xyplane_in_global_frame
-        yaw = angle_from_eetrack_line
+        pitch = torch.ones(1, device=self.device) * 0 # angle_from_xyplane_in_global_frame
+        yaw = torch.ones(1, device=self.device) * 0. # angle_from_eetrack_line
         euler = torch.stack([roll, pitch, yaw], dim=1)
         quat = math_utils.quat_from_euler_xyz(
             euler[:, 0], euler[:, 1], euler[:, 2])
@@ -217,10 +221,20 @@ class eetrack:
             ]
             eetrack_subgoals = torch.stack(eetrack_subgoals, axis=1)
 
-            eetrack_ori = self.create_direction().unsqueeze(
-                1).repeat(1, self.number_of_subgoals + 1, 1)
             if True:
-                eetrack_ori[..., :] = root_state_w[..., None, 3:7]
+                eetrack_ori = self.create_direction().unsqueeze(
+                    1).repeat(1, self.number_of_subgoals + 1, 1)
+                if True:
+                    eetrack_ori[..., :] = root_state_w[..., None, 3:7]
+            else:
+                eetrack_ori = self.create_direction().unsqueeze(
+                    1).repeat(1, self.number_of_subgoals + 1, 1).clone()
+                eetrack_ori[..., :] = math_utils.quat_mul(
+                    root_state_w[..., None, 3:7].expand_as(eetrack_ori),
+                    eetrack_ori 
+                )
+
+
             # welidng_subgoals -> Nenv x Npoints x (3 + 4)
             q = torch.cat([eetrack_subgoals, eetrack_ori], dim=2)
             qs.append(q)

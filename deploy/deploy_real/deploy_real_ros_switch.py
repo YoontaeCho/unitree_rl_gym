@@ -40,7 +40,8 @@ class Mode(Enum):
     damping = 3
     policy_walk = 4
     policy_eetrack = 5
-    null = 6
+    policy_ground = 6
+    null = 7
 
 
 axis_angle_from_quat = math_utils.as_np(math_utils.axis_angle_from_quat)
@@ -123,16 +124,19 @@ def interpolate_position(pos1, pos2, n_segments):
 class Controller:
     def __init__(self,
             config_walk: Config,
-            config_eetrack: Config
+            config_eetrack: Config,
+            config_ground: Config
         ) -> None:
         self.config_walk = config_walk
         self.config_eetrack = config_eetrack
+        self.config_ground = config_ground
 
         self.remote_controller = RemoteController()
 
         # Initialize the policy networks
         self.policy_walk = torch.jit.load(config_walk.policy_path)
-        self.policy_eetrack = torch.jit.load(config_eetrack.policy_path)        
+        self.policy_eetrack = torch.jit.load(config_eetrack.policy_path)
+        self.policy_ground = torch.jit.load(config_ground.policy_path)        
 
         # -- build handles for EETRACK --
         config=self.config_eetrack
@@ -197,6 +201,7 @@ class Controller:
 
         # FIXME(ycho): give `root_state_w`
         self.eetrack = None
+        self.eetrack_ground = None
 
         if True:
             q_mot = np.array(config_eetrack.default_angles)
@@ -480,6 +485,10 @@ class Controller:
             self._mode_change = True
             self.mode = Mode.null
             return
+        if self.remote_controller.button[KeyMap.X] == 1:
+            self._mode_change = True
+            self.mode = Mode.policy_ground
+            return
         self.counter += 1
         config = self.config_eetrack
 
@@ -511,7 +520,8 @@ class Controller:
         if self.eetrack is None:
             self.eetrack = eetrack(torch.from_numpy(root_state_w)[None],
                                    self.tf_buffer,
-                                   clock
+                                   clock,
+                                   height=0.0
                                    )
 
             self.goalpath.header.frame_id = 'world'
@@ -545,15 +555,16 @@ class Controller:
             # necessary for the IK controller.
             if False:
                 hands_command[..., 0:3] = np.clip(hands_command[..., 0:3],
-                    -0.1, 0.1) # 10cm
+                    -0.05, 0.05) # 10cm
                 hands_command[..., 3:6] = np.clip(hands_command[..., 3:6],
                     -np.deg2rad(5),
                     np.deg2rad(5)) # 5deg
+                    
 
             self.target_pose = np.copy(
                 self.eetrack.next_command_s_left.squeeze().detach().cpu().numpy()
             )
-            self.publish_hand_target()
+            # self.publish_hand_target()
 
         obs = self.obsmap(self.low_state,
                         self.action_eetrack,
@@ -592,41 +603,16 @@ class Controller:
         )
 
 
-        if self.counter <= 100:
-            target_dof_pos = (
-                0.8 * q_mot +
-                0.2 * target_dof_pos
-            )
         # if self.counter <= 100:
         #     target_dof_pos = (
-        #         0.7 * q_mot +
-        #         0.3 * target_dof_pos
+        #         0.8 * q_mot +
+        #         0.2 * target_dof_pos
         #     )
-        # if self.counter <= 150:
-        #     target_dof_pos = (
-        #         0.6 * q_mot +
-        #         0.4 * target_dof_pos
-        #     )
-        # if self.counter <= 200:
-        #     target_dof_pos = (
-        #         0.5 * q_mot +
-        #         0.5 * target_dof_pos
-        #     )
-        # if self.counter <= 250:
-        #     target_dof_pos = (
-        #         0.4 * q_mot +
-        #         0.6 * target_dof_pos
-        #     )
-        # if self.counter <= 300:
-        #     target_dof_pos = (
-        #         0.3 * q_mot +
-        #         0.7 * target_dof_pos
-        #     )
-        else:
-            target_dof_pos = (
-                0.3 * q_mot +
-                0.7 * target_dof_pos
-            )
+        # else:
+        target_dof_pos = (
+            0.3 * q_mot +
+            0.7 * target_dof_pos
+        )
 
         # target_dof_pos = (
         #     0.6 * q_mot +
@@ -658,6 +644,197 @@ class Controller:
         for i in self.mot_from_nonarm:
             # FIXME(ycho) ad-hoc 0.8x reduction
             self.low_cmd.motor_cmd[i].kp = 0.8 * float(config.kps[i])
+            self.low_cmd.motor_cmd[i].kd = 1.0 * float(config.kds[i])
+            # self.low_cmd.motor_cmd[i].kp = 0. * float(config.kps[i])
+            # self.low_cmd.motor_cmd[i].kd = 0.0 * float(config.kds[i])
+
+        # send the command
+        self.send_cmd(self.low_cmd)
+
+        # NOTE(ycho): ONLY for debugging purposes
+        if False:
+            msg = PoseStamped()
+            msg.header.frame_id='world'
+            msg.header.stamp=clock.get_time().to_msg()
+            cur_xyz, cur_quat = body_pose(
+                self.tf_buffer,
+                'left_rubber_hand',
+                'world',
+                rot_type='quat')
+            msg.pose.position.x = float(cur_xyz[0])
+            msg.pose.position.y = float(cur_xyz[1])
+            msg.pose.position.z = float(cur_xyz[2])
+            msg.pose.orientation.w = float(cur_quat[0])
+            msg.pose.orientation.x = float(cur_quat[1])
+            msg.pose.orientation.y = float(cur_quat[2])
+            msg.pose.orientation.z = float(cur_quat[3])
+            self.truepath.poses.append(msg)
+            self.goalpath_publisher.publish(self.goalpath)
+            self.truepath_publisher.publish(self.truepath)
+    
+    def run_ground_policy(self):
+        if self.remote_controller.button[KeyMap.select] == 1:
+            self._mode_change = True
+            self.mode = Mode.null
+            return
+        if self.remote_controller.button[KeyMap.X] == 1:
+            self._mode_change = True
+            self.mode = Mode.policy_ground
+            return
+        self.counter += 1
+        config = self.config_ground
+
+        # Initialize hand target from current location.
+        if self.target_pose is None:
+            xyz, quat = body_pose(
+                self.tf_buffer,
+                'left_rubber_hand',
+                'world',
+                rot_type='quat'
+            )
+            self.target_pose = np.concatenate([xyz, quat])
+
+        # Query root state.
+        # NOTE(ycho): requires running `fake_world_tf_pub.py`.
+        if True:
+            world_from_pelvis = body_pose(
+                self.tf_buffer,
+                'pelvis',
+                'world',
+                rot_type='quat'
+            )
+            xyz, quat_wxyz = world_from_pelvis
+            root_state_w = np.zeros(7)
+            root_state_w[0:3] = xyz
+            root_state_w[3:7] = quat_wxyz
+
+        # Initialize EETrack object
+        if self.eetrack_ground is None:
+            self.eetrack_ground = eetrack(torch.from_numpy(root_state_w)[None],
+                                   self.tf_buffer,
+                                   clock,
+                                   height = -0.4
+                                   )
+
+            self.goalpath.header.frame_id = 'world'
+            self.goalpath.header.stamp = clock.get_time().to_msg()
+            wpts = self.eetrack_ground.waypoints
+            for p in wpts:
+                p = p.detach().cpu().numpy().squeeze(axis=0)
+                p = [float(x) for x in p]
+                msg = PoseStamped()
+                msg.header.frame_id = 'world'
+                msg.header.stamp = clock.get_time().to_msg()
+                msg.pose.position.x = p[0]
+                msg.pose.position.y = p[1]
+                msg.pose.position.z = p[2]
+                # msg.pose.quaternion.w = p[3]
+                # msg.pose.quaternion.x = p[4]
+                # msg.pose.quaternion.y = p[5]
+                # msg.pose.quaternion.z = p[6]
+                self.goalpath.poses.append(msg)
+            self.truepath.header.frame_id = 'world'
+            self.truepath.header.stamp = clock.get_time().to_msg()
+                        
+
+        # NOTE(ycho) Get hands_command from eetrack 
+        if True:
+            hands_command = self.eetrack_ground.get_command(
+                torch.from_numpy(root_state_w)[None])[0].detach().cpu().numpy()
+
+            # == clip hands_command...? to prevent rapid switches ==
+            # likely not necessary for the policy, but potentially
+            # necessary for the IK controller.
+            if False:
+                hands_command[..., 0:3] = np.clip(hands_command[..., 0:3],
+                    -0.05, 0.05) # 10cm
+                hands_command[..., 3:6] = np.clip(hands_command[..., 3:6],
+                    -np.deg2rad(5),
+                    np.deg2rad(5)) # 5deg
+
+            self.target_pose = np.copy(
+                self.eetrack_ground.next_command_s_left.squeeze().detach().cpu().numpy()
+            )
+            # self.publish_hand_target()
+
+        obs = self.obsmap(self.low_state,
+                        self.action_eetrack,
+                        hands_command)
+        logpath = Path('/tmp/eet28/')
+        logpath.mkdir(parents=True, exist_ok=True)
+        # np.save(F'{logpath}/obs{self.counter:03d}.npy',
+        #         obs)
+
+        # Get the action from the policy network
+        obs_tensor = torch.from_numpy(obs).unsqueeze(0)
+        obs_tensor = obs_tensor.detach().clone()
+
+        if self.action_eetrack is None:
+            self.action_eetrack = self.policy_ground(obs_tensor.float()).detach().numpy().squeeze()
+        else:
+            action = self.policy_ground(obs_tensor.float()).detach().numpy().squeeze()
+            self.action_eetrack = (0.7 * self.action_eetrack + 0.3 * action)
+
+        # np.save(F'{logpath}/act{self.counter:03d}.npy',
+        #          self.action)
+
+        target_dof_pos, target_dof_eff = self.actmap(
+            obs,
+            self.action_eetrack,
+            # NOTE(ycho): We don't use root_state_w[3:7] since
+            # hands_command is already in body frame.
+            # root_state_w[3:7]
+        )
+
+        # np.save(F'{logpath}/dof{self.counter:03d}.npy',
+        #         target_dof_pos)
+
+        q_mot = np.asarray(
+            [self.low_state.motor_state[i_mot].q for i_mot in range(29)]
+        )
+
+
+        # if self.counter <= 100:
+        #     target_dof_pos = (
+        #         0.8 * q_mot +
+        #         0.2 * target_dof_pos
+        #     )
+        # else:
+        target_dof_pos = (
+            0.3 * q_mot +
+            0.7 * target_dof_pos
+        )
+
+        # target_dof_pos = (
+        #     0.6 * q_mot +
+        #     0.4 * target_dof_pos
+        # )
+
+        # NOTE(ycho): Optionally,
+        # try to reduce control targets on waist joints
+        # target_dof_pos[..., [2,5,8]] = 0
+        
+        # np.save(F'{logpath}/dof{self.counter:03d}.npy',
+        #         target_dof_pos)
+
+        # Build low cmd
+        for i in range(len(config.motor_joint)):
+            self.low_cmd.motor_cmd[i].q = float(target_dof_pos[i])
+            self.low_cmd.motor_cmd[i].dq = 0.0
+            # FIXME(ycho) ad-hoc 0.8x reduction
+            self.low_cmd.motor_cmd[i].kp = 1.0 * float(config.kps[i])
+            self.low_cmd.motor_cmd[i].kd = 1.0 * float(config.kds[i])
+            self.low_cmd.motor_cmd[i].tau = 0.0 * float(target_dof_eff[i])
+            # self.low_cmd.motor_cmd[i].q = 0. * float(target_dof_pos[i])
+            # self.low_cmd.motor_cmd[i].dq = 0.0
+            # self.low_cmd.motor_cmd[i].kp = 0. * float(config.kps[i])
+            # self.low_cmd.motor_cmd[i].kd = 0.0 * float(config.kds[i])
+            # self.low_cmd.motor_cmd[i].tau = 0.0 * float(target_dof_eff[i])
+
+        # reduce KP for non-arm joints
+        for i in self.mot_from_nonarm:
+            # FIXME(ycho) ad-hoc 0.8x reduction
+            self.low_cmd.motor_cmd[i].kp = 1.0 * float(config.kps[i])
             self.low_cmd.motor_cmd[i].kd = 1.0 * float(config.kds[i])
             # self.low_cmd.motor_cmd[i].kp = 0. * float(config.kps[i])
             # self.low_cmd.motor_cmd[i].kd = 0.0 * float(config.kds[i])
@@ -722,6 +899,12 @@ class Controller:
                 self._mode_change = False
                 self.counter = 0
             self.run_eetrack_policy()
+        elif self.mode == Mode.policy_ground:
+            if self._mode_change:
+                print("Run policy.")
+                self._mode_change = False
+                self.counter = 0
+            self.run_ground_policy()
         elif self.mode == Mode.null:
             self._terminate = True
 
@@ -740,6 +923,12 @@ if __name__ == "__main__":
         type=str,
         help="config file name in the configs folder",
         default="g1_eetrack.yaml")
+
+    parser.add_argument(
+        "config_ground",
+        type=str,
+        help="config file name in the configs folder",
+        default="g1_ground.yaml")
     args = parser.parse_args()
 
     # Load config
@@ -747,7 +936,10 @@ if __name__ == "__main__":
     config_walk = Config(config_walk_path)
     config_eetrack_path = f"{LEGGED_GYM_ROOT_DIR}/deploy/deploy_real/configs/{args.config_eetrack}"
     config_eetrack = Config(config_eetrack_path)
+    config_ground_path = f"{LEGGED_GYM_ROOT_DIR}/deploy/deploy_real/configs/{args.config_ground}"
+    config_ground = Config(config_ground_path)
 
     controller = Controller(
         config_walk,
-        config_eetrack)
+        config_eetrack,
+        config_ground)

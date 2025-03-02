@@ -9,11 +9,11 @@ lowstate_topic: "rt/lowstate"
 
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_eetrack.pt"
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_eet_dr.pt"
-# policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_cp3.pt"
+policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_cp3.pt"
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_perturb.pt"
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_cp3_perturb.pt"
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/veltrained_noperturb_delay.pt"
-policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0302_actionrate.pt"
+# policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/eetrack_cp3_delay_nopush.pt"
 
 lab_joint: [
   'left_hip_pitch_joint',
