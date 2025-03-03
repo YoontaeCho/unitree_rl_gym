@@ -93,9 +93,11 @@ class PelvistoTrack(Node):
             # corresponding tf variables
 
             t_lidar_pelvis = self.tf_buffer.lookup_transform(
-                'mid360_link_IMU', 
+                
                 # 'zed2_camera_center',
-                'pelvis', rclpy.time.Time(),
+                'mid360_link_IMU',
+                'pelvis',
+                 rclpy.time.Time(),
                 # rclpy.duration.Duration(seconds=0.05)
             )
 
@@ -110,36 +112,46 @@ class PelvistoTrack(Node):
             t.transform.translation.y = t_lidar_pelvis.transform.translation.y
             t.transform.translation.z = t_lidar_pelvis.transform.translation.z
 
-            # body from world 
-            rot_body_inv_tf = self.tf_buffer.lookup_transform(
-                "body", "world", rclpy.time.Time()
-            )
-            rot_body_inv = R.from_quat(to_array(rot_body_inv_tf.transform.rotation))
+            # # body from world 
+            # rot_body_inv_tf = self.tf_buffer.lookup_transform(
+            #     "body", "world", rclpy.time.Time()
+            # )
+            # rot_body_inv = R.from_quat(to_array(rot_body_inv_tf.transform.rotation))
             
 
-            # t.transform.rotation.x = t_lidar_pelvis.transform.rotation.x
-            # t.transform.rotation.y = t_lidar_pelvis.transform.rotation.y
-            # t.transform.rotation.z = t_lidar_pelvis.transform.rotation.z
-            # t.transform.rotation.w = t_lidar_pelvis.transform.rotation.w
+            t.transform.rotation.x = t_lidar_pelvis.transform.rotation.x
+            t.transform.rotation.y = t_lidar_pelvis.transform.rotation.y
+            t.transform.rotation.z = t_lidar_pelvis.transform.rotation.z
+            t.transform.rotation.w = t_lidar_pelvis.transform.rotation.w
 
-            rot_pelvis_w = np.asarray([
-                float(x) for x in 
-                self.low_state.imu_state.quaternion
-            ])
-            rot_pelvis_w = R.from_quat(np.roll(rot_pelvis_w, -1))   
-            rot_body_form_pelvis = (rot_body_inv * rot_pelvis_w).as_quat()
-            qx, qy, qz, qw = rot_body_form_pelvis
-            # rot_w
-            t.transform.rotation.x = qx
-            t.transform.rotation.y = qy
-            t.transform.rotation.z = qz
-            t.transform.rotation.w = qw
+            # rot_pelvis_w = np.asarray([
+            #     float(x) for x in 
+            #     self.low_state.imu_state.quaternion
+            # ])
+            # rot_pelvis_w = R.from_quat(np.roll(rot_pelvis_w, -1))   
+            # rot_body_form_pelvis = (rot_body_inv * rot_pelvis_w).as_quat()
+            # qx, qy, qz, qw = rot_body_form_pelvis
+            # # rot_w
+            # t.transform.rotation.x = qx
+            # t.transform.rotation.y = qy
+            # t.transform.rotation.z = qz
+            # t.transform.rotation.w = qw
 
             # Send the transformation
+            # print(t, t_lidar_pelvis)
             self.tf_broadcaster.sendTransform(t)
+            
         except Exception as ex:
             print(f'Could not transform mid360_link_IMU to pelvis: {ex}')
-
+        try:
+            world_from_rf = self.tf_buffer.lookup_transform('world',
+                        'right_ankle_roll_link', rclpy.time.Time())
+            world_from_lf = self.tf_buffer.lookup_transform('world',
+                        'left_ankle_roll_link', rclpy.time.Time())
+            print(to_array(world_from_rf.transform.translation),
+                        to_array(world_from_lf.transform.translation))
+        except Exception as ex:
+            print(f'Could not transform world to right_ankle_roll_link: {ex}')     
     def publish_static_tf(self):
         """Check if a static transform from 'world' to 'camera_init' exists.
         If not, publish it using the parameter 'camera_init_z' for the z-value.
@@ -195,9 +207,11 @@ class PelvistoTrack(Node):
         xyz_lf = to_array(pelvis_from_rf.transform.translation) 
 
         pelvis_z_rf = -quat_rotate(
-            world_from_pelvis_quat, xyz_rf)[2] + 0.028531
+            world_from_pelvis_quat, xyz_rf)[2] + 0.06
+            # 28531
         pelvis_z_lf = -quat_rotate(
-            world_from_pelvis_quat, xyz_lf)[2] + 0.028531
+            world_from_pelvis_quat, xyz_lf)[2] + 0.06
+            # 28531
         # print(xyz_lf)
         lidar_from_pelvis = self.tf_buffer.lookup_transform('pelvis',
                     'mid360_link_frame', rclpy.time.Time())
