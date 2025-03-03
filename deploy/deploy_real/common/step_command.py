@@ -61,7 +61,7 @@ class StepCommand:
         self.delta_ctime = 0.5  # Fixed time delta for a new step
         self.max_range = {
             'x_range': (-0.2, 0.2),
-            'y_range': (0.2, 0.4),
+            'y_range': (0.3, 0.4),
             'theta_range': (-0.3, 0.3)
         }
 
@@ -158,6 +158,15 @@ class StepCommand:
         return (self.next_ctarget_left, self.next_ctarget_right,
                 (self.next_ctime_left - count), 
                 (self.next_ctime_right - count))
+
+    def reset(self, current_left_pose, current_right_pose):
+        """
+        Reset the internal state of the StepCommand.
+        """
+        self.next_ctarget_left = current_left_pose.copy()
+        self.next_ctarget_right = current_right_pose.copy()
+        self.next_ctime_left = 0.4
+        self.next_ctime_right = 0.4
 
 
 

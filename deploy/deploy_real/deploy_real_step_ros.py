@@ -368,29 +368,41 @@ class Controller:
         # ic(pos_delta_left, pos_delta_right)
         return np.concatenate((pos_delta_right, axa_delta_right, pos_delta_left, axa_delta_left), axis=0)
 
+    def current_proj_foot_pose(self):
+        current_left_tf = self.tf_buffer.lookup_transform( 
+                                    "world",
+                                "left_ankle_roll_link", 
+                                rp.time.Time(),
+                                rp.duration.Duration(seconds=0.1))
+        current_left_pose = self.tf_to_pose(current_left_tf, 'wxyz')
+        current_left_pose[2] = 0.0
+        current_left_pose[3:7] = yaw_quat(current_left_pose[3:7])
+        current_right_tf = self.tf_buffer.lookup_transform(
+                                "world",
+                                "right_ankle_roll_link", 
+                                rp.time.Time(),
+                                rp.duration.Duration(seconds=0.1))
+        current_right_pose = self.tf_to_pose(current_right_tf, 'wxyz')
+        current_right_pose[2] = 0.0
+        current_right_pose[3:7] = yaw_quat(current_right_pose[3:7])
+        return current_left_pose, current_right_pose
+
     def run_policy(self):
         if self._step_command is None:
-
-            current_left_tf = self.tf_buffer.lookup_transform( 
-                                    "world",
-                                    "left_ankle_roll_link", 
-                                    rp.time.Time())
-                                    # rp.duration.Duration(seconds=0.02))
-            current_left_pose = self.tf_to_pose(current_left_tf, 'wxyz')
-            current_left_pose[2] = 0.0
-            current_left_pose[3:7] = yaw_quat(current_left_pose[3:7])
-            current_right_tf = self.tf_buffer.lookup_transform(
-                                    "world",
-                                    "right_ankle_roll_link", 
-                                    rp.time.Time())
-                                    # rp.duration.Duration(seconds=0.02))
-            current_right_pose = self.tf_to_pose(current_right_tf, 'wxyz')
-            current_right_pose[2] = 0.0
-            current_right_pose[3:7] = yaw_quat(current_right_pose[3:7])
+            current_left_pose, current_right_pose = self.current_proj_foot_pose()
             self._step_command = StepCommand(current_left_pose, current_right_pose) 
 
         if  self.remote_controller.button[KeyMap.B] == 1:
+            print("Start walking.")
             self._time_mask = 1.0
+        elif self.remote_controller.button[KeyMap.Y] == 1:
+            print("Stop walking.")
+            self._time_mask = 0.0
+        
+        if self.remote_controller.button[KeyMap.X] == 1:
+            print("Reset target to current foot pose.")
+            current_left_pose, current_right_pose = self.current_proj_foot_pose()
+            self._step_command.reset(current_left_pose, current_right_pose)
         
         if self.remote_controller.button[KeyMap.select] == 1:
             self._mode_change = True
