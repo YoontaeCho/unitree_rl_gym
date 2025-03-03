@@ -14,6 +14,7 @@ import numpy as np
 import yaml
 from geometry_msgs.msg import Vector3, Quaternion, Point
 from nav_msgs.msg import Odometry
+from unitree_go.msg import SportModeState
 
 from scipy.spatial.transform import Rotation as R
 
@@ -79,10 +80,16 @@ class PelvistoTrack(Node):
         self.static_tf_timer = self.create_timer(1.0, self.publish_static_tf)
         self.create_subscription(
             Odometry,
-            'Odometry_LIO',
+            'Odometry_LIO'
             self.on_odometry,
             10
         )
+        # self.create_subscription(
+        #     SportModeState,
+        #     '/odommodestate',
+        #     self.on_odometry,
+        #     10
+        # )
 
         self._pos_lpf_filter = ActionFilterButter(lowcut=np.zeros(1*3)*2,
                                     highcut=np.ones(1*3) * 6.0, 
@@ -109,12 +116,12 @@ class PelvistoTrack(Node):
         pos = to_array(self.odometry.pose.pose.position)
         rot = to_array(self.odometry.pose.pose.orientation)
         filtered_pos = self._pos_lpf_filter.filter(pos)
-        # print(pos, filtered_pos)
+        print(pos, filtered_pos)
         M = R.from_quat(rot).as_matrix()
         r = pin.log3(M)
         filtered_rot = self._rot_lpf_filter.filter(r)
         filtered_quat = pin.Quaternion(pin.exp3(filtered_rot)).coeffs()
-        # print(rot, filtered_quat)
+        print(rot, filtered_quat)
         pelvis_from_lidar_tf = self.tf_buffer.lookup_transform(
                 'mid360_link_IMU', 
                 'pelvis',
@@ -158,8 +165,8 @@ class PelvistoTrack(Node):
                         'right_ankle_roll_link', rclpy.time.Time())
             world_from_lf = self.tf_buffer.lookup_transform('world',
                         'left_ankle_roll_link', rclpy.time.Time())
-            print(to_array(world_from_rf.transform.translation),
-                        to_array(world_from_lf.transform.translation))
+            # print(to_array(world_from_rf.transform.translation),
+            #             to_array(world_from_lf.transform.translation))
         except Exception as ex:
             print(f'Could not transform world to right_ankle_roll_link: {ex}')     
         # Send the transformation
@@ -290,10 +297,17 @@ class PelvistoTrack(Node):
                     'mid360_link_frame', rclpy.time.Time())
         # print(to_array(lidar_from_pelvis.transform.rotation),
         #                 world_from_pelvis_quat)
+        # print(pelvis_z_rf - 0.028531, 
+        # pelvis_z_lf-0.028531,
+        # 0.5 * pelvis_z_lf + 0.5 * pelvis_z_rf)
         lidar_z_pevlis = quat_rotate(world_from_pelvis_quat,
             to_array(pelvis_from_lidar.transform.translation))[2]
         lidar_rot = (R.from_quat(np.roll(world_from_pelvis_quat, -1)) *
                     R.from_quat(to_array(pelvis_from_lidar.transform.rotation)))
+        # print(np.roll(world_from_pelvis_quat, -1),
+        #     to_array(pelvis_from_lidar.transform.translation),
+        # quat_rotate(world_from_pelvis_quat,
+        #     to_array(pelvis_from_lidar.transform.translation)))
         return (0.5 * pelvis_z_lf + 0.5 * pelvis_z_rf + lidar_z_pevlis,
                     # lidar_rot.as_quat())
                     # np.roll(world_from_pelvis_quat, -1)) 
