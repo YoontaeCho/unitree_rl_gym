@@ -521,8 +521,8 @@ class Controller:
             self.eetrack = eetrack(torch.from_numpy(root_state_w)[None],
                                    self.tf_buffer,
                                    clock,
-                                   height=-0.45
-                                #    height=-0.4
+                                #    height=-0.45
+                                   height=-0.4
                                 #    height=-0.35
                                    )
 
