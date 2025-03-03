@@ -80,7 +80,7 @@ class PelvistoTrack(Node):
         self.static_tf_timer = self.create_timer(1.0, self.publish_static_tf)
         self.create_subscription(
             Odometry,
-            'Odometry_LIO'
+            'Odometry_LIO',
             self.on_odometry,
             10
         )
@@ -102,7 +102,35 @@ class PelvistoTrack(Node):
     def on_low_state(self,
                      msg: LowStateHG):
         self.low_state = msg
+        try:
+            imu_from_pelvis_tf = self.tf_buffer.lookup_transform(
+                    'mid360_link_IMU', 
+                    'pelvis',
+                    # 'zed2_camera_center',
+                    rclpy.time.Time(),
+                    # rclpy.duration.Duration(seconds=0.05)
+                )
+        except Exception as ex:
+            print(f'Could not transform mid360_link_IMU to pelvis as world to camera_init is yet published: {ex}')
+            return
+        t = TransformStamped()
+        t.header.stamp = self.get_clock().now().to_msg()
+        # t.header.frame_id = 'zed_camera_center'
+        t.header.frame_id = 'filtered_body'
+        t.child_frame_id = 'pelvis'
 
+        # Turtle only exists in 2D, thus we get x and y translation
+        # coordinates from the message and set the z coordinate to 0
+        t.transform.translation.x = imu_from_pelvis_tf.transform.translation.x
+        t.transform.translation.y = imu_from_pelvis_tf.transform.translation.y
+        t.transform.translation.z = imu_from_pelvis_tf.transform.translation.z
+
+        t.transform.rotation.x = imu_from_pelvis_tf.transform.rotation.x
+        t.transform.rotation.y = imu_from_pelvis_tf.transform.rotation.y
+        t.transform.rotation.z = imu_from_pelvis_tf.transform.rotation.z
+        t.transform.rotation.w = imu_from_pelvis_tf.transform.rotation.w
+
+        self.tf_broadcaster.sendTransform(t)
     def on_odometry(self, 
                     msg: Odometry):
         try:
@@ -116,61 +144,59 @@ class PelvistoTrack(Node):
         pos = to_array(self.odometry.pose.pose.position)
         rot = to_array(self.odometry.pose.pose.orientation)
         filtered_pos = self._pos_lpf_filter.filter(pos)
-        print(pos, filtered_pos)
+        # print(pos, filtered_pos)
         M = R.from_quat(rot).as_matrix()
         r = pin.log3(M)
         filtered_rot = self._rot_lpf_filter.filter(r)
         filtered_quat = pin.Quaternion(pin.exp3(filtered_rot)).coeffs()
-        print(rot, filtered_quat)
-        pelvis_from_lidar_tf = self.tf_buffer.lookup_transform(
-                'mid360_link_IMU', 
-                'pelvis',
-                # 'zed2_camera_center',
-                rclpy.time.Time(),
-                # rclpy.duration.Duration(seconds=0.05)
-            )
-
+        # print(rot, filtered_quat)
+        
         init_from_lidar_se3 = pin.XYZQUATToSE3(np.concatenate(
             [filtered_pos, filtered_quat], axis=0
         ))
 
-        pelvis_from_imu_se3 = pin.XYZQUATToSE3(
-            np.concatenate([to_array(pelvis_from_lidar_tf.transform.translation),
-                            to_array(pelvis_from_lidar_tf.transform.rotation)],
-            axis=0)
-        )
-        init_from_imu_se3 = init_from_lidar_se3 * pelvis_from_imu_se3
-        pos = init_from_imu_se3.translation
-        quat = pin.Quaternion(init_from_imu_se3.rotation)
+        # imu_from_pelvis_se3 = pin.XYZQUATToSE3(
+        #     np.concatenate([to_array(imu_from_pelvis_tf.transform.translation),
+        #                     to_array(imu_from_pelvis_tf.transform.rotation)],
+        #     axis=0)
+        # )
+        # init_from_pelvis_se3 = init_from_lidar_se3 * imu_from_pelvis_se3
+        print(filtered_pos, filtered_quat)
+        filtered_pos = init_from_lidar_se3.translation
+        filtered_quat = pin.Quaternion(init_from_lidar_se3.rotation)
+        print(filtered_pos, filtered_quat)
+        # # print(pos, quat.coeffs())
 
         t = TransformStamped()
 
         t.header.stamp = self.get_clock().now().to_msg()
         # t.header.frame_id = 'zed_camera_center'
         t.header.frame_id = 'camera_init'
-        t.child_frame_id = 'pelvis'
+        t.child_frame_id = 'filtered_body'
 
         # Turtle only exists in 2D, thus we get x and y translation
         # coordinates from the message and set the z coordinate to 0
-        t.transform.translation.x = pos[0]
-        t.transform.translation.y = pos[1]
-        t.transform.translation.z = pos[2]
+        t.transform.translation.x = filtered_pos[0]
+        t.transform.translation.y = filtered_pos[1]
+        t.transform.translation.z = filtered_pos[2]
+        # print(pos, filtered_pos)
 
-        t.transform.rotation.x = quat.x
-        t.transform.rotation.y = quat.y
-        t.transform.rotation.z = quat.z
-        t.transform.rotation.w = quat.w
-        try:
-            world_from_rf = self.tf_buffer.lookup_transform('world',
-                        'right_ankle_roll_link', rclpy.time.Time())
-            world_from_lf = self.tf_buffer.lookup_transform('world',
-                        'left_ankle_roll_link', rclpy.time.Time())
-            # print(to_array(world_from_rf.transform.translation),
-            #             to_array(world_from_lf.transform.translation))
-        except Exception as ex:
-            print(f'Could not transform world to right_ankle_roll_link: {ex}')     
+        t.transform.rotation.x = filtered_quat.x
+        t.transform.rotation.y = filtered_quat.y
+        t.transform.rotation.z = filtered_quat.z
+        t.transform.rotation.w = filtered_quat.w
+           
         # Send the transformation
         self.tf_broadcaster.sendTransform(t)
+        # try:
+        #     world_from_rf = self.tf_buffer.lookup_transform('world',
+        #                 'right_ankle_roll_link', rclpy.time.Time())
+        #     world_from_lf = self.tf_buffer.lookup_transform('world',
+        #                 'left_ankle_roll_link', rclpy.time.Time())
+        #     print(to_array(world_from_rf.transform.translation),
+        #                 to_array(world_from_lf.transform.translation))
+        # except Exception as ex:
+        #     print(f'Could not transform world to right_ankle_roll_link: {ex}')  
 
     def on_timer(self):
         try:
