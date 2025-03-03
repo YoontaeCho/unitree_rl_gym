@@ -110,10 +110,30 @@ class PelvistoTrack(Node):
             t.transform.translation.y = t_lidar_pelvis.transform.translation.y
             t.transform.translation.z = t_lidar_pelvis.transform.translation.z
 
-            t.transform.rotation.x = t_lidar_pelvis.transform.rotation.x
-            t.transform.rotation.y = t_lidar_pelvis.transform.rotation.y
-            t.transform.rotation.z = t_lidar_pelvis.transform.rotation.z
-            t.transform.rotation.w = t_lidar_pelvis.transform.rotation.w
+            # body from world 
+            rot_body_inv_tf = self.tf_buffer.lookup_transform(
+                "body", "world", rclpy.time.Time()
+            )
+            rot_body_inv = R.from_quat(to_array(rot_body_inv_tf.transform.rotation))
+            
+
+            # t.transform.rotation.x = t_lidar_pelvis.transform.rotation.x
+            # t.transform.rotation.y = t_lidar_pelvis.transform.rotation.y
+            # t.transform.rotation.z = t_lidar_pelvis.transform.rotation.z
+            # t.transform.rotation.w = t_lidar_pelvis.transform.rotation.w
+
+            rot_pelvis_w = np.asarray([
+                float(x) for x in 
+                self.low_state.imu_state.quaternion
+            ])
+            rot_pelvis_w = R.from_quat(np.roll(rot_pelvis_w, -1))   
+            rot_body_form_pelvis = (rot_body_inv * rot_pelvis_w).as_quat()
+            qx, qy, qz, qw = rot_body_form_pelvis
+            # rot_w
+            t.transform.rotation.x = qx
+            t.transform.rotation.y = qy
+            t.transform.rotation.z = qz
+            t.transform.rotation.w = qw
 
             # Send the transformation
             self.tf_broadcaster.sendTransform(t)
