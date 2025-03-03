@@ -161,10 +161,10 @@ class PelvistoTrack(Node):
         #     axis=0)
         # )
         # init_from_pelvis_se3 = init_from_lidar_se3 * imu_from_pelvis_se3
-        print(filtered_pos, filtered_quat)
+        # print(filtered_pos, filtered_quat)
         filtered_pos = init_from_lidar_se3.translation
         filtered_quat = pin.Quaternion(init_from_lidar_se3.rotation)
-        print(filtered_pos, filtered_quat)
+        # print(filtered_pos, filtered_quat)
         # # print(pos, quat.coeffs())
 
         t = TransformStamped()
@@ -213,7 +213,7 @@ class PelvistoTrack(Node):
             # corresponding tf variables
 
             t_lidar_pelvis = self.tf_buffer.lookup_transform(
-                'mid360_link_IMU', 
+                'mid360_link_frame', 
                 # 'zed2_camera_center',
                 'pelvis', rclpy.time.Time(),
                 # rclpy.duration.Duration(seconds=0.05)
@@ -312,8 +312,9 @@ class PelvistoTrack(Node):
         pelvis_from_lf = self.tf_buffer.lookup_transform('pelvis',
                     'left_ankle_roll_link', rclpy.time.Time())  
         xyz_rf = to_array(pelvis_from_rf.transform.translation) 
-        xyz_lf = to_array(pelvis_from_rf.transform.translation) 
+        xyz_lf = to_array(pelvis_from_lf.transform.translation) 
 
+        print(xyz_rf, xyz_lf)
         pelvis_z_rf = -quat_rotate(
             world_from_pelvis_quat, xyz_rf)[2] + 0.028531
         pelvis_z_lf = -quat_rotate(
@@ -334,6 +335,10 @@ class PelvistoTrack(Node):
         #     to_array(pelvis_from_lidar.transform.translation),
         # quat_rotate(world_from_pelvis_quat,
         #     to_array(pelvis_from_lidar.transform.translation)))
+        print(pelvis_from_lidar.transform.translation,
+        0.5 * pelvis_z_lf + 0.5 * pelvis_z_rf,
+        lidar_z_pevlis
+        )
         return (0.5 * pelvis_z_lf + 0.5 * pelvis_z_rf + lidar_z_pevlis,
                     # lidar_rot.as_quat())
                     # np.roll(world_from_pelvis_quat, -1)) 

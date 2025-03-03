@@ -95,7 +95,7 @@ class PelvistoTrack(Node):
             t_lidar_pelvis = self.tf_buffer.lookup_transform(
                 
                 # 'zed2_camera_center',
-                'mid360_link_IMU',
+                'mid360_link_frame',
                 'pelvis',
                  rclpy.time.Time(),
                 # rclpy.duration.Duration(seconds=0.05)
@@ -207,11 +207,11 @@ class PelvistoTrack(Node):
         xyz_lf = to_array(pelvis_from_rf.transform.translation) 
 
         pelvis_z_rf = -quat_rotate(
-            world_from_pelvis_quat, xyz_rf)[2] + 0.06
-            # 28531
+            world_from_pelvis_quat, xyz_rf)[2] + 0.02
+            # 8531
         pelvis_z_lf = -quat_rotate(
-            world_from_pelvis_quat, xyz_lf)[2] + 0.06
-            # 28531
+            world_from_pelvis_quat, xyz_lf)[2] + 0.02
+            # 8531
         # print(xyz_lf)
         lidar_from_pelvis = self.tf_buffer.lookup_transform('pelvis',
                     'mid360_link_frame', rclpy.time.Time())
