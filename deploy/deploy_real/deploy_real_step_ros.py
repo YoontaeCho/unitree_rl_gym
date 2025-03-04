@@ -365,7 +365,8 @@ class Controller:
                                                             foot_right_b[3:7],
                                                             ctarget_right_b_pos,
                                                             ctarget_right_b_quat)
-        # ic(pos_delta_left, pos_delta_right)
+        ic(ctarget_left_b_pos, foot_left_b[:3])
+        ic(pos_delta_left, pos_delta_right)
         return np.concatenate((pos_delta_right, axa_delta_right, pos_delta_left, axa_delta_left), axis=0)
 
     def current_proj_foot_pose(self):
