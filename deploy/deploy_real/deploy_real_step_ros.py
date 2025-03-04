@@ -434,7 +434,7 @@ class Controller:
         if  self.remote_controller.button[KeyMap.B] == 1:
             print("Start walking.")
             self._time_mask = 1.0
-            self._ema = 1.0
+            self._ema = 0.85
         elif self.remote_controller.button[KeyMap.Y] == 1:
             print("Stop walking.")
             self._time_mask = 0.0
@@ -579,7 +579,7 @@ class Controller:
             base_pose_w = self.tf_to_pose(self.tf_buffer.lookup_transform(
                 "world", "pelvis",
                                             rp.time.Time()), 'wxyz')
-            ic(base_pose_w, z, world_from_pelvis_quat)
+            # ic(base_pose_w, z, world_from_pelvis_quat)
             base_pose_w = np.concatenate((base_pose_w[:3], 
             # z,
              world_from_pelvis_quat), axis=-1)

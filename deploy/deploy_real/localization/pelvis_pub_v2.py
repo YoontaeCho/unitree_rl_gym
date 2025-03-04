@@ -78,12 +78,12 @@ class PelvistoTrack(Node):
         # self.timer = self.create_timer(0.01, self.on_timer)
         # # One-shot timer to check & publish the static transform after a short delay
         self.static_tf_timer = self.create_timer(1.0, self.publish_static_tf)
-        self.create_subscription(
-            Odometry,
-            'Odometry_LIO',
-            self.on_odometry,
-            10
-        )
+        # self.create_subscription(
+        #     Odometry,
+        #     'Odometry_LIO',
+        #     self.on_odometry,
+        #     10
+        # )
         # self.create_subscription(
         #     SportModeState,
         #     '/odommodestate',
@@ -116,7 +116,8 @@ class PelvistoTrack(Node):
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
         # t.header.frame_id = 'zed_camera_center'
-        t.header.frame_id = 'filtered_body'
+        # t.header.frame_id = 'filtered_body'
+        t.header.frame_id = 'body'
         t.child_frame_id = 'pelvis'
 
         # Turtle only exists in 2D, thus we get x and y translation
