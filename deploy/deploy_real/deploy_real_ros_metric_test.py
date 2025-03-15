@@ -111,8 +111,10 @@ class Controller:
         self.smoothing = self.config.smoothing
         self.loaded_action = load_action(self.config.joint_pos_target_path)
         self.prev_q = None
+        self.prev_dq = None
         self.prev_ddq = None
         self.prev_tau = None
+        self.prev_prev_dq = None
         self._pos_diff = []
         self._pos_jitter = []
         self._torque_diff = []
@@ -323,9 +325,9 @@ class Controller:
         """calculate torque diff metric"""
         self._torque_diff.append(np.average(np.abs(curr_tau - prev_tau)))
     
-    def pos_jitter(self, curr_ddq, prev_ddq):
+    def pos_jitter(self, curr_dq, prev_dq, prev_prev_dq):
         """calculate pos jitter metric"""
-        self._pos_jitter.append(np.average(np.abs(curr_ddq - prev_ddq)))
+        self._pos_jitter.append(np.average(np.abs((curr_dq - prev_dq) - (prev_dq - prev_prev_dq))))
 
 
     def run_policy(self):
@@ -351,11 +353,11 @@ class Controller:
             self.prev_joint_pos_target = target_dof_pos
 
         curr_q, curr_dq, curr_ddq, curr_tau = self.get_motor_state(self.low_state)
-        if self.prev_q is not None:
+        if self.prev_prev_dq is not None:
             self.pos_diff(curr_q, self.prev_q)
-            print(curr_dq)
-            print(curr_q)
-            self.pos_jitter(curr_ddq, self.prev_ddq)
+            # print(curr_dq)
+            # print(curr_q)
+            self.pos_jitter(curr_dq, self.prev_dq, self.prev_prev_dq)
             self.torque_diff(curr_tau, self.prev_tau)
             # Save merics.
             np.save(F'{logpath}/metric_{self.exp_name}.npy',
@@ -369,8 +371,8 @@ class Controller:
             print("pos_diff", np.average(self._pos_diff))
             print("pos_jitter", np.average(self._pos_jitter))
             print("torque_diff", np.average(self._torque_diff))
-        self.prev_q, self.prev_ddq, self.prev_tau = curr_q, curr_ddq, curr_tau
-            
+        self.prev_q, self.prev_dq, self.prev_ddq, self.prev_tau = curr_q, curr_dq, curr_ddq, curr_tau
+        self.prev_prev_dq = self.prev_dq
         # FIXME(hh) 2nd smoothing, select only upper body joints
         # Build low cmd
         for i in self.mot_from_upper_body:
