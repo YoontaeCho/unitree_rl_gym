@@ -77,7 +77,7 @@ def load_action(path: str, interval_len: int=4, env_id:int=0) -> np.ndarray:
         interval_len : interval of episode in second.
         action : shape(interval_len / 0.02, M)
     """
-    sim_traj_and_metrics = torch.load(path)
+    sim_traj_and_metrics = torch.load(path,map_location=torch.device('cpu'))
 
     # sim_traj : shape(N, E, M)
     #   - N : episode length
@@ -86,7 +86,7 @@ def load_action(path: str, interval_len: int=4, env_id:int=0) -> np.ndarray:
     sim_traj = sim_traj_and_metrics["traj"]["joint_pos_target_traj"][:, env_id, :]
     sim_metric = sim_traj_and_metrics["metrics"]
 
-    episode = sim_traj
+    episode = sim_traj.numpy().astype(np.float32)
 
     episode_len_int = int(len(episode) * 0.02)
     if episode_len_int <= interval_len:
@@ -94,7 +94,8 @@ def load_action(path: str, interval_len: int=4, env_id:int=0) -> np.ndarray:
     else:
         start = np.random.uniform(low=0, high=episode_len_int - interval_len)
         end = start + interval_len
-        action = episode[start / 0.02, end / 0.02, :]
+        print(start, end)
+        action = episode[int(start / 0.02): int(end / 0.02), :]
         
     return action
 
@@ -123,6 +124,8 @@ class Controller:
                                              self.config.upper_body_joint)
         self.mot_from_lower_body = index_map(self.config.motor_joint,
                                              self.config.lower_body_joint)
+        self.mot_from_lab = index_map(self.config.motor_joint,
+                                             self.config.lab_joint)
         self.lab_from_mot = index_map(self.config.lab_joint,
                                       self.config.motor_joint)
         self.config.default_angles = np.asarray(self.config.lab_joint_offsets)[
@@ -299,17 +302,17 @@ class Controller:
         get motor states of upper body joints
         """
         q_mot = []
-        # dq_mot = []
+        dq_mot = []
         ddq_mot = []
         tau_mot = []
         for i_mot in self.mot_from_upper_body:
             q_mot.append(low_state.motor_state[i_mot].q)
-            # dq_mot.append(low_state.motor_state[i_mot].dq)
+            dq_mot.append(low_state.motor_state[i_mot].dq)
             ddq_mot.append(low_state.motor_state[i_mot].ddq)
-            tau_mot.append(low_state.motor_state[i_mot].est_tau)
+            tau_mot.append(low_state.motor_state[i_mot].tau_est)
         
-        # return np.asarray(q_mot), np.asarray(dq_mot), np.asarray(ddq_mot), np.asarray(tau_mot)
-        return np.asarray(q_mot), None, np.asarray(ddq_mot), np.asarray(tau_mot)
+        return np.asarray(q_mot), np.asarray(dq_mot), np.asarray(ddq_mot), np.asarray(tau_mot)
+        # return np.asarray(q_mot), None, np.asarray(ddq_mot), np.asarray(tau_mot)
 
 
     def pos_diff(self, curr_q, prev_q):
@@ -337,7 +340,8 @@ class Controller:
 
         
         # FIXME(hh) If we have previously collected joint pos targets.
-        target_dof_pos = self.loaded_action[self.counter]
+
+        target_dof_pos = self.loaded_action[self.counter][self.lab_from_mot]
         
         # FIXME(hh) If you want smoothing
         if self.smoothing:
@@ -346,9 +350,11 @@ class Controller:
                                  (1-self.smoothing) * self.prev_joint_pos_target
             self.prev_joint_pos_target = target_dof_pos
 
-        curr_q, _, curr_ddq, curr_tau = self.get_motor_state(self.low_state)
+        curr_q, curr_dq, curr_ddq, curr_tau = self.get_motor_state(self.low_state)
         if self.prev_q is not None:
             self.pos_diff(curr_q, self.prev_q)
+            print(curr_dq)
+            print(curr_q)
             self.pos_jitter(curr_ddq, self.prev_ddq)
             self.torque_diff(curr_tau, self.prev_tau)
             # Save merics.
@@ -358,14 +364,19 @@ class Controller:
                          np.average(self._pos_jitter), 
                          np.average(self._torque_diff)]
                          ))
+        if self.counter == len(self.loaded_action) - 1:
+            print("--------------------------METRICS--------------------------")
+            print("pos_diff", np.average(self._pos_diff))
+            print("pos_jitter", np.average(self._pos_jitter))
+            print("torque_diff", np.average(self._torque_diff))
         self.prev_q, self.prev_ddq, self.prev_tau = curr_q, curr_ddq, curr_tau
-
+            
         # FIXME(hh) 2nd smoothing, select only upper body joints
         # Build low cmd
         for i in self.mot_from_upper_body:
             self.low_cmd.motor_cmd[i].q = float(target_dof_pos[i])
             self.low_cmd.motor_cmd[i].dq = 0.0
-            self.low_cmd.motor_cmd[i].kp = 0.8 * float(self.config.kps[i])
+            self.low_cmd.motor_cmd[i].kp = 1.0 * float(self.config.kps[i])
             self.low_cmd.motor_cmd[i].kd = 1.0 * float(self.config.kds[i])
             self.low_cmd.motor_cmd[i].tau = 0.0 # * float(target_dof_eff[i]) FIXME(hh) we were not applying effort.
         

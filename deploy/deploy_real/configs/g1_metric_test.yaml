@@ -196,4 +196,4 @@ max_cmd: [1.0, 1.0, 1.0]
 
 # Metric test
 smoothing: 0
-joint_pos_target_path: ""
+joint_pos_target_path: "{LEGGED_GYM_ROOT_DIR}/deploy/deploy_real/trajs/cp9.pt"
