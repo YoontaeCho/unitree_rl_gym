@@ -67,7 +67,7 @@ def index_map(k_to, k_from):
     return [index_dict.get(k, -1) for k in k_from]  # O(len(k_to))
 
 
-def load_action(path: str, interval_len: int=4) -> np.ndarray:
+def load_action(path: str, interval_len: int=4, env_id:int=0) -> np.ndarray:
     """
     sample random interval from episode.
     N : episode length. (N * 0.02 [s] = total time [s])
@@ -77,7 +77,16 @@ def load_action(path: str, interval_len: int=4) -> np.ndarray:
         interval_len : interval of episode in second.
         action : shape(interval_len / 0.02, M)
     """
-    episode = None
+    sim_traj_and_metrics = torch.load(path)
+
+    # sim_traj : shape(N, E, M)
+    #   - N : episode length
+    #   - E : number of episodes
+    #   - M : number of joints
+    sim_traj = sim_traj_and_metrics["traj"]["joint_pos_target_traj"][:, env_id, :]
+    sim_metric = sim_traj_and_metrics["metrics"]
+
+    episode = sim_traj
 
     episode_len_int = int(len(episode) * 0.02)
     if episode_len_int <= interval_len:
