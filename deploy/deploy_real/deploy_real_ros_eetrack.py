@@ -449,16 +449,16 @@ class Observation:
         pelvis_height = [world_from_pelvis.transform.translation.z]
 
         obs = [
-            base_ang_vel,
-            projected_gravity,
-            foot_pose,
-            hand_pose,
-            projected_com,
-            joint_pos,
+            base_ang_vel, # 3
+            projected_gravity, #2 5
+            foot_pose, #12  17
+            hand_pose, #12  29
+            projected_com, #2 31
+            joint_pos, # 29
             # 0.2 * joint_vel,
-            joint_vel,
-            actions,
-            hands_command,
+            joint_vel, # 29
+            actions, # 29
+            hands_command, #
             right_arm_com,
             left_arm_com,
             pelvis_height

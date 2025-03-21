@@ -135,10 +135,10 @@ class Stage1Observation:
         pelvis_height = [world_from_pelvis.transform.translation.z]
 
         obs = [
-            base_ang_vel,
-            projected_gravity,
-            foot_pose,
-            hand_pose,
+            base_ang_vel, # 3
+            projected_gravity, # 2 5
+            foot_pose, # 12 17
+            hand_pose, # 12 29
             joint_pos,
             joint_vel,
             hands_command,
@@ -224,9 +224,13 @@ class Stage2Observation(Stage1Observation):
         # print([np.shape(o) for o in obs])
         return np.concatenate(obs, axis=-1)
     
+from ikctrl import IKCtrl
 
 class SimpleAction:
-    def __init__(self, config):
+    def __init__(self, config, ikctrl: IKCtrl):
+        self.ikctrl = ikctrl
+        self.lim_lo_pin = self.ikctrl.robot.model.lowerPositionLimit
+        self.lim_hi_pin = self.ikctrl.robot.model.upperPositionLimit
         self.config = config
         self.mot_from_jpa = index_map(
             self.config.motor_joint, 
@@ -272,24 +276,40 @@ class SimpleAction:
             # self.default_offset[self.mot_from_jpa]
         )
 
+        self.mot_from_lab = index_map(
+            self.config.motor_joint,
+            self.config.lab_joint
+            )
+        
+        self.pin_from_mot = index_map(
+            self.ikctrl.joint_names,
+            self.config.motor_joint
+            )
 
 
-    def __call__(self, action, motor_q):
+
+    def __call__(self, action, obs):
         """Generate motor-ordered joint position command from action and current joint position"""
+        q = obs[..., 30:59] #FIXME: 32:61 is not always correct
+        q_mot = np.zeros(29)
+        q_mot[self.mot_from_lab] = q
+        q_mot[self.mot_from_lab] += np.asarray(self.config.lab_joint_offsets)
+
         # motor order
         target_dof_pos = np.zeros(29)
-
-        lab_rjpa_q = np.zeros(10)
-        lab_q = np.zeros(29)
-        # change to lab order
-        lab_q[self.lab_from_mot] = motor_q
-        lab_rjpa_q[:] = lab_q[self.lab_from_rjpa]
+        target_dof_pos += q_mot
 
         # checked
         target_dof_pos[self.mot_from_jpa] = self.joint_pos_action_offset +  0.5 * action[..., :19]
 
         # checked
-        target_dof_pos[self.mot_from_rjpa] = lab_rjpa_q + 0.3 * action[..., 19:]
+        target_dof_pos[self.mot_from_rjpa] += 0.3 * action[..., 19:]
+
+        target_dof_pos = np.clip(
+                target_dof_pos,
+                self.lim_lo_pin[self.pin_from_mot],
+                self.lim_hi_pin[self.pin_from_mot]
+            )
 
         return target_dof_pos
     

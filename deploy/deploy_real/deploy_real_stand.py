@@ -658,12 +658,8 @@ class Controller(um.MetricUtils):
         obs_tensor = obs_tensor.detach().clone().float()
         self.action = self.policy(obs_tensor).detach().numpy().squeeze()
 
-        motor_q = []
-        for i in range(29):
-            motor_q.append(self.low_state.motor_state[i].q)
-
         # target_dof_pos : motor joint ordered
-        target_dof_pos = self.actmap(self.action, motor_q)
+        target_dof_pos = self.actmap(self.action, self.obs)
         
         
         # FIXME(hh) If you want smoothing
