@@ -39,11 +39,11 @@ class MetricUtils:
                          np.average(self._pos_jitter), 
                          np.average(self._torque_diff)]
                          ))
-        if self.counter == len(self.loaded_action) - 1:
-            print("--------------------------METRICS--------------------------")
-            print("pos_diff", np.average(self._pos_diff))
-            print("pos_jitter", np.average(self._pos_jitter))
-            print("torque_diff", np.average(self._torque_diff))
+        # if self.counter == len(self.loaded_action) - 1:
+        print("\n--------------------------METRICS--------------------------")
+        print("pos_diff", np.average(self._pos_diff))
+        print("pos_jitter", np.average(self._pos_jitter))
+        print("torque_diff", np.average(self._torque_diff))
     
         self.prev_q, self.prev_dq, self.prev_ddq, self.prev_tau = curr_q, curr_dq, curr_ddq, curr_tau
         self.prev_prev_dq = self.prev_dq

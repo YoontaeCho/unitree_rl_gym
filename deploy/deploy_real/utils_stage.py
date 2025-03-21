@@ -155,6 +155,7 @@ class Stage2Observation(Stage1Observation):
                  low_state: LowStateHG,
                  height_command: np.ndarray
                  ):
+        # array_a[a_from_b] = array_b
         lab_from_mot = self.lab_from_mot
         num_lab_joint = self.num_lab_joint
 
@@ -227,38 +228,65 @@ class Stage2Observation(Stage1Observation):
 class SimpleAction:
     def __init__(self, config):
         self.config = config
-        self.joint_pos_action_idx = index_map(
+        self.mot_from_jpa = index_map(
             self.config.motor_joint, 
             self.config.jpa_joint
             )
-        self.relative_joint_pos_action_idx = index_map(
+        self.mot_from_rjpa = index_map(
             self.config.motor_joint,
+            self.config.rjpa_joint
+            )
+        
+        self.jpa_from_mot = index_map(
+            self.config.jpa_joint,
+            self.config.motor_joint
+            )
+        
+        self.rjpa_from_mot = index_map(
+            self.config.rjpa_joint,
+            self.config.motor_joint
+            )
+        
+        self.lab_from_jpa = index_map(
+            self.config.lab_joint,
+            self.config.jpa_joint
+            )
+        self.lab_from_rjpa = index_map(
+            self.config.lab_joint,
             self.config.rjpa_joint
             )
 
         self.default_offset = np.asarray(self.config.lab_joint_offsets)
 
         self.joint_pos_action_offset = (
-            self.default_offset[self.joint_pos_action_idx]
-        )
-        self.relative_joint_pos_action_offset = (
-            self.default_offset[self.relative_joint_pos_action_idx]
+            self.default_offset[self.lab_from_jpa]
+            # self.default_offset[self.mot_from_jpa]
         )
 
 
 
     def __call__(self, action, current_joint_pos):
-        joint_pos_action = action[..., :22]
-        relative_joint_pos_action = action[..., 22:29]
-
         target_dof_pos = np.zeros(29)
-        # use default offset for JointPositionAction
-        target_dof_pos[self.joint_pos_action_idx] = self.joint_pos_action_offset + \
-                                                    0.5 * relative_joint_pos_action
 
-        # use current joint pos for RelativeJointPositionAction
-        target_dof_pos[self.relative_joint_pos_action_idx] = current_joint_pos + \
-                                                            0.3 * joint_pos_action
+        
+        # use default offset for JointPositionAction
+        if False:
+            joint_pos_action = action[..., :19]
+            relative_joint_pos_action = np.zeros(10)
+            target_dof_pos[self.mot_from_jpa] = self.joint_pos_action_offset + \
+                                                        0.5 * joint_pos_action
+
+            # use current joint pos for RelativeJointPositionAction
+            target_dof_pos[self.mot_from_rjpa] = np.array(current_joint_pos) + \
+                                                                0.3 * relative_joint_pos_action
+        if True:
+            joint_pos_action = np.ones(19) * 0.5 # 19
+            relative_joint_pos_action = np.zeros(10)
+
+            # target_dof_pos[self.mot_from_jpa] = joint_pos_action
+            target_dof_pos[self.mot_from_jpa] = self.joint_pos_action_offset +  0.5 * action[..., :19]
+            # target_dof_pos[self.mot_from_rjpa] = relative_joint_pos_action
+            target_dof_pos[self.mot_from_rjpa] = np.array(current_joint_pos)[self.lab_from_rjpa] + 0.3 * action[..., 19:]
 
         return target_dof_pos
     

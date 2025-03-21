@@ -9,12 +9,12 @@ lowstate_topic: "rt/lowstate"
 
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_eetrack.pt"
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_eet_dr.pt"
-policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_cp3.pt"
+# policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_cp3.pt"
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_perturb.pt"
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_cp3_perturb.pt"
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/veltrained_noperturb_delay.pt"
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/eetrack_cp3_delay_nopush.pt"
-policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/2025-03-02_16-31-59_slow_approach_from_cp3.pt"
+# policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/dao_stand.pt"
 
 lab_joint: [
   'left_hip_pitch_joint',
@@ -194,38 +194,40 @@ num_actions: 29 # 22+7
 num_obs: 132
 
 # max_cmd: [0.8, 0.5, 1.57]
+policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/dao_stand.pt"
 max_cmd: [1.0, 1.0, 1.0]
+smoothing: 0.
 
 jpa_joint: [
-  "left_hip_yaw_joint",
-  "right_hip_yaw_joint",
-  "left_hip_roll_joint",
-  "right_hip_roll_joint",
-  "left_hip_pitch_joint",
-  "right_hip_pitch_joint",
-  "left_knee_joint",
-  "right_knee_joint",
-  "left_ankle_pitch_joint",
-  "right_ankle_pitch_joint",
-  "left_ankle_roll_joint",
-  "right_ankle_roll_joint",
-  "right_shoulder_pitch_joint",
-  "right_shoulder_roll_joint",
-  "right_shoulder_yaw_joint",
-  "right_elbow_joint",
-  "right_wrist_roll_joint",
-  "right_wrist_pitch_joint",
-  "right_wrist_yaw_joint",
+  'left_hip_pitch_joint',
+  'right_hip_pitch_joint',
+  'left_hip_roll_joint',
+  'right_hip_roll_joint',
+  'left_hip_yaw_joint',
+  'right_hip_yaw_joint',
+  'left_knee_joint',
+  'right_knee_joint',
+  'right_shoulder_pitch_joint',
+  'left_ankle_pitch_joint', 
+ 'right_ankle_pitch_joint',
+ 'right_shoulder_roll_joint',
+ 'left_ankle_roll_joint',
+ 'right_ankle_roll_joint',
+ 'right_shoulder_yaw_joint',
+ 'right_elbow_joint',
+ 'right_wrist_roll_joint',
+ 'right_wrist_pitch_joint',
+ 'right_wrist_yaw_joint'
 ]
 rjpa_joint: [
+  "waist_yaw_joint",
+  "waist_roll_joint",
+  "waist_pitch_joint",
   "left_shoulder_pitch_joint",
   "left_shoulder_roll_joint",
   "left_shoulder_yaw_joint",
   "left_elbow_joint",
   "left_wrist_roll_joint",
   "left_wrist_pitch_joint",
-  "left_wrist_yaw_joint",
-  "waist_roll_joint",
-  "waist_pitch_joint",
-  "waist_yaw_joint",
+  "left_wrist_yaw_joint"
 ]

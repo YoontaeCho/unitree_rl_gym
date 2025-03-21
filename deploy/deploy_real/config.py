@@ -80,6 +80,8 @@ class Config:
             self.num_actions = config["num_actions"]
             self.num_obs = config["num_obs"]
             self.smoothing = config["smoothing"]
-            self.joint_pos_target_path = config["joint_pos_target_path"].replace("{LEGGED_GYM_ROOT_DIR}", LEGGED_GYM_ROOT_DIR)
-            self.upper_body_joint = config["upper_body_joint"]
-            self.lower_body_joint = config["lower_body_joint"]
+            # self.joint_pos_target_path = config["joint_pos_target_path"].replace("{LEGGED_GYM_ROOT_DIR}", LEGGED_GYM_ROOT_DIR)
+            # self.upper_body_joint = config["upper_body_joint"]
+            # self.lower_body_joint = config["lower_body_joint"]
+            self.jpa_joint = config["jpa_joint"]
+            self.rjpa_joint = config["rjpa_joint"]

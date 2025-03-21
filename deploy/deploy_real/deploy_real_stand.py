@@ -1,3 +1,8 @@
+import math_utils
+import random as rd
+from act_to_dof import ActToDof
+import utils_metric as um
+import utils_stage as us
 from legged_gym import LEGGED_GYM_ROOT_DIR
 from typing import Union, List
 import numpy as np
@@ -31,9 +36,7 @@ import math_utils
 import random as rd
 from act_to_dof import ActToDof
 
-from . import utils_eetrack as ue
-from . import utils_metric as um
-from . import utils_stage as us
+
 class Mode(Enum):
     wait = 0
     zero_torque = 1
@@ -42,6 +45,15 @@ class Mode(Enum):
     policy = 4
     null = 5
 
+
+axis_angle_from_quat = math_utils.as_np(math_utils.axis_angle_from_quat)
+quat_conjugate = math_utils.as_np(math_utils.quat_conjugate)
+quat_mul = math_utils.as_np(math_utils.quat_mul)
+quat_rotate = math_utils.as_np(math_utils.quat_rotate)
+quat_rotate_inverse = math_utils.as_np(math_utils.quat_rotate_inverse)
+wrap_to_pi = math_utils.as_np(math_utils.wrap_to_pi)
+combine_frame_transforms = math_utils.as_np(
+    math_utils.combine_frame_transforms)
 
 
 class GlobalClock:
@@ -53,6 +65,78 @@ class GlobalClock:
 
 
 clock = None
+
+
+def body_pose(
+        tf_buffer,
+        frame: str,
+        ref_frame: str = 'pelvis',
+        stamp=None,
+        rot_type: str = 'axa'):
+    """ --> tf does not exist """
+    if stamp is None:
+        stamp = rp.time.Time()
+        # stamp = clock.get_time()
+    try:
+        # t = "ref{=pelvis}_from_frame" transform
+        t = tf_buffer.lookup_transform(
+            ref_frame,  # to
+            frame,  # from
+            stamp)
+    except TransformException as ex:
+        print(f'Could not transform {frame} to {ref_frame}: {ex}')
+        raise
+
+    txn = t.transform.translation
+    rxn = t.transform.rotation
+
+    xyz = np.array([txn.x, txn.y, txn.z])
+    quat_wxyz = np.array([rxn.w, rxn.x, rxn.y, rxn.z])
+
+    xyz = np.array(xyz)
+    if rot_type == 'axa':
+        axa = axis_angle_from_quat(quat_wxyz)
+        axa = wrap_to_pi(axa)
+        return (xyz, axa)
+    elif rot_type == 'quat':
+        return (xyz, quat_wxyz)
+    raise ValueError(f"Unknown rot_type: {rot_type}")
+
+
+from common.xml_helper import extract_link_data
+
+
+def compute_com(tf_buffer, com_data, body_frames: List[str]):
+    """compute com of body frames"""
+    mass_list = []
+    com_list = []
+
+    # iterate for frames
+    for frame in body_frames:
+        try:
+            frame_data = com_data[frame]
+        except KeyError:
+            continue
+
+        try:
+            link_pos, link_wxyz = body_pose(tf_buffer,
+                                            frame, rot_type='quat')
+        except TransformException:
+            continue
+
+        com_pos_b, com_wxyz = frame_data['pos'], frame_data['quat']
+
+        # compute com from world coordinates
+        # NOTE 'math_utils' package will be brought from isaaclab
+        com_pos = link_pos + quat_rotate(link_wxyz, com_pos_b)
+        com_list.append(com_pos)
+
+        # get math
+        mass = frame_data['mass']
+        mass_list.append(mass)
+
+    com = sum([m * pos for m, pos in zip(mass_list, com_list)]) / sum(mass_list)
+    return com
 
 
 def index_map(k_to, k_from):
@@ -69,37 +153,193 @@ def index_map(k_to, k_from):
     return [index_dict.get(k, -1) for k in k_from]  # O(len(k_to))
 
 
-def load_action(path: str, interval_len: int=4, env_id:int=0) -> np.ndarray:
-    """
-    sample random interval from episode.
-    N : episode length. (N * 0.02 [s] = total time [s])
-    M : number of joints. (maybe 29)
-    variables:
-        episode : shape(N, M)
-        interval_len : interval of episode in second.
-        action : shape(interval_len / 0.02, M)
-    """
-    sim_traj_and_metrics = torch.load(path,map_location=torch.device('cpu'))
+def interpolate_position(pos1, pos2, n_segments):
+    increments = (pos2 - pos1) / n_segments
+    interp_pos = [pos1 + increments * p for p in range(n_segments)]
+    interp_pos.append(pos2)
+    return interp_pos
 
-    # sim_traj : shape(N, E, M)
-    #   - N : episode length
-    #   - E : number of episodes
-    #   - M : number of joints
-    sim_traj = sim_traj_and_metrics["traj"]["joint_pos_target_traj"][:, env_id, :]
-    sim_metric = sim_traj_and_metrics["metrics"]
 
-    episode = sim_traj.numpy().astype(np.float32)
+class eetrack:
+    def __init__(self, root_state_w, tf_buffer):
+        self.tf_buffer = tf_buffer
+        # self.eetrack_midpt = root_state_w.clone()
+        # self.eetrack_midpt[..., 1] += 0.3
+        self.eetrack_midpt = (
+            root_state_w[..., :3] +
+            quat_rotate(root_state_w[0, 3:7].detach().cpu().numpy(),
+                        np.array([0.3, 0.0, 0.0]))[None]
+        )
+        self.eetrack_end = None
+        self.eetrack_subgoal = None
+        self.number_of_subgoals = 60
+        self.eetrack_line_length = 0.3
+        self.device = "cpu"
+        self.waypoints = self.create_eetrack(root_state_w)
+        self.eetrack_subgoal = self.create_subgoal(
+                root_state_w,
+                self.waypoints)
+        self.sg_idx = 0
+        # first subgoal sampling time = 1.0s
+        # self.init_time = rp.time.Time()#.nanoseconds / 1e9 + 1.0
+        self.init_time = clock.get_time()
 
-    episode_len_int = int(len(episode) * 0.02)
-    if episode_len_int <= interval_len:
-        action = episode
-    else:
-        start = np.random.uniform(low=0, high=episode_len_int - interval_len)
-        end = start + interval_len
-        print(start, end)
-        action = episode[int(start / 0.02): int(end / 0.02), :]
-        
-    return action
+    def create_eetrack(self, root_state_w):
+        self.eetrack_start = self.eetrack_midpt.clone()
+        self.eetrack_end = self.eetrack_midpt.clone()
+        is_hor = rd.choice([True, False])
+        eetrack_offset = rd.uniform(-0.5, 0.5)
+        # For testing
+        is_box = True
+        is_hor = True
+
+        eetrack_offset = 0.0
+        if is_box:
+            waypoints = []
+
+            dx = (self.eetrack_line_length) / 2.
+            dy = (self.eetrack_line_length) / 2.
+
+            deltas = [
+                    [0, +dy, +dx + 0.1],
+                    [0, +dy, -dx + 0.1],
+                    [0, -dy, -dx + 0.1],
+                    [0, -dy, +dx + 0.1],
+                    [0, +dy, +dx + 0.1]
+            ]
+
+            for delta in deltas:
+                waypoint = self.eetrack_midpt.clone()
+                waypoint += math_utils.quat_rotate(
+                    root_state_w[..., 3:7].float(),
+                    th.as_tensor(delta, dtype=th.float32)[None]
+                )
+                waypoints.append( waypoint )
+            return waypoints
+
+        elif is_hor:
+            dx = (self.eetrack_line_length) / 2.
+            dz = eetrack_offset
+            delta_body0 = [0, +dx, dz]
+            delta_body1 = [0, -dx, dz]
+
+            self.eetrack_start += math_utils.quat_rotate(
+                root_state_w[..., 3:7].float(),
+                th.as_tensor(delta_body0, dtype=th.float32)[None]
+            )
+            self.eetrack_end += math_utils.quat_rotate(
+                root_state_w[..., 3:7].float(),
+                th.as_tensor(delta_body1, dtype=th.float32)[None]
+            )
+            # self.eetrack_start[..., 2] += eetrack_offset
+            # self.eetrack_end[..., 2] += eetrack_offset
+            # self.eetrack_start[..., 0] -= (self.eetrack_line_length) / 2.
+            # self.eetrack_end[..., 0] += (self.eetrack_line_length) / 2.
+        else:
+            # self.eetrack_start[..., 0] += eetrack_offset
+            # self.eetrack_end[..., 0] += eetrack_offset
+            # self.eetrack_start[..., 2] += (self.eetrack_line_length) / 2.
+            # self.eetrack_end[..., 2] -= (self.eetrack_line_length) / 2.
+            dx = eetrack_offset
+            dz = (self.eetrack_line_length) / 2.
+            delta_body0 = [0, dx, +dz]
+            delta_body1 = [0, dx, -dz]
+            self.eetrack_start += math_utils.quat_rotate(
+                root_state_w[..., 3:7],
+                th.as_tensor(delta_body0)[None]
+            )
+            self.eetrack_end += math_utils.quat_rotate(
+                root_state_w[..., 3:7],
+                th.as_tensor(delta_body1)[None]
+            )
+
+        return self.eetrack_start, self.eetrack_end
+
+    def create_direction(self):
+        angle_from_eetrack_line = torch.rand(1, device=self.device) * np.pi
+        angle_from_xyplane_in_global_frame = torch.rand(
+            1, device=self.device) * np.pi - np.pi / 2
+        # For testing
+        angle_from_eetrack_line = torch.rand(1, device=self.device) * np.pi / 2
+        angle_from_xyplane_in_global_frame = torch.rand(
+            1, device=self.device) * 0
+        roll = torch.zeros(1, device=self.device)
+        pitch = angle_from_xyplane_in_global_frame
+        yaw = angle_from_eetrack_line
+        euler = torch.stack([roll, pitch, yaw], dim=1)
+        quat = math_utils.quat_from_euler_xyz(
+            euler[:, 0], euler[:, 1], euler[:, 2])
+        return quat
+
+    def create_subgoal(self, root_state_w, waypoints):
+        qs = []
+        for p0, p1 in zip(waypoints[:-1], waypoints[1:]):
+            eetrack_subgoals = interpolate_position(
+                p0, p1, self.number_of_subgoals)
+            eetrack_subgoals = [
+                (
+                    l.clone().to(self.device, dtype=torch.float32)
+                    if isinstance(l, torch.Tensor)
+                    else torch.tensor(l, device=self.device, dtype=torch.float32)
+                )
+                for l in eetrack_subgoals
+            ]
+            eetrack_subgoals = torch.stack(eetrack_subgoals, axis=1)
+
+            eetrack_ori = self.create_direction().unsqueeze(
+                1).repeat(1, self.number_of_subgoals + 1, 1)
+            if True:
+                eetrack_ori[..., :] = root_state_w[..., None, 3:7]
+            # welidng_subgoals -> Nenv x Npoints x (3 + 4)
+            q = torch.cat([eetrack_subgoals, eetrack_ori], dim=2)
+            qs.append(q)
+        return torch.cat(qs, dim=1)
+
+    def update_command(self):
+        # print(rp.time.Time().nanoseconds)
+        time = (clock.get_time() - self.init_time).nanoseconds / 1e9
+        if (time >= 1.0):
+            self.sg_idx = int((time - 1) / 0.1 + 1)
+        print(time, self.sg_idx)
+        # self.sg_idx.clamp_(0, self.number_of_subgoals + 1)
+        self.sg_idx = min(
+                self.sg_idx,
+                self.eetrack_subgoal.shape[-2] - 1)
+        self.next_command_s_left = self.eetrack_subgoal[...,
+                                                        self.sg_idx, :]
+
+    def get_command(self, root_state_w):
+        self.update_command()
+
+        pos_hand_b_left, quat_hand_b_left = body_pose(
+            self.tf_buffer,
+            "left_rubber_hand",
+            rot_type='quat'
+        )
+
+        lerp_command_w_left = self.next_command_s_left
+
+        (lerp_command_b_left_pos,
+         lerp_command_b_left_quat) = math_utils.subtract_frame_transforms(
+            root_state_w[..., 0:3],
+            root_state_w[..., 3:7],
+            lerp_command_w_left[:, 0:3],
+            lerp_command_w_left[:, 3:7],
+        )
+
+        # lerp_command_b_left = lerp_command_w_left
+
+        pos_delta_b_left, rot_delta_b_left = math_utils.compute_pose_error(
+            torch.from_numpy(pos_hand_b_left)[None],
+            torch.from_numpy(quat_hand_b_left)[None],
+            lerp_command_b_left_pos,
+            lerp_command_b_left_quat,
+        )
+        axa_delta_b_left = math_utils.wrap_to_pi(rot_delta_b_left)
+
+        hand_command = torch.cat((pos_delta_b_left, axa_delta_b_left), dim=-1)
+        return hand_command
+
 
 import os
 
@@ -110,13 +350,13 @@ class Controller(um.MetricUtils):
         self.config = config
         self.remote_controller = RemoteController()
         # Load policy
+        print(config.policy_path)
         self.policy = torch.jit.load(config.policy_path)
         self.policy.eval()
 
         # Metric test
         self.prev_joint_pos_target = None
         self.smoothing = self.config.smoothing
-        self.loaded_action = load_action(self.config.joint_pos_target_path)
         self.prev_q = None
         self.prev_dq = None
         self.prev_ddq = None
@@ -125,14 +365,10 @@ class Controller(um.MetricUtils):
         self._pos_diff = []
         self._pos_jitter = []
         self._torque_diff = []
-        self.exp_name = os.path.basename(self.config.joint_pos_target_path)
+        self.exp_name = os.path.basename(self.config.policy_path)
 
 
         # == build index map ==
-        self.mot_from_upper_body = index_map(self.config.motor_joint,
-                                             self.config.upper_body_joint)
-        self.mot_from_lower_body = index_map(self.config.motor_joint,
-                                             self.config.lower_body_joint)
         self.mot_from_lab = index_map(self.config.motor_joint,
                                              self.config.lab_joint)
         self.lab_from_mot = index_map(self.config.lab_joint,
@@ -321,7 +557,7 @@ class Controller(um.MetricUtils):
         dq_mot = []
         ddq_mot = []
         tau_mot = []
-        for i_mot in self.mot_from_upper_body:
+        for i_mot in self.mot_from_lab:
             q_mot.append(low_state.motor_state[i_mot].q)
             dq_mot.append(low_state.motor_state[i_mot].dq)
             ddq_mot.append(low_state.motor_state[i_mot].ddq)
@@ -380,7 +616,7 @@ class Controller(um.MetricUtils):
 
 
 
-        world_from_pelvis = ue.body_pose(
+        world_from_pelvis = body_pose(
             self.tf_buffer,
             'pelvis',
             'world',
@@ -390,7 +626,7 @@ class Controller(um.MetricUtils):
         root_state_w = np.zeros(7)
         root_state_w[0:3] = xyz
         root_state_w[3:7] = quat_wxyz
-        self.eetrack = ue.eetrack(torch.from_numpy(root_state_w)[None],
+        self.eetrack = eetrack(torch.from_numpy(root_state_w)[None],
                                    self.tf_buffer)
         
         self.goalpath.header.frame_id = 'world'
@@ -414,15 +650,20 @@ class Controller(um.MetricUtils):
 
         self.target_pose = np.copy(
             self.eetrack.next_command_s_left.squeeze().detach().cpu().numpy())
-        self.publish_hand_target()
+        self.publish_target()
 
         # For standing.
         self.obs = self.obsmap(self.low_state, _hands_command_)
         obs_tensor = torch.from_numpy(self.obs).unsqueeze(0)
-        obs_tensor = obs_tensor.detach().clone()
+        obs_tensor = obs_tensor.detach().clone().float()
         self.action = self.policy(obs_tensor).detach().numpy().squeeze()
 
-        target_dof_pos = self.actmap(self.action)
+        curr_rjpa_joint_pos = []
+        for i in range(29):
+            curr_rjpa_joint_pos.append(self.low_state.motor_state[i].q)
+
+
+        target_dof_pos = self.actmap(self.action, curr_rjpa_joint_pos)
         
         
         # FIXME(hh) If you want smoothing
@@ -441,8 +682,8 @@ class Controller(um.MetricUtils):
         for i in self.mot_from_lab:
             self.low_cmd.motor_cmd[i].q = float(target_dof_pos[i])
             self.low_cmd.motor_cmd[i].dq = 0.0
-            self.low_cmd.motor_cmd[i].kp = 1.0 * float(self.config.kps[i])
-            self.low_cmd.motor_cmd[i].kd = 1.0 * float(self.config.kds[i])
+            self.low_cmd.motor_cmd[i].kp = 0.1 * float(self.config.kps[i])
+            self.low_cmd.motor_cmd[i].kd = 0.1 * float(self.config.kds[i])
             self.low_cmd.motor_cmd[i].tau = 0.0
         
         # send the command
