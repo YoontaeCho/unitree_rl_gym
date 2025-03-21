@@ -396,8 +396,12 @@ class Controller(um.MetricUtils):
         self.obsmap = us.Stage1Observation(
             '../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf',
             config, self.tf_buffer)
-        self.actmap = us.SimpleAction(config)
         self.eetrack = None
+        self.ikctrl = IKCtrl(
+            '../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf',
+            config.arm_joint,
+            frame='left_rubber_hand')
+        self.actmap = us.SimpleAction(config, self.ikctrl)
 
         if config.msg_type == "hg":
             # g1 and h1_2 use the hg msg type
@@ -665,8 +669,13 @@ class Controller(um.MetricUtils):
         # FIXME(hh) If you want smoothing
         if self.smoothing:
             if self.prev_joint_pos_target is not None:
-                target_dof_pos = self.smoothing * target_dof_pos + \
-                                 (1-self.smoothing) * self.prev_joint_pos_target
+                if self.counter < 100:
+                    smoothing = 0.2
+                    target_dof_pos = smoothing * target_dof_pos + \
+                                    (1-smoothing) * self.prev_joint_pos_target
+                else:
+                    target_dof_pos = self.smoothing * target_dof_pos + \
+                                    (1-self.smoothing) * self.prev_joint_pos_target
             self.prev_joint_pos_target = target_dof_pos
 
         # Calculate metrics
@@ -678,8 +687,8 @@ class Controller(um.MetricUtils):
         for i in range(len(self.config.motor_joint)):
             self.low_cmd.motor_cmd[i].q = float(target_dof_pos[i])
             self.low_cmd.motor_cmd[i].dq = 0.0
-            self.low_cmd.motor_cmd[i].kp = 0.1 * float(self.config.kps[i])
-            self.low_cmd.motor_cmd[i].kd = 0.1 * float(self.config.kds[i])
+            self.low_cmd.motor_cmd[i].kp = self.config.kpkd_smoothing * float(self.config.kps[i])
+            self.low_cmd.motor_cmd[i].kd = self.config.kpkd_smoothing * float(self.config.kds[i])
             self.low_cmd.motor_cmd[i].tau = 0.0
         
         # send the command

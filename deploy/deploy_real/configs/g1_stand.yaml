@@ -196,7 +196,8 @@ num_obs: 132
 # max_cmd: [0.8, 0.5, 1.57]
 policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/dao_stand.pt"
 max_cmd: [1.0, 1.0, 1.0]
-smoothing: 0.
+smoothing: 1.
+kpkd_smoothing: 1.
 
 jpa_joint: [
   'left_hip_pitch_joint',

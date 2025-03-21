@@ -85,3 +85,4 @@ class Config:
             # self.lower_body_joint = config["lower_body_joint"]
             self.jpa_joint = config["jpa_joint"]
             self.rjpa_joint = config["rjpa_joint"]
+            self.kpkd_smoothing =config["kpkd_smoothing"]
