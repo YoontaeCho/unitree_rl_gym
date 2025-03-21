@@ -255,9 +255,18 @@ class SimpleAction:
             self.config.lab_joint,
             self.config.rjpa_joint
             )
+        self.lab_from_mot = index_map(
+            self.config.lab_joint,
+            self.config.motor_joint
+            )
+        self.rjpa_from_lab = index_map(
+            self.config.rjpa_joint,
+            self.config.lab_joint
+            )   
 
         self.default_offset = np.asarray(self.config.lab_joint_offsets)
 
+        # checked
         self.joint_pos_action_offset = (
             self.default_offset[self.lab_from_jpa]
             # self.default_offset[self.mot_from_jpa]
@@ -265,28 +274,22 @@ class SimpleAction:
 
 
 
-    def __call__(self, action, current_joint_pos):
+    def __call__(self, action, motor_q):
+        """Generate motor-ordered joint position command from action and current joint position"""
+        # motor order
         target_dof_pos = np.zeros(29)
 
-        
-        # use default offset for JointPositionAction
-        if False:
-            joint_pos_action = action[..., :19]
-            relative_joint_pos_action = np.zeros(10)
-            target_dof_pos[self.mot_from_jpa] = self.joint_pos_action_offset + \
-                                                        0.5 * joint_pos_action
+        lab_rjpa_q = np.zeros(10)
+        lab_q = np.zeros(29)
+        # change to lab order
+        lab_q[self.lab_from_mot] = motor_q
+        lab_rjpa_q[:] = lab_q[self.lab_from_rjpa]
 
-            # use current joint pos for RelativeJointPositionAction
-            target_dof_pos[self.mot_from_rjpa] = np.array(current_joint_pos) + \
-                                                                0.3 * relative_joint_pos_action
-        if True:
-            joint_pos_action = np.ones(19) * 0.5 # 19
-            relative_joint_pos_action = np.zeros(10)
+        # checked
+        target_dof_pos[self.mot_from_jpa] = self.joint_pos_action_offset +  0.5 * action[..., :19]
 
-            # target_dof_pos[self.mot_from_jpa] = joint_pos_action
-            target_dof_pos[self.mot_from_jpa] = self.joint_pos_action_offset +  0.5 * action[..., :19]
-            # target_dof_pos[self.mot_from_rjpa] = relative_joint_pos_action
-            target_dof_pos[self.mot_from_rjpa] = np.array(current_joint_pos)[self.lab_from_rjpa] + 0.3 * action[..., 19:]
+        # checked
+        target_dof_pos[self.mot_from_rjpa] = lab_rjpa_q + 0.3 * action[..., 19:]
 
         return target_dof_pos
     

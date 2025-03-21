@@ -658,12 +658,12 @@ class Controller(um.MetricUtils):
         obs_tensor = obs_tensor.detach().clone().float()
         self.action = self.policy(obs_tensor).detach().numpy().squeeze()
 
-        curr_rjpa_joint_pos = []
+        motor_q = []
         for i in range(29):
-            curr_rjpa_joint_pos.append(self.low_state.motor_state[i].q)
+            motor_q.append(self.low_state.motor_state[i].q)
 
-
-        target_dof_pos = self.actmap(self.action, curr_rjpa_joint_pos)
+        # target_dof_pos : motor joint ordered
+        target_dof_pos = self.actmap(self.action, motor_q)
         
         
         # FIXME(hh) If you want smoothing
@@ -679,7 +679,7 @@ class Controller(um.MetricUtils):
 
         # FIXME(hh) 2nd smoothing
         # Build low cmd
-        for i in self.mot_from_lab:
+        for i in range(len(self.config.motor_joint)):
             self.low_cmd.motor_cmd[i].q = float(target_dof_pos[i])
             self.low_cmd.motor_cmd[i].dq = 0.0
             self.low_cmd.motor_cmd[i].kp = 0.1 * float(self.config.kps[i])
