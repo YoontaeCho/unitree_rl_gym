@@ -357,15 +357,16 @@ class Controller(um.MetricUtils):
         # Send the transformation
         self.tf_broadcaster.sendTransform(t)
 
-    # def terminate_by_pelvis_condition(self, root_pose, limit_euler_angle=[0.9, 1.0]):
-    #     xyz, quat_wxyz = root_pose[:3], root_pose[3:]
-    #     euler = math_utils.wrap_to_pi(
-    #         th.stack(math_utils.euler_xyz_from_quat(torch.as_tensor(quat_wxyz)), dim=-1)
-    #     )
-    #     out_of_limit = th.logical_or(
-    #         th.abs(euler[..., 0]) > limit_euler_angle[0],
-    #         th.abs(euler[..., 1]) > limit_euler_angle[1],
-    #     )
+    def terminate_by_pelvis_condition(self, root_pose, limit_euler_angle=[0.9, 1.0]):
+        xyz, quat_wxyz = root_pose[:3], root_pose[3:]
+        euler = math_utils.wrap_to_pi(
+            th.stack(math_utils.euler_xyz_from_quat(torch.as_tensor(quat_wxyz)), dim=-1)
+        )
+        out_of_limit = th.logical_or(
+            th.abs(euler[..., 0]) > limit_euler_angle[0],
+            th.abs(euler[..., 1]) > limit_euler_angle[1],
+        )
+        print(out_of_limit)
 
     def run_policy(self):
         logpath = Path('/tmp/metric_test/')

@@ -135,6 +135,7 @@ class Controller(StandController):
                 rot_type='quat'
             )
         xyz, quat_wxyz = world_from_pelvis
+        print(xyz, quat_wxyz)
         root_state_w = np.zeros(7)
         root_state_w[0:3] = xyz
         root_state_w[3:7] = quat_wxyz
