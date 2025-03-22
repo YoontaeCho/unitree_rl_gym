@@ -596,17 +596,22 @@ class Controller(um.MetricUtils):
 
         # Send the transformation
         self.tf_broadcaster.sendTransform(t)
-
-    def terminate_by_pelvis_condition(self, root_pose, limit_euler_angle=[0.9, 1.0]):
-        xyz, quat_wxyz = root_pose[:3], root_pose[3:]
+    def terminate_by_pelvis_condition(self, xyz, quat, limit_euler_angle=[0.9, 1.0]) -> bool:
+        """
+        limit euler angle : roll 51.57', pitch 57.3'.
+        """
         euler = math_utils.wrap_to_pi(
-            th.stack(math_utils.euler_xyz_from_quat(torch.as_tensor(quat_wxyz)), dim=-1)
+            th.stack(math_utils.euler_xyz_from_quat(torch.as_tensor(quat.reshape(1, quat.shape[0]))), dim=-1)
         )
         out_of_limit = th.logical_or(
             th.abs(euler[..., 0]) > limit_euler_angle[0],
             th.abs(euler[..., 1]) > limit_euler_angle[1],
         )
-        print(out_of_limit)
+        if out_of_limit.item() :
+            print("Terminated by pelvis condition.")
+            print(f"euler: {euler}")
+        return out_of_limit.item()
+    
 
     def run_policy(self):
         logpath = Path('/tmp/metric_test/')
@@ -627,6 +632,10 @@ class Controller(um.MetricUtils):
             rot_type='quat'
         )
         xyz, quat_wxyz = world_from_pelvis
+        
+        # Add termination condition.
+        self.terminate_by_pelvis_condition(xyz, quat_wxyz)
+        
         root_state_w = np.zeros(7)
         root_state_w[0:3] = xyz
         root_state_w[3:7] = quat_wxyz
