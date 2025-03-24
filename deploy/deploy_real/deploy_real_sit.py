@@ -180,15 +180,15 @@ class Controller(StandController):
 
         # Calculate metrics
         curr_q, curr_dq, curr_ddq, curr_tau = self.get_motor_state(self.low_state)
-        # self.calculate_metrics(curr_q, curr_dq, curr_ddq, curr_tau, logpath)
+        self.calculate_metrics(curr_q, curr_dq, curr_ddq, curr_tau, logpath)
 
         # FIXME(hh) 2nd smoothing, select only upper body joints
         # Build low cmd
         for i in self.mot_from_lab:
             self.low_cmd.motor_cmd[i].q = float(target_dof_pos[i])
             self.low_cmd.motor_cmd[i].dq = 0.0
-            self.low_cmd.motor_cmd[i].kp = 0.0 * float(self.config.kps[i])
-            self.low_cmd.motor_cmd[i].kd = 0.0 * float(self.config.kds[i])
+            self.low_cmd.motor_cmd[i].kp = self.config.kpkd_smoothing * float(self.config.kps[i])
+            self.low_cmd.motor_cmd[i].kd = self.config.kpkd_smoothing * float(self.config.kds[i])
             self.low_cmd.motor_cmd[i].tau = 0.0 
             
         # send the command
