@@ -20,7 +20,8 @@ from tf2_ros import TransformBroadcaster, TransformStamped
 from common.command_helper_ros import create_damping_cmd, create_zero_cmd, init_cmd_hg, init_cmd_go, MotorMode
 from common.rotation_helper import get_gravity_orientation, transform_imu_data
 from common.remote_controller import RemoteController, KeyMap
-from config import Config
+# from config import Config
+from config_sit import SitConfig as Config
 from common.crc import CRC
 from enum import Enum
 import pinocchio as pin
@@ -31,9 +32,8 @@ import math_utils
 import random as rd
 from act_to_dof import ActToDof
 
-from . import utils_eetrack as ue
-from . import utils_metric as um
-from . import utils_stage as us
+import utils_metric as um
+import utils_stage as us
 class Mode(Enum):
     wait = 0
     zero_torque = 1
@@ -103,11 +103,11 @@ def load_action(path: str, interval_len: int=4, env_id:int=0) -> np.ndarray:
 
 import os
 
-from .deploy_real_stand import Controller as StandController
+from deploy_real_stand import Controller as StandController
 
 class Controller(StandController):
     def __init__(self, config: Config) -> None:
-        super().__init__()
+        super().__init__(config)
 
         ### Mapping helpers.
         self.obsmap = us.Stage2Observation(
@@ -115,22 +115,6 @@ class Controller(StandController):
             config, self.tf_buffer)
         self.actmap = us.SimpleAction(config)
         self.vhcommand = us.VelocityHeightCommand(config)
-
-    def terminate_by_pelvis_condition(self, xyz, quat, limit_euler_angle=[0.9, 1.0]) -> bool:
-        """
-        limit euler angle : roll 51.57', pitch 57.3'.
-        """
-        euler = math_utils.wrap_to_pi(
-            th.stack(math_utils.euler_xyz_from_quat(torch.as_tensor(quat.reshape(1, quat.shape[0]))), dim=-1)
-        )
-        out_of_limit = th.logical_or(
-            th.abs(euler[..., 0]) > limit_euler_angle[0],
-            th.abs(euler[..., 1]) > limit_euler_angle[1],
-        )
-        if out_of_limit.item() :
-            print("Terminated by pelvis condition.")
-            print(f"euler: {euler}")
-        return out_of_limit.item()
     
     def run_policy(self):
         logpath = Path('/tmp/metric_test/')
@@ -184,23 +168,27 @@ class Controller(StandController):
         
         
         # FIXME(hh) If you want smoothing
-        if self.smoothing:
+        if self.config.later_smoothing:
             if self.prev_joint_pos_target is not None:
-                target_dof_pos = self.smoothing * target_dof_pos + \
-                                 (1-self.smoothing) * self.prev_joint_pos_target
+                if self.counter < 100:
+                    target_dof_pos = self.config.initial_smoothing * target_dof_pos + \
+                                    (1-self.config.initial_smoothing) * self.prev_joint_pos_target
+                else:
+                    target_dof_pos = self.config.later_smoothing * target_dof_pos + \
+                                    (1-self.config.later_smoothing) * self.prev_joint_pos_target
             self.prev_joint_pos_target = target_dof_pos
 
         # Calculate metrics
         curr_q, curr_dq, curr_ddq, curr_tau = self.get_motor_state(self.low_state)
-        self.calculate_metrics(curr_q, curr_dq, curr_ddq, curr_tau, logpath)
+        # self.calculate_metrics(curr_q, curr_dq, curr_ddq, curr_tau, logpath)
 
         # FIXME(hh) 2nd smoothing, select only upper body joints
         # Build low cmd
         for i in self.mot_from_lab:
             self.low_cmd.motor_cmd[i].q = float(target_dof_pos[i])
             self.low_cmd.motor_cmd[i].dq = 0.0
-            self.low_cmd.motor_cmd[i].kp = 1.0 * float(self.config.kps[i])
-            self.low_cmd.motor_cmd[i].kd = 1.0 * float(self.config.kds[i])
+            self.low_cmd.motor_cmd[i].kp = 0.0 * float(self.config.kps[i])
+            self.low_cmd.motor_cmd[i].kd = 0.0 * float(self.config.kds[i])
             self.low_cmd.motor_cmd[i].tau = 0.0 
             
         # send the command

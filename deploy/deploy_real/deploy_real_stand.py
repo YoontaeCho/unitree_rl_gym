@@ -300,7 +300,7 @@ class eetrack:
         time = (clock.get_time() - self.init_time).nanoseconds / 1e9
         if (time >= 1.0):
             self.sg_idx = int((time - 1) / 0.1 + 1)
-        print(time, self.sg_idx)
+        # print(time, self.sg_idx)
         # self.sg_idx.clamp_(0, self.number_of_subgoals + 1)
         self.sg_idx = min(
                 self.sg_idx,
@@ -356,17 +356,16 @@ class Controller(um.MetricUtils):
 
         # Metric test
         self.prev_joint_pos_target = None
-        self.smoothing = self.config.smoothing
-        self.prev_q = None
-        self.prev_dq = None
-        self.prev_ddq = None
-        self.prev_tau = None
-        self.prev_prev_dq = None
-        self._pos_diff = []
-        self._pos_jitter = []
-        self._torque_diff = []
-        self.exp_name = os.path.basename(self.config.policy_path)
-
+        # self.smoothing = self.config.smoothing
+        
+        # log path
+        self.logpath = Path('/tmp/eetrack/')
+        self.logpath.mkdir(parents=True, exist_ok=True)
+        
+        # log trajectory
+        self.q_traj = np.zeros((0, 29))
+        self.dq_traj = np.zeros((0, 29))
+        self.tau_traj = np.zeros((0, 29))
 
         # == build index map ==
         self.mot_from_lab = index_map(self.config.motor_joint,
@@ -457,6 +456,19 @@ class Controller(um.MetricUtils):
         self.low_state = msg
         self.mode_machine_ = self.low_state.mode_machine
         self.remote_controller.set(self.low_state.wireless_remote)
+        
+        # # log trajectory
+        # # joint order = lab joint config order
+        # curr_q = []
+        # curr_dq = []
+        # curr_tau = []
+        # for i_mot in self.mot_from_lab:
+        #     curr_q = self.low_state.motor_state[i_mot].q
+        #     curr_dq = self.low_state.motor_state[i_mot].dq
+        #     curr_tau = self.low_state.motor_state[i_mot].tau_est
+        # self.q_traj = np.vstack((self.q_traj, curr_q))
+        # self.dq_traj = np.vstack((self.dq_traj, curr_dq))
+        # self.tau_traj = np.vstack((self.tau_traj, curr_tau))
 
     def LowStateGoHandler(self, msg: LowStateGo):
         self.low_state = msg
@@ -623,8 +635,6 @@ class Controller(um.MetricUtils):
             return
         self.counter += 1
 
-
-
         world_from_pelvis = body_pose(
             self.tf_buffer,
             'pelvis',
@@ -676,15 +686,14 @@ class Controller(um.MetricUtils):
         
         
         # FIXME(hh) If you want smoothing
-        if self.smoothing:
+        if self.config.later_smoothing:
             if self.prev_joint_pos_target is not None:
                 if self.counter < 100:
-                    smoothing = 0.2
-                    target_dof_pos = smoothing * target_dof_pos + \
-                                    (1-smoothing) * self.prev_joint_pos_target
+                    target_dof_pos = self.config.initial_smoothing * target_dof_pos + \
+                                    (1-self.config.initial_smoothing) * self.prev_joint_pos_target
                 else:
-                    target_dof_pos = self.smoothing * target_dof_pos + \
-                                    (1-self.smoothing) * self.prev_joint_pos_target
+                    target_dof_pos = self.config.later_smoothing * target_dof_pos + \
+                                    (1-self.config.later_smoothing) * self.prev_joint_pos_target
             self.prev_joint_pos_target = target_dof_pos
 
         # Calculate metrics
@@ -702,6 +711,43 @@ class Controller(um.MetricUtils):
         
         # send the command
         self.send_cmd(self.low_cmd)
+            
+    def log_metrics_and_trajectories(self):     
+        # Calculate pos diff & torque diff metrics
+        pos_diff = np.average(np.abs(self.q_traj[1:] - self.q_traj[:-1]))
+        torque_diff = np.average(np.abs(self.tau_traj[1:] - self.tau_traj[:-1]))
+        print("\n--------------------------METRICS--------------------------")
+        print("total_time", self.counter * self.config.control_dt)
+        print("pos_diff", pos_diff)
+        print("torque_diff", torque_diff)
+        # DEBUG
+        print("pos shape", self.q_traj.shape)
+        print("torque shape", self.tau_traj.shape)
+        print("----------------------------------------------------------")
+        
+        # Save metrics and trajectories
+        metrics = {
+            "pos_diff": pos_diff,
+            "torque_diff": torque_diff
+        }
+        trajectories = {
+            "q_traj": self.q_traj,
+            "dq_traj": self.dq_traj,
+            "tau_traj": self.tau_traj
+        }
+        log_data = {
+            "metrics": metrics,
+            "trajectories": trajectories
+        }
+        # Save the log with experiment name
+        file_name = f'{self.logpath}/log_{self.config.exp_name}.npy'
+        np.save(file_name, log_data)
+        print(f"Log saved at {file_name}")
+        
+        # totally terminate
+        self._mode_change = True
+        self.mode = Mode.null
+        
 
     def run_wrapper(self):
         # print("hello", self.mode,
