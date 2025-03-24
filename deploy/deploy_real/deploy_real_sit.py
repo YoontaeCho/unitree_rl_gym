@@ -116,6 +116,22 @@ class Controller(StandController):
         self.actmap = us.SimpleAction(config)
         self.vhcommand = us.VelocityHeightCommand(config)
 
+    def terminate_by_pelvis_condition(self, xyz, quat, limit_euler_angle=[0.9, 1.0]) -> bool:
+        """
+        limit euler angle : roll 51.57', pitch 57.3'.
+        """
+        euler = math_utils.wrap_to_pi(
+            th.stack(math_utils.euler_xyz_from_quat(torch.as_tensor(quat.reshape(1, quat.shape[0]))), dim=-1)
+        )
+        out_of_limit = th.logical_or(
+            th.abs(euler[..., 0]) > limit_euler_angle[0],
+            th.abs(euler[..., 1]) > limit_euler_angle[1],
+        )
+        if out_of_limit.item() :
+            print("Terminated by pelvis condition.")
+            print(f"euler: {euler}")
+        return out_of_limit.item()
+    
     def run_policy(self):
         logpath = Path('/tmp/metric_test/')
         logpath.mkdir(parents=True, exist_ok=True)
@@ -135,13 +151,27 @@ class Controller(StandController):
                 rot_type='quat'
             )
         xyz, quat_wxyz = world_from_pelvis
-        print(xyz, quat_wxyz)
+
+        if self.terminate_by_pelvis_condition(xyz, quat_wxyz):
+            raise ValueError
+
         root_state_w = np.zeros(7)
         root_state_w[0:3] = xyz
         root_state_w[3:7] = quat_wxyz
-        height_command = self.vhcommand(current_pelvis_height_w = xyz[2])
 
-        self.target_pose = np.concatenate([xyz[:2], np.array([height_command[1]]), quat_wxyz])
+
+        if True:
+            height_command = self.vhcommand(current_pelvis_height_w = xyz[2])
+        else :
+            # IF you want to start with the standing stage on the initial period of the episode.
+            if self.counter <= 100:
+                height_command = np.array([0., 0.79])
+            else:
+                height_command = self.vhcommand(current_pelvis_height_w = xyz[2])
+
+        world_quat = np.asarray((1., 0., 0., 0.))
+
+        self.target_pose = np.concatenate([xyz[:2], np.array([height_command[1]]), world_quat])
         self.publish_target() # Just for visualization.
 
         # For standing.
@@ -150,7 +180,7 @@ class Controller(StandController):
         obs_tensor = obs_tensor.detach().clone()
         self.action = self.policy(obs_tensor).detach().numpy().squeeze()
 
-        target_dof_pos = self.actmap(self.action)
+        target_dof_pos = self.actmap(self.action, self.obs)
         
         
         # FIXME(hh) If you want smoothing
