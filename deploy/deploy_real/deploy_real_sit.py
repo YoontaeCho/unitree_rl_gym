@@ -20,7 +20,8 @@ from tf2_ros import TransformBroadcaster, TransformStamped
 from common.command_helper_ros import create_damping_cmd, create_zero_cmd, init_cmd_hg, init_cmd_go, MotorMode
 from common.rotation_helper import get_gravity_orientation, transform_imu_data
 from common.remote_controller import RemoteController, KeyMap
-from config import Config
+# from config import Config
+from config_sit import SitConfig as Config
 from common.crc import CRC
 from enum import Enum
 import pinocchio as pin
@@ -31,9 +32,8 @@ import math_utils
 import random as rd
 from act_to_dof import ActToDof
 
-from . import utils_eetrack as ue
-from . import utils_metric as um
-from . import utils_stage as us
+import utils_metric as um
+import utils_stage as us
 class Mode(Enum):
     wait = 0
     zero_torque = 1
@@ -103,26 +103,148 @@ def load_action(path: str, interval_len: int=4, env_id:int=0) -> np.ndarray:
 
 import os
 
-from .deploy_real_stand import Controller as StandController
+from deploy_real_stand import Controller as StandController
 
 class Controller(StandController):
     def __init__(self, config: Config) -> None:
-        super().__init__()
+
+        self.config = config
+        self.remote_controller = RemoteController()
+        
+        # Load policy
+        print(config.policy_path)
+        self.policy = torch.jit.load(config.policy_path)
+        self.policy.eval()
+
 
         ### Mapping helpers.
+
+
+        # smoothing
+        self.prev_joint_pos_target = None
+        # self.smoothing = self.config.smoothing
+        
+        # log path
+        self.logpath = Path('/tmp/eetrack_sit/')
+        self.logpath.mkdir(parents=True, exist_ok=True)
+        
+        # log trajectory
+        self.timestamp = np.array([])
+        self.q_traj = np.zeros((0, 29))
+        self.dq_traj = np.zeros((0, 29))
+        self.tau_traj = np.zeros((0, 29))
+
+        # == build index map ==
+        self.mot_from_lab = index_map(self.config.motor_joint,
+                                             self.config.lab_joint)
+        self.lab_from_mot = index_map(self.config.lab_joint,
+                                      self.config.motor_joint)
+        self.config.default_angles = np.asarray(self.config.lab_joint_offsets)[
+            self.lab_from_mot
+        ]
+
+        # Data buffers
+        self.cmd = np.array([0.0, 0, 0])
+        self.counter = 0
+
+        # ROS handles & helpers
+        rp.init()
+        self._node = rp.create_node("low_level_cmd_sender")
+
+        global clock
+        clock = GlobalClock(self._node)
+
+
+        self.ikctrl = IKCtrl(
+            '../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf',
+            config.arm_joint,
+            frame='left_rubber_hand')
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self._node)
+        self.tf_broadcaster = TransformBroadcaster(self._node)
+
+
         self.obsmap = us.Stage2Observation(
             '../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf',
             config, self.tf_buffer)
-        self.actmap = us.SimpleAction(config)
+        self.actmap = us.SimpleAction(config, self.ikctrl)
         self.vhcommand = us.VelocityHeightCommand(config)
 
-    def run_policy(self):
-        logpath = Path('/tmp/metric_test/')
-        logpath.mkdir(parents=True, exist_ok=True)
+        if config.msg_type == "hg":
+            # g1 and h1_2 use the hg msg type
 
-        if self.remote_controller.button[KeyMap.select] == 1:
+            self.low_cmd = LowCmdHG()
+            self.low_state = LowStateHG()
+
+            self.lowcmd_publisher_ = self._node.create_publisher(LowCmdHG,
+                                                                 'lowcmd', 10)
+            self.lowstate_subscriber = self._node.create_subscription(
+                LowStateHG, 'lowstate', self.LowStateHgHandler, 10)
+            self.mode_pr_ = MotorMode.PR
+            self.mode_machine_ = 0
+
+        elif config.msg_type == "go":
+            raise ValueError(f"{config.msg_type} is not implemented yet.")
+
+        else:
+            raise ValueError("Invalid msg_type")
+
+        self.goalpath_publisher = self._node.create_publisher(
+                PathMsg, 'goalpath', 10)
+        self.truepath_publisher = self._node.create_publisher(
+                PathMsg, 'truepath', 10)
+        self.goalpath = PathMsg()
+        self.truepath = PathMsg()
+
+        # Initialize the command msg
+        if config.msg_type == "hg":
+            init_cmd_hg(self.low_cmd, self.mode_machine_, self.mode_pr_)
+        elif config.msg_type == "go":
+            init_cmd_go(self.low_cmd, weak_motor=self.config.weak_motor)
+
+        self.mode = Mode.policy
+
+        self._mode_change = True
+        self._timer = self._node.create_timer(
+            self.config.control_dt, self.run_wrapper)
+        self._terminate = False
+        try:
+            rp.spin(self._node)
+        except KeyboardInterrupt:
+            print("KeyboardInterrupt")
+        finally:
+            self._node.destroy_timer(self._timer)
+            create_damping_cmd(self.low_cmd)
+            self.send_cmd(self.low_cmd)
+            self._node.destroy_node()
+            rp.shutdown()
+            print("Exit")
+
+    def LowStateHgHandler(self, msg: LowStateHG):
+        self.low_state = msg
+        self.mode_machine_ = self.low_state.mode_machine
+        self.remote_controller.set(self.low_state.wireless_remote)
+        
+        # log trajectory
+        # joint order = lab joint config order
+        timestamp = clock.get_time().nanoseconds / 1e9
+        curr_q = []
+        curr_dq = []
+        curr_tau = []
+        for i_mot in self.mot_from_lab:
+            curr_q.append(self.low_state.motor_state[i_mot].q)
+            curr_dq.append(self.low_state.motor_state[i_mot].dq)
+            curr_tau.append(self.low_state.motor_state[i_mot].tau_est)
+        self.timestamp = np.append(self.timestamp, timestamp)
+        self.q_traj = np.vstack((self.q_traj, curr_q))
+        self.dq_traj = np.vstack((self.dq_traj, curr_dq))
+        self.tau_traj = np.vstack((self.tau_traj, curr_tau))
+
+    
+    def run_policy(self):
+        if self.remote_controller.button[KeyMap.A] == 1:
             self._mode_change = True
-            self.mode = Mode.null
+            self.mode = Mode.finish
             return
         self.counter += 1
 
@@ -135,42 +257,60 @@ class Controller(StandController):
                 rot_type='quat'
             )
         xyz, quat_wxyz = world_from_pelvis
-        print(xyz, quat_wxyz)
+
+        if self.terminate_by_pelvis_condition(xyz, quat_wxyz):
+            raise ValueError
+
         root_state_w = np.zeros(7)
         root_state_w[0:3] = xyz
         root_state_w[3:7] = quat_wxyz
-        height_command = self.vhcommand(current_pelvis_height_w = xyz[2])
 
-        self.target_pose = np.concatenate([xyz[:2], np.array([height_command[1]]), quat_wxyz])
+
+        if True:
+            height_command = self.vhcommand(current_pelvis_height_w = xyz[2])
+        else :
+            # IF you want to start with the standing stage on the initial period of the episode.
+            if self.counter <= 100:
+                height_command = np.array([0., 0.79])
+            else:
+                height_command = self.vhcommand(current_pelvis_height_w = xyz[2])
+
+        world_quat = np.asarray((1., 0., 0., 0.))
+
+        self.target_pose = np.concatenate([xyz[:2], np.array([height_command[1]]), world_quat])
         self.publish_target() # Just for visualization.
 
         # For standing.
         self.obs = self.obsmap(self.low_state, height_command)
         obs_tensor = torch.from_numpy(self.obs).unsqueeze(0)
-        obs_tensor = obs_tensor.detach().clone()
+        obs_tensor = obs_tensor.detach().clone().float()
         self.action = self.policy(obs_tensor).detach().numpy().squeeze()
 
-        target_dof_pos = self.actmap(self.action)
+        target_dof_pos = self.actmap(self.action, self.obs)
         
         
         # FIXME(hh) If you want smoothing
-        if self.smoothing:
+        if self.config.later_smoothing:
             if self.prev_joint_pos_target is not None:
-                target_dof_pos = self.smoothing * target_dof_pos + \
-                                 (1-self.smoothing) * self.prev_joint_pos_target
+                if self.counter < 100:
+                    target_dof_pos = self.config.initial_smoothing * target_dof_pos + \
+                                    (1-self.config.initial_smoothing) * self.prev_joint_pos_target
+                else:
+                    target_dof_pos = self.config.later_smoothing * target_dof_pos + \
+                                    (1-self.config.later_smoothing) * self.prev_joint_pos_target
             self.prev_joint_pos_target = target_dof_pos
 
         # Calculate metrics
-        curr_q, curr_dq, curr_ddq, curr_tau = self.get_motor_state(self.low_state)
-        self.calculate_metrics(curr_q, curr_dq, curr_ddq, curr_tau, logpath)
+        # curr_q, curr_dq, curr_ddq, curr_tau = self.get_motor_state(self.low_state)
+        # self.calculate_metrics(curr_q, curr_dq, curr_ddq, curr_tau, logpath)
 
         # FIXME(hh) 2nd smoothing, select only upper body joints
         # Build low cmd
         for i in self.mot_from_lab:
             self.low_cmd.motor_cmd[i].q = float(target_dof_pos[i])
             self.low_cmd.motor_cmd[i].dq = 0.0
-            self.low_cmd.motor_cmd[i].kp = 1.0 * float(self.config.kps[i])
-            self.low_cmd.motor_cmd[i].kd = 1.0 * float(self.config.kds[i])
+            self.low_cmd.motor_cmd[i].kp = self.config.kpkd_smoothing * float(self.config.kps[i])
+            self.low_cmd.motor_cmd[i].kd = self.config.kpkd_smoothing * float(self.config.kds[i])
             self.low_cmd.motor_cmd[i].tau = 0.0 
             
         # send the command
@@ -208,11 +348,15 @@ class Controller(StandController):
                 self._mode_change = False
                 self.counter = 0
             self.run_policy()
+        elif self.mode == Mode.finish:
+            if self._mode_change:
+                print("Finish.")
+                self._mode_change = False
+            self.log_metrics_and_trajectories()
         elif self.mode == Mode.null:
             self._terminate = True
 
         # time.sleep(self.config.control_dt)
-
 
 if __name__ == "__main__":
     import argparse

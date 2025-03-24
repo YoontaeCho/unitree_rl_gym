@@ -301,7 +301,7 @@ class eetrack:
         time = (clock.get_time() - self.init_time).nanoseconds / 1e9
         if (time >= 1.0):
             self.sg_idx = int((time - 1) / 0.1 + 1)
-        print(time, self.sg_idx)
+        # print(time, self.sg_idx)
         # self.sg_idx.clamp_(0, self.number_of_subgoals + 1)
         self.sg_idx = min(
                 self.sg_idx,
@@ -358,13 +358,14 @@ class Controller(um.MetricUtils):
 
         # smoothing
         self.prev_joint_pos_target = None
-        self.smoothing = self.config.smoothing
+        # self.smoothing = self.config.smoothing
         
         # log path
-        self.logpath = Path('/tmp/eetrack/')
+        self.logpath = Path('/tmp/eetrack_stand/')
         self.logpath.mkdir(parents=True, exist_ok=True)
         
         # log trajectory
+        self.timestamp = np.array([])
         self.q_traj = np.zeros((0, 29))
         self.dq_traj = np.zeros((0, 29))
         self.tau_traj = np.zeros((0, 29))
@@ -436,6 +437,7 @@ class Controller(um.MetricUtils):
         elif config.msg_type == "go":
             init_cmd_go(self.low_cmd, weak_motor=self.config.weak_motor)
 
+        # self.mode = Mode.policy
         self.mode = Mode.policy
 
         self._mode_change = True
@@ -461,13 +463,15 @@ class Controller(um.MetricUtils):
         
         # log trajectory
         # joint order = lab joint config order
+        timestamp = clock.get_time().nanoseconds / 1e9
         curr_q = []
         curr_dq = []
         curr_tau = []
         for i_mot in self.mot_from_lab:
-            curr_q = self.low_state.motor_state[i_mot].q
-            curr_dq = self.low_state.motor_state[i_mot].dq
-            curr_tau = self.low_state.motor_state[i_mot].ddq
+            curr_q.append(self.low_state.motor_state[i_mot].q)
+            curr_dq.append(self.low_state.motor_state[i_mot].dq)
+            curr_tau.append(self.low_state.motor_state[i_mot].tau_est)
+        self.timestamp = np.append(self.timestamp, timestamp)
         self.q_traj = np.vstack((self.q_traj, curr_q))
         self.dq_traj = np.vstack((self.dq_traj, curr_dq))
         self.tau_traj = np.vstack((self.tau_traj, curr_tau))
@@ -521,30 +525,33 @@ class Controller(um.MetricUtils):
         if self.counter < self._num_step:
             alpha = self.counter / self._num_step
             # FIXME(hh) only use upper-body
-            for j in self.mot_from_upper_body:
+            for j in range(len(self.mot_from_lab)):
                 motor_idx = j
                 target_pos = self.config.default_angles[j]
 
                 self.low_cmd.motor_cmd[motor_idx].q = (
                     self._init_dof_pos[j] * (1 - alpha) + target_pos * alpha)
+                self.low_cmd.motor_cmd[motor_idx].q = target_pos
                 self.low_cmd.motor_cmd[motor_idx].dq = 0.0
                 self.low_cmd.motor_cmd[motor_idx].kp = self._kps[j]
                 self.low_cmd.motor_cmd[motor_idx].kd = self._kds[j]
                 self.low_cmd.motor_cmd[motor_idx].tau = 0.0
 
-            for i in self.mot_from_lower_body:
-                self.low_cmd.motor_cmd[i].q = float(
-                    0.0
-                )
-                self.low_cmd.motor_cmd[i].dq = 0.0
-                self.low_cmd.motor_cmd[i].kp = 0.0
-                self.low_cmd.motor_cmd[i].kd = 0.0
-                self.low_cmd.motor_cmd[i].tau = 0.0
+            
+
+            # for i in self.mot_from_lower_body:
+            #     self.low_cmd.motor_cmd[i].q = float(
+            #         0.0
+            #     )
+            #     self.low_cmd.motor_cmd[i].dq = 0.0
+            #     self.low_cmd.motor_cmd[i].kp = self._kps[i]
+            #     self.low_cmd.motor_cmd[i].kd = self._kds[i]
+            #     self.low_cmd.motor_cmd[i].tau = 0.0
             self.send_cmd(self.low_cmd)
             self.counter += 1
         else:
             self._mode_change = True
-            self.mode = Mode.damping
+            self.mode = Mode.policy
 
     def default_pos_state(self):
         # FIXME(hh) only use upper-body joints
@@ -610,17 +617,22 @@ class Controller(um.MetricUtils):
 
         # Send the transformation
         self.tf_broadcaster.sendTransform(t)
-
-    def terminate_by_pelvis_condition(self, root_pose, limit_euler_angle=[0.9, 1.0]):
-        xyz, quat_wxyz = root_pose[:3], root_pose[3:]
+    def terminate_by_pelvis_condition(self, xyz, quat, limit_euler_angle=[0.9, 1.0]) -> bool:
+        """
+        limit euler angle : roll 51.57', pitch 57.3'.
+        """
         euler = math_utils.wrap_to_pi(
-            th.stack(math_utils.euler_xyz_from_quat(torch.as_tensor(quat_wxyz)), dim=-1)
+            th.stack(math_utils.euler_xyz_from_quat(torch.as_tensor(quat.reshape(1, quat.shape[0]))), dim=-1)
         )
         out_of_limit = th.logical_or(
             th.abs(euler[..., 0]) > limit_euler_angle[0],
             th.abs(euler[..., 1]) > limit_euler_angle[1],
         )
-        print(out_of_limit)
+        if out_of_limit.item() :
+            print("Terminated by pelvis condition.")
+            print(f"euler: {euler}")
+        return out_of_limit.item()
+    
 
     def run_policy(self):
         # If the button A is pressed, then finish the policy.
@@ -637,6 +649,11 @@ class Controller(um.MetricUtils):
             rot_type='quat'
         )
         xyz, quat_wxyz = world_from_pelvis
+        
+        # Add termination condition.
+        if self.terminate_by_pelvis_condition(xyz, quat_wxyz):
+            raise ValueError("Terminated by pelvis condition.")
+        
         root_state_w = np.zeros(7)
         root_state_w[0:3] = xyz
         root_state_w[3:7] = quat_wxyz
@@ -677,15 +694,14 @@ class Controller(um.MetricUtils):
         
         
         # FIXME(hh) If you want smoothing
-        if self.smoothing:
+        if self.config.later_smoothing:
             if self.prev_joint_pos_target is not None:
                 if self.counter < 100:
-                    smoothing = 0.2
-                    target_dof_pos = smoothing * target_dof_pos + \
-                                    (1-smoothing) * self.prev_joint_pos_target
+                    target_dof_pos = self.config.initial_smoothing * target_dof_pos + \
+                                    (1-self.config.initial_smoothing) * self.prev_joint_pos_target
                 else:
-                    target_dof_pos = self.smoothing * target_dof_pos + \
-                                    (1-self.smoothing) * self.prev_joint_pos_target
+                    target_dof_pos = self.config.later_smoothing * target_dof_pos + \
+                                    (1-self.config.later_smoothing) * self.prev_joint_pos_target
             self.prev_joint_pos_target = target_dof_pos
 
         # FIXME(hh) 2nd smoothing
@@ -719,6 +735,7 @@ class Controller(um.MetricUtils):
             "torque_diff": torque_diff
         }
         trajectories = {
+            "timestamp": self.timestamp,
             "q_traj": self.q_traj,
             "dq_traj": self.dq_traj,
             "tau_traj": self.tau_traj
@@ -728,7 +745,11 @@ class Controller(um.MetricUtils):
             "trajectories": trajectories
         }
         # Save the log with experiment name
-        file_name = f'{self.logpath}/log_{self.config.exp_name}.npy'
+        model = os.path.basename(self.config.policy_path).split('.')[0]
+        setting = f"init_{self.config.initial_smoothing}_"
+        setting += f"later_{self.config.later_smoothing}_"
+        setting += f"kpkd_{self.config.kpkd_smoothing}"
+        file_name = f'{self.logpath}/violent_log_{model}_{setting}_{str(self.timestamp[0])}.npy'
         np.save(file_name, log_data)
         print(f"Log saved at {file_name}")
         

@@ -9,12 +9,12 @@ lowstate_topic: "rt/lowstate"
 
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_eetrack.pt"
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_eet_dr.pt"
-policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_cp3.pt"
+# policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_cp3.pt"
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_perturb.pt"
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_cp3_perturb.pt"
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/veltrained_noperturb_delay.pt"
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/eetrack_cp3_delay_nopush.pt"
-policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/2025-03-02_16-31-59_slow_approach_from_cp3.pt"
+# policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/2025-03-02_16-31-59_slow_approach_from_cp3.pt"
 
 lab_joint: [
   'left_hip_pitch_joint',
@@ -229,6 +229,15 @@ rjpa_joint: [
   "waist_pitch_joint",
   "waist_yaw_joint",
 ]
+exp_name: "dao_sit"
+
+policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/dao_sit.pt"
+
 slow_bound: 0.2
 max_velocity: 0.1
-target_height: 0.5
+target_height: 0.7
+
+
+initial_smoothing: 0.2
+later_smoothing: 0.8
+kpkd_smoothing: 1.

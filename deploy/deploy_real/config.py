@@ -10,6 +10,7 @@ class Config:
     def __init__(self, file_path) -> None:
         with open(file_path, "r") as f:
             config = yaml.load(f, Loader=yaml.FullLoader)
+            self._config = config
 
             self.control_dt = config["control_dt"]
 
@@ -79,10 +80,14 @@ class Config:
 
             self.num_actions = config["num_actions"]
             self.num_obs = config["num_obs"]
-            self.smoothing = config["smoothing"]
             # self.joint_pos_target_path = config["joint_pos_target_path"].replace("{LEGGED_GYM_ROOT_DIR}", LEGGED_GYM_ROOT_DIR)
             # self.upper_body_joint = config["upper_body_joint"]
             # self.lower_body_joint = config["lower_body_joint"]
             self.jpa_joint = config["jpa_joint"]
             self.rjpa_joint = config["rjpa_joint"]
             self.kpkd_smoothing =config["kpkd_smoothing"]
+
+            self.initial_smoothing = config["initial_smoothing"]
+            self.later_smoothing = config["later_smoothing"]
+
+            self.exp_name = config["exp_name"]
