@@ -196,7 +196,22 @@ num_obs: 132
 # max_cmd: [0.8, 0.5, 1.57]
 policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/dao_stand.pt"
 max_cmd: [1.0, 1.0, 1.0]
-
+arm_joints : [
+        'left_shoulder_pitch_joint',
+        'left_shoulder_roll_joint',
+        'left_shoulder_yaw_joint',
+        'left_elbow_joint',
+        'left_wrist_roll_joint',
+        'left_wrist_pitch_joint',
+        'left_wrist_yaw_joint',
+        'right_shoulder_pitch_joint',
+        'right_shoulder_roll_joint',
+        'right_shoulder_yaw_joint',
+        'right_elbow_joint',
+        'right_wrist_roll_joint',
+        'right_wrist_pitch_joint',
+        'right_wrist_yaw_joint',
+        ]
 jpa_joint: [
   'left_hip_pitch_joint',
   'right_hip_pitch_joint',

@@ -142,6 +142,7 @@ class Controller(StandController):
         self.config.default_angles = np.asarray(self.config.lab_joint_offsets)[
             self.lab_from_mot
         ]
+        self.mot_from_arm = index_map(self.config.motor_joint, self.config.arm_joints)
 
         # Data buffers
         self.cmd = np.array([0.0, 0, 0])
@@ -240,6 +241,14 @@ class Controller(StandController):
         self.dq_traj = np.vstack((self.dq_traj, curr_dq))
         self.tau_traj = np.vstack((self.tau_traj, curr_tau))
 
+        self.terminate_by_joint_acc()
+
+    def terminate_by_joint_acc(self):
+        arm_dqs = self.dq_traj[:, self.mot_from_arm]
+        is_terminate = np.abs(arm_dqs[-1,:] - arm_dqs[-2,:]) > 2.
+        print("is_terminate : ",is_terminate)
+        if is_terminate:
+            raise ValueError("Terminate by joint acc")
     
     def run_policy(self):
         if self.remote_controller.button[KeyMap.A] == 1:

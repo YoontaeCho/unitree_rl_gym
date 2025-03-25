@@ -379,6 +379,8 @@ class Controller(um.MetricUtils):
             self.lab_from_mot
         ]
 
+        self.mot_from_arm = index_map(self.config.motor_joint, self.config.arm_joints)
+
         # Data buffers
         self.cmd = np.array([0.0, 0, 0])
         self.counter = 0

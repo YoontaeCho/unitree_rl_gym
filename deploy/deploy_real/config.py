@@ -91,3 +91,5 @@ class Config:
             self.later_smoothing = config["later_smoothing"]
 
             self.exp_name = config["exp_name"]
+
+            self.arm_joints = config["arm_joints"]
