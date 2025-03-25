@@ -1,47 +1,47 @@
-from legged_gym import LEGGED_GYM_ROOT_DIR
-from typing import Union, List
-import numpy as np
-import time
-import torch
+import os
 import torch as th
+import numpy as np
+import math_utils
 from pathlib import Path
+from typing import Union
+from legged_gym import LEGGED_GYM_ROOT_DIR
 
 import rclpy as rp
 from unitree_hg.msg import LowCmd as LowCmdHG, LowState as LowStateHG
 from unitree_go.msg import LowCmd as LowCmdGo, LowState as LowStateGo
 
-from nav_msgs.msg import Path as PathMsg
-from geometry_msgs.msg import PoseStamped
-
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
-from tf2_ros import TransformBroadcaster, TransformStamped
+from tf2_ros import TransformBroadcaster
 from common.command_helper_ros import create_damping_cmd, create_zero_cmd, init_cmd_hg, init_cmd_go, MotorMode
-from common.rotation_helper import get_gravity_orientation, transform_imu_data
 from common.remote_controller import RemoteController, KeyMap
-# from config import Config
-from config_sit import SitConfig as Config
+from config import Config
 from common.crc import CRC
 from enum import Enum
-import pinocchio as pin
-from ikctrl import IKCtrl, xyzw2wxyz
-from yourdfpy import URDF
+from ikctrl import IKCtrl
 
-import math_utils
-import random as rd
-from act_to_dof import ActToDof
-
-import utils_metric as um
 import utils_stage as us
+
+
 class Mode(Enum):
     wait = 0
     zero_torque = 1
     default_pos = 2
     damping = 3
     policy = 4
-    null = 5
+    finish = 5
+    null = 6
 
+
+axis_angle_from_quat = math_utils.as_np(math_utils.axis_angle_from_quat)
+quat_conjugate = math_utils.as_np(math_utils.quat_conjugate)
+quat_mul = math_utils.as_np(math_utils.quat_mul)
+quat_rotate = math_utils.as_np(math_utils.quat_rotate)
+quat_rotate_inverse = math_utils.as_np(math_utils.quat_rotate_inverse)
+wrap_to_pi = math_utils.as_np(math_utils.wrap_to_pi)
+combine_frame_transforms = math_utils.as_np(
+    math_utils.combine_frame_transforms)
 
 
 class GlobalClock:
@@ -53,6 +53,42 @@ class GlobalClock:
 
 
 clock = None
+
+
+def body_pose(
+        tf_buffer,
+        frame: str,
+        ref_frame: str = 'pelvis',
+        stamp=None,
+        rot_type: str = 'axa'):
+    """ --> tf does not exist """
+    if stamp is None:
+        stamp = rp.time.Time()
+        # stamp = clock.get_time()
+    try:
+        # t = "ref{=pelvis}_from_frame" transform
+        t = tf_buffer.lookup_transform(
+            ref_frame,  # to
+            frame,  # from
+            stamp)
+    except TransformException as ex:
+        print(f'Could not transform {frame} to {ref_frame}: {ex}')
+        raise
+
+    txn = t.transform.translation
+    rxn = t.transform.rotation
+
+    xyz = np.array([txn.x, txn.y, txn.z])
+    quat_wxyz = np.array([rxn.w, rxn.x, rxn.y, rxn.z])
+
+    xyz = np.array(xyz)
+    if rot_type == 'axa':
+        axa = axis_angle_from_quat(quat_wxyz)
+        axa = wrap_to_pi(axa)
+        return (xyz, axa)
+    elif rot_type == 'quat':
+        return (xyz, quat_wxyz)
+    raise ValueError(f"Unknown rot_type: {rot_type}")
 
 
 def index_map(k_to, k_from):
@@ -69,82 +105,37 @@ def index_map(k_to, k_from):
     return [index_dict.get(k, -1) for k in k_from]  # O(len(k_to))
 
 
-def load_action(path: str, interval_len: int=4, env_id:int=0) -> np.ndarray:
-    """
-    sample random interval from episode.
-    N : episode length. (N * 0.02 [s] = total time [s])
-    M : number of joints. (maybe 29)
-    variables:
-        episode : shape(N, M)
-        interval_len : interval of episode in second.
-        action : shape(interval_len / 0.02, M)
-    """
-    sim_traj_and_metrics = torch.load(path,map_location=torch.device('cpu'))
-
-    # sim_traj : shape(N, E, M)
-    #   - N : episode length
-    #   - E : number of episodes
-    #   - M : number of joints
-    sim_traj = sim_traj_and_metrics["traj"]["joint_pos_target_traj"][:, env_id, :]
-    sim_metric = sim_traj_and_metrics["metrics"]
-
-    episode = sim_traj.numpy().astype(np.float32)
-
-    episode_len_int = int(len(episode) * 0.02)
-    if episode_len_int <= interval_len:
-        action = episode
-    else:
-        start = np.random.uniform(low=0, high=episode_len_int - interval_len)
-        end = start + interval_len
-        print(start, end)
-        action = episode[int(start / 0.02): int(end / 0.02), :]
-        
-    return action
-
-import os
-
-from deploy_real_stand import Controller as StandController
-
-class Controller(StandController):
+class Controller:
     def __init__(self, config: Config) -> None:
-
         self.config = config
         self.remote_controller = RemoteController()
         
         # Load policy
         print(config.policy_path)
-        self.policy = torch.jit.load(config.policy_path)
+        self.policy = th.jit.load(config.policy_path)
         self.policy.eval()
-
-
-        ### Mapping helpers.
-
 
         # smoothing
         self.prev_joint_pos_target = None
-        # self.smoothing = self.config.smoothing
         
         # log path
-        self.logpath = Path('/tmp/eetrack_sit/')
+        self.logpath = Path('/tmp/eetrack_stand/')
         self.logpath.mkdir(parents=True, exist_ok=True)
+
+        # == build index map ==
+        self.mot_from_lab = index_map(self.config.motor_joint, self.config.lab_joint)
+        self.lab_from_mot = index_map(self.config.lab_joint, self.config.motor_joint)
+        
+        # num joints
+        self.num_joints = len(self.config.motor_joint)
         
         # log trajectory
         self.timestamp = np.array([])
-        self.q_traj = np.zeros((0, 29))
-        self.dq_traj = np.zeros((0, 29))
-        self.tau_traj = np.zeros((0, 29))
+        self.q_traj = np.zeros((0, self.num_joints))
+        self.dq_traj = np.zeros((0, self.num_joints))
+        self.tau_traj = np.zeros((0, self.num_joints))
 
-        # == build index map ==
-        self.mot_from_lab = index_map(self.config.motor_joint,
-                                             self.config.lab_joint)
-        self.lab_from_mot = index_map(self.config.lab_joint,
-                                      self.config.motor_joint)
-        self.config.default_angles = np.asarray(self.config.lab_joint_offsets)[
-            self.lab_from_mot
-        ]
-
-        # Data buffers
-        self.cmd = np.array([0.0, 0, 0])
+        # counter
         self.counter = 0
 
         # ROS handles & helpers
@@ -154,30 +145,27 @@ class Controller(StandController):
         global clock
         clock = GlobalClock(self._node)
 
-
-        self.ikctrl = IKCtrl(
-            '../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf',
-            config.arm_joint,
-            frame='left_rubber_hand')
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self._node)
         self.tf_broadcaster = TransformBroadcaster(self._node)
 
-
-        self.obsmap = us.Stage2Observation(
+        ### Mapping helpers.
+        self.obsmap = us.Stage1Observation(
             '../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf',
             config, self.tf_buffer)
+        self.ikctrl = IKCtrl(
+            '../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf',
+            config.arm_joint,
+            frame='left_rubber_hand')
         self.actmap = us.SimpleAction(config, self.ikctrl)
         self.vhcommand = us.VelocityHeightCommand(config)
 
         if config.msg_type == "hg":
             # g1 and h1_2 use the hg msg type
-
             self.low_cmd = LowCmdHG()
             self.low_state = LowStateHG()
 
-            self.lowcmd_publisher_ = self._node.create_publisher(LowCmdHG,
-                                                                 'lowcmd', 10)
+            self.lowcmd_publisher_ = self._node.create_publisher(LowCmdHG, 'lowcmd', 10)
             self.lowstate_subscriber = self._node.create_subscription(
                 LowStateHG, 'lowstate', self.LowStateHgHandler, 10)
             self.mode_pr_ = MotorMode.PR
@@ -189,25 +177,18 @@ class Controller(StandController):
         else:
             raise ValueError("Invalid msg_type")
 
-        self.goalpath_publisher = self._node.create_publisher(
-                PathMsg, 'goalpath', 10)
-        self.truepath_publisher = self._node.create_publisher(
-                PathMsg, 'truepath', 10)
-        self.goalpath = PathMsg()
-        self.truepath = PathMsg()
-
         # Initialize the command msg
         if config.msg_type == "hg":
             init_cmd_hg(self.low_cmd, self.mode_machine_, self.mode_pr_)
         elif config.msg_type == "go":
             init_cmd_go(self.low_cmd, weak_motor=self.config.weak_motor)
 
-        self.mode = Mode.policy
+        self.mode = Mode.wait
 
         self._mode_change = True
-        self._timer = self._node.create_timer(
-            self.config.control_dt, self.run_wrapper)
         self._terminate = False
+        self._timer = self._node.create_timer(self.config.control_dt, self.run_wrapper)
+        
         try:
             rp.spin(self._node)
         except KeyboardInterrupt:
@@ -228,68 +209,123 @@ class Controller(StandController):
         # log trajectory
         # joint order = lab joint config order
         timestamp = clock.get_time().nanoseconds / 1e9
-        curr_q = []
-        curr_dq = []
-        curr_tau = []
-        for i_mot in self.mot_from_lab:
-            curr_q.append(self.low_state.motor_state[i_mot].q)
-            curr_dq.append(self.low_state.motor_state[i_mot].dq)
-            curr_tau.append(self.low_state.motor_state[i_mot].tau_est)
+        curr_q = np.zeros(self.num_joints)
+        curr_dq = np.zeros(self.num_joints)
+        curr_tau = np.zeros(self.num_joints)
+        curr_q[self.lab_from_mot] = [self.low_state.motor_state[mot_idx].q for mot_idx in range(self.num_joints)]
+        curr_dq[self.lab_from_mot] = [self.low_state.motor_state[mot_idx].dq for mot_idx in range(self.num_joints)]
+        curr_tau[self.lab_from_mot] = [self.low_state.motor_state[mot_idx].tau_est for mot_idx in range(self.num_joints)]
         self.timestamp = np.append(self.timestamp, timestamp)
         self.q_traj = np.vstack((self.q_traj, curr_q))
         self.dq_traj = np.vstack((self.dq_traj, curr_dq))
         self.tau_traj = np.vstack((self.tau_traj, curr_tau))
 
+    def send_cmd(self, cmd: Union[LowCmdGo, LowCmdHG]):
+        cmd.mode_machine = self.mode_machine_
+        cmd.crc = CRC().Crc(cmd)
+        self.lowcmd_publisher_.publish(cmd)
+
+    def zero_torque_state(self):
+        if self.remote_controller.button[KeyMap.start] == 1:
+            self._mode_change = True
+            self.mode = Mode.default_pos
+        else:
+            create_zero_cmd(self.low_cmd)
+            self.send_cmd(self.low_cmd)
+
+    def prepare_default_pos(self):
+        # move time 2s
+        total_time = 2
+        self.counter = 0
+        self._num_step = int(total_time / self.config.control_dt)
+
+        self._kps = [float(kp) for kp in self.config.kps]
+        self._kds = [float(kd) for kd in self.config.kds]
+
+        self._init_dof_pos = np.zeros(self.num_joints)
+        for mot_idx in range(self.num_joints):
+            self._init_dof_pos[mot_idx] = self.low_state.motor_state[mot_idx].q
+
+    def move_to_default_pos(self):
+        # move to default pos with smoothing
+        if self.counter < self._num_step:
+            alpha = self.counter / self._num_step
+            for motor_idx in range(self.num_joints):
+                target_pos = self.config.default_angles[motor_idx]
+                self.low_cmd.motor_cmd[motor_idx].q = (self._init_dof_pos[motor_idx] * (1 - alpha) + target_pos * alpha)
+                self.low_cmd.motor_cmd[motor_idx].dq = 0.0
+                self.low_cmd.motor_cmd[motor_idx].kp = self._kps[motor_idx]
+                self.low_cmd.motor_cmd[motor_idx].kd = self._kds[motor_idx]
+                self.low_cmd.motor_cmd[motor_idx].tau = 0.0
+            self.send_cmd(self.low_cmd)
+            self.counter += 1
+        else:
+            self._mode_change = True
+            self.mode = Mode.policy
+
+    def default_pos_state(self):
+        if self.remote_controller.button[KeyMap.A] != 1:
+            for motor_idx in range(self.num_joints):
+                self.low_cmd.motor_cmd[motor_idx].q = self.config.default_angles[motor_idx]
+                self.low_cmd.motor_cmd[motor_idx].dq = 0.0
+                self.low_cmd.motor_cmd[motor_idx].kp = self.config.kps[motor_idx]
+                self.low_cmd.motor_cmd[motor_idx].kd = self.config.kds[motor_idx]
+                self.low_cmd.motor_cmd[motor_idx].tau = 0.0
+            self.send_cmd(self.low_cmd)
+        else:
+            self._mode_change = True
+            self.mode = Mode.policy
+
+        
+    def terminate_by_pelvis_condition(self, xyz, quat, limit_euler_angle=[0.9, 1.0]) -> bool:
+        """
+        limit euler angle : roll 51.57', pitch 57.3'.
+        """
+        euler = math_utils.wrap_to_pi(
+            th.stack(math_utils.euler_xyz_from_quat(th.as_tensor(quat.reshape(1, quat.shape[0]))), dim=-1)
+        )
+        out_of_limit = th.logical_or(
+            th.abs(euler[..., 0]) > limit_euler_angle[0],
+            th.abs(euler[..., 1]) > limit_euler_angle[1],
+        )
+        if out_of_limit.item() :
+            print("Terminated by pelvis condition.")
+            print(f"euler: {euler}")
+        return out_of_limit.item()
     
+
     def run_policy(self):
+        # If the button A is pressed, then finish the policy.
         if self.remote_controller.button[KeyMap.A] == 1:
             self._mode_change = True
             self.mode = Mode.finish
             return
         self.counter += 1
 
-
-        # COMMAND
-        world_from_pelvis = us.body_pose(
-                self.tf_buffer,
-                'pelvis',
-                'world',
-                rot_type='quat'
-            )
+        world_from_pelvis = body_pose(
+            self.tf_buffer,
+            'pelvis',
+            'world',
+            rot_type='quat'
+        )
         xyz, quat_wxyz = world_from_pelvis
-
+        
+        # Add termination condition.
         if self.terminate_by_pelvis_condition(xyz, quat_wxyz):
-            raise ValueError
+            raise ValueError("Terminated by pelvis condition.")
 
-        root_state_w = np.zeros(7)
-        root_state_w[0:3] = xyz
-        root_state_w[3:7] = quat_wxyz
+        height_command = self.vhcommand(current_pelvis_height_w = xyz[2])
 
-
-        if True:
-            height_command = self.vhcommand(current_pelvis_height_w = xyz[2])
-        else :
-            # IF you want to start with the standing stage on the initial period of the episode.
-            if self.counter <= 100:
-                height_command = np.array([0., 0.79])
-            else:
-                height_command = self.vhcommand(current_pelvis_height_w = xyz[2])
-
-        world_quat = np.asarray((1., 0., 0., 0.))
-
-        self.target_pose = np.concatenate([xyz[:2], np.array([height_command[1]]), world_quat])
-        self.publish_target() # Just for visualization.
-
-        # For standing.
+        # For stage 1 & 2.
         self.obs = self.obsmap(self.low_state, height_command)
-        obs_tensor = torch.from_numpy(self.obs).unsqueeze(0)
+        obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
         obs_tensor = obs_tensor.detach().clone().float()
         self.action = self.policy(obs_tensor).detach().numpy().squeeze()
 
+        # target_dof_pos : motor joint ordered
         target_dof_pos = self.actmap(self.action, self.obs)
         
-        
-        # FIXME(hh) If you want smoothing
+        # FIXME(hh) joint position target smoothing
         if self.config.later_smoothing:
             if self.prev_joint_pos_target is not None:
                 if self.counter < 100:
@@ -300,25 +336,59 @@ class Controller(StandController):
                                     (1-self.config.later_smoothing) * self.prev_joint_pos_target
             self.prev_joint_pos_target = target_dof_pos
 
-        # Calculate metrics
-        # curr_q, curr_dq, curr_ddq, curr_tau = self.get_motor_state(self.low_state)
-        # self.calculate_metrics(curr_q, curr_dq, curr_ddq, curr_tau, logpath)
-
-        # FIXME(hh) 2nd smoothing, select only upper body joints
+        # FIXME(hh) kpkd coefficient smoothing
         # Build low cmd
-        for i in self.mot_from_lab:
-            self.low_cmd.motor_cmd[i].q = float(target_dof_pos[i])
-            self.low_cmd.motor_cmd[i].dq = 0.0
-            self.low_cmd.motor_cmd[i].kp = self.config.kpkd_smoothing * float(self.config.kps[i])
-            self.low_cmd.motor_cmd[i].kd = self.config.kpkd_smoothing * float(self.config.kds[i])
-            self.low_cmd.motor_cmd[i].tau = 0.0 
-            
+        for mot_idx in range(self.num_joints):
+            self.low_cmd.motor_cmd[mot_idx].q = float(target_dof_pos[mot_idx])
+            self.low_cmd.motor_cmd[mot_idx].dq = 0.0
+            self.low_cmd.motor_cmd[mot_idx].kp = self.config.kpkd_smoothing * float(self.config.kps[mot_idx])
+            self.low_cmd.motor_cmd[mot_idx].kd = self.config.kpkd_smoothing * float(self.config.kds[mot_idx])
+            self.low_cmd.motor_cmd[mot_idx].tau = 0.0
+        
         # send the command
         self.send_cmd(self.low_cmd)
+            
+    def log_metrics_and_trajectories(self):     
+        # Calculate pos diff & torque diff metrics
+        pos_diff = np.average(np.abs(self.q_traj[1:] - self.q_traj[:-1]))
+        torque_diff = np.average(np.abs(self.tau_traj[1:] - self.tau_traj[:-1]))
+        print("\n--------------------------METRICS--------------------------")
+        print("total_time", self.counter * self.config.control_dt)
+        print("pos_diff", pos_diff)
+        print("torque_diff", torque_diff)
+        print("----------------------------------------------------------")
+        
+        # Save metrics and trajectories
+        metrics = {
+            "pos_diff": pos_diff,
+            "torque_diff": torque_diff
+        }
+        trajectories = {
+            "timestamp": self.timestamp,
+            "q_traj": self.q_traj,
+            "dq_traj": self.dq_traj,
+            "tau_traj": self.tau_traj
+        }
+        log_data = {
+            "metrics": metrics,
+            "trajectories": trajectories
+        }
+        
+        # Save the log with experiment name
+        model = os.path.basename(self.config.policy_path).split('.')[0]
+        setting = f"init_{self.config.initial_smoothing}_"
+        setting += f"later_{self.config.later_smoothing}_"
+        setting += f"kpkd_{self.config.kpkd_smoothing}"
+        file_name = f'{self.logpath}/log_{model}_{setting}_{str(self.timestamp[0])}.npy'
+        np.save(file_name, log_data)
+        print(f"Log saved at {file_name}")
+        
+        # totally terminate
+        self._mode_change = True
+        self.mode = Mode.null
+        
 
     def run_wrapper(self):
-        # print("hello", self.mode,
-        # self.mode == Mode.zero_torque)
         if self.mode == Mode.wait:
             if self.low_state.crc != 0:
                 self.mode = Mode.zero_torque
@@ -345,6 +415,7 @@ class Controller(StandController):
         elif self.mode == Mode.policy:
             if self._mode_change:
                 print("Run policy.")
+                print("Press Button A to finish.")
                 self._mode_change = False
                 self.counter = 0
             self.run_policy()
@@ -356,7 +427,6 @@ class Controller(StandController):
         elif self.mode == Mode.null:
             self._terminate = True
 
-        # time.sleep(self.config.control_dt)
 
 if __name__ == "__main__":
     import argparse
