@@ -315,7 +315,7 @@ class Controller(StandController):
 
         # FIXME(hh) 2nd smoothing, select only upper body joints
         # Build low cmd
-        for i in self.mot_from_lab:
+        for i in range(len(self.mot_from_lab)):
             self.low_cmd.motor_cmd[i].q = float(target_dof_pos[i])
             self.low_cmd.motor_cmd[i].dq = 0.0
             self.low_cmd.motor_cmd[i].kp = self.config.kpkd_smoothing * float(self.config.kps[i])
