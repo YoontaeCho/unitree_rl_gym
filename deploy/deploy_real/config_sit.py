@@ -13,3 +13,4 @@ class SitConfig(Config):
         self.max_velocity = self._config["max_velocity"]
         self.target_height = self._config["target_height"]
         self.obs_dim = self._config["obs_dim"]
+        self.lower_joint = self._config["lower_joint"]

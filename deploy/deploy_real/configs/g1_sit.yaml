@@ -144,6 +144,28 @@ rjpa_joint: [
   "left_wrist_yaw_joint"
 ]
 
+lower_joint: [
+  'left_hip_pitch_joint',
+  'left_hip_roll_joint',
+  'left_hip_yaw_joint',
+  'left_knee_joint',
+  'left_ankle_pitch_joint',
+  'left_ankle_roll_joint',
+  'right_hip_pitch_joint',
+  'right_hip_roll_joint',
+  'right_hip_yaw_joint',
+  'right_knee_joint',
+  'right_ankle_pitch_joint',
+  'right_ankle_roll_joint',
+  'left_shoulder_pitch_joint',
+  'left_shoulder_roll_joint',
+  'left_shoulder_yaw_joint',
+  'left_elbow_joint',
+  'left_wrist_roll_joint',
+  'left_wrist_pitch_joint',
+  'left_wrist_yaw_joint',
+]
+
 exp_name: "dao_stand"
 
 # nominal
@@ -156,7 +178,7 @@ max_velocity: 0.1
 target_height: 0.5
 
 initial_smoothing: 0.8
-later_smoothing: 1.0
-kpkd_smoothing: 1.0
+later_smoothing: 0.8
+kpkd_smoothing: 1.
 
 obs_dim: 92 # for nominal obs

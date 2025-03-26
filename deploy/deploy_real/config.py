@@ -20,7 +20,10 @@ class Config:
             self.weak_motor = []
             if "weak_motor" in config:
                 self.weak_motor = config["weak_motor"]
-            
+
+            # self.lowcmd_topic = config["lowcmd_topic"]
+            # self.lowstate_topic = config["lowstate_topic"]
+
             if 'leg_joint2motor_idx' in config:
                 self.leg_joint2motor_idx = config["leg_joint2motor_idx"]
             if 'joint2motor_idx' in config:
@@ -65,7 +68,19 @@ class Config:
                 self.lab_joint_offsets = config['lab_joint_offsets']
             else:
                 self.lab_joint_offsets=[]
-            
+                
+            # self.ang_vel_scale = config["ang_vel_scale"]
+            # self.dof_pos_scale = config["dof_pos_scale"]
+            # self.dof_vel_scale = config["dof_vel_scale"]
+            # self.action_scale = config["action_scale"]
+            # self.cmd_scale = np.array(config["cmd_scale"], dtype=np.float32)
+            # self.max_cmd = np.array(config["max_cmd"], dtype=np.float32)
+
+            # self.num_actions = config["num_actions"]
+            # self.num_obs = config["num_obs"]
+            # self.joint_pos_target_path = config["joint_pos_target_path"].replace("{LEGGED_GYM_ROOT_DIR}", LEGGED_GYM_ROOT_DIR)
+            # self.upper_body_joint = config["upper_body_joint"]
+            # self.lower_body_joint = config["lower_body_joint"]
             self.jpa_joint = config["jpa_joint"]
             self.rjpa_joint = config["rjpa_joint"]
 

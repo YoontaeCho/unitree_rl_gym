@@ -199,15 +199,15 @@ class Stage2Observation(Stage1Observation):
             prev_pelvis_height = self.prev_pelvis_height
 
         obs = [
-            base_ang_vel,       # 3  3
-            projected_gravity,  # 3  6
+            base_ang_vel,       # 3 
+            projected_gravity,  # 3 6
             foot_pose,          # 12 18
             hand_pose,          # 12 30
             joint_pos,          # 29 59
             joint_vel,          # 29 88
-            height_command,     # 2  90
-            pelvis_height,      # 1  91
-            prev_pelvis_height  # 1  92
+            height_command,     # 2 90
+            pelvis_height,      # 1 91
+            prev_pelvis_height  # 1 92
         ]
 
         self.prev_pelvis_height = pelvis_height
@@ -322,11 +322,12 @@ class VelocityHeightCommand:
         self.max_velocity = self.config.max_velocity
         self.slow_bound = self.config.slow_bound
     
-    def __call__(self, current_pelvis_height_w :float, keymap :bool = False):
-        if not keymap:
-            target_height = 0.7
-        else:
+    def __call__(self, current_pelvis_height_w :float, sitting :bool = False):
+        if sitting:
             target_height = self.pelvis_height_w
+        else:
+            # target_height = self.pelvis_height_w
+            target_height = 0.7
             
         pelvis_height_diff = target_height - current_pelvis_height_w
         pelvis_lin_vel_z_w = np.clip( np.sign(pelvis_height_diff) 
@@ -334,5 +335,7 @@ class VelocityHeightCommand:
                                     * np.sqrt(np.abs(pelvis_height_diff / self.slow_bound)),
                                     -self.max_velocity,
                                     self.max_velocity
+                                    # 0
                                     )
         return np.asarray([pelvis_lin_vel_z_w, target_height])
+    

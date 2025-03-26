@@ -125,6 +125,7 @@ class Controller:
         # == build index map ==
         self.mot_from_lab = index_map(self.config.motor_joint, self.config.lab_joint)
         self.lab_from_mot = index_map(self.config.lab_joint, self.config.motor_joint)
+        self.mot_from_lower = index_map(self.config.motor_joint, self.config.lower_joint)
         
         # num joints
         self.num_joints = len(self.config.motor_joint)
@@ -134,6 +135,7 @@ class Controller:
         self.q_traj = np.zeros((0, self.num_joints))
         self.dq_traj = np.zeros((0, self.num_joints))
         self.tau_traj = np.zeros((0, self.num_joints))
+
         self.observations = np.zeros((0, self.config.obs_dim))
 
 
@@ -188,6 +190,7 @@ class Controller:
         # FIXME: you can change the initial mode here
         self.mode = Mode.policy
 
+        self.sitting = False
         self._mode_change = True
         self._terminate = False
         self._timer = self._node.create_timer(self.config.control_dt, self.run_wrapper)
@@ -318,10 +321,14 @@ class Controller:
         if self.terminate_by_pelvis_condition(xyz, quat_wxyz):
             raise ValueError("Terminated by pelvis condition.")
 
+        # Press down button to sit
         curr_keymap = self.remote_controller.button[KeyMap.down] == 1
+        if curr_keymap:
+            self.sitting = True
+
         # print(f"current keymap: {curr_keymap}")
         # print(xyz[2])
-        height_command = self.vhcommand(current_pelvis_height_w = xyz[2], keymap = curr_keymap)
+        height_command = self.vhcommand(current_pelvis_height_w = xyz[2], sitting=self.sitting)
         # print(f"height command: {height_command}")
         # For stage 1 & 2.
         self.obs = self.obsmap(self.low_state, height_command)
@@ -337,15 +344,28 @@ class Controller:
         target_dof_pos = self.actmap(self.action, self.obs)
         
         # FIXME(hh) joint position target smoothing
-        if self.config.later_smoothing:
-            if self.prev_joint_pos_target is not None:
-                if self.counter < 100:
-                    target_dof_pos = self.config.initial_smoothing * target_dof_pos + \
-                                    (1-self.config.initial_smoothing) * self.prev_joint_pos_target
-                else:
-                    target_dof_pos = self.config.later_smoothing * target_dof_pos + \
-                                    (1-self.config.later_smoothing) * self.prev_joint_pos_target
-            self.prev_joint_pos_target = target_dof_pos
+        # smoothing for only lower body
+        for mot_idx in self.mot_from_lower:
+            if self.config.later_smoothing:
+                if self.prev_joint_pos_target is not None:
+                    if self.counter < 100:
+                        target_dof_pos[mot_idx] = self.config.initial_smoothing * target_dof_pos[mot_idx] + \
+                                        (1-self.config.initial_smoothing) * self.prev_joint_pos_target[mot_idx]
+                    else:
+                        target_dof_pos[mot_idx] = self.config.later_smoothing * target_dof_pos[mot_idx] + \
+                                        (1-self.config.later_smoothing) * self.prev_joint_pos_target[mot_idx]
+        self.prev_joint_pos_target = target_dof_pos
+
+        # smoothing for all joints
+        # if self.config.later_smoothing:
+        #     if self.prev_joint_pos_target is not None:
+        #         if self.counter < 100:
+        #             target_dof_pos = self.config.initial_smoothing * target_dof_pos + \
+        #                             (1-self.config.initial_smoothing) * self.prev_joint_pos_target
+        #         else:
+        #             target_dof_pos = self.config.later_smoothing * target_dof_pos + \
+        #                             (1-self.config.later_smoothing) * self.prev_joint_pos_target
+        #     self.prev_joint_pos_target = target_dof_pos
 
         # FIXME(hh) kpkd coefficient smoothing
         # Build low cmd
