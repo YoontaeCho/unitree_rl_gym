@@ -12,3 +12,4 @@ class SitConfig(Config):
         self.slow_bound = self._config["slow_bound"]
         self.max_velocity = self._config["max_velocity"]
         self.target_height = self._config["target_height"]
+        self.obs_dim = self._config["obs_dim"]

@@ -116,15 +116,11 @@ class Stage1Observation:
         hand_pose = np.concatenate([hp_l[0], hp_r[0], hp_l[1], hp_r[1]])
 
         # Map `low_state` to index-mapped joint_{pos,vel}
-        joint_pos = np.zeros(num_lab_joint,
-                             dtype=np.float32)
-        joint_vel = np.zeros(num_lab_joint,
-                             dtype=np.float32)
-        joint_pos[lab_from_mot] = [low_state.motor_state[i_mot].q for i_mot in
-                                   range(len(lab_from_mot))]
+        joint_pos = np.zeros(num_lab_joint, dtype=np.float32)
+        joint_vel = np.zeros(num_lab_joint, dtype=np.float32)
+        joint_pos[lab_from_mot] = [low_state.motor_state[i_mot].q for i_mot in range(num_lab_joint)]
         joint_pos -= self.config.lab_joint_offsets
-        joint_vel[lab_from_mot] = [low_state.motor_state[i_mot].dq for i_mot in
-                                   range(len(lab_from_mot))]
+        joint_vel[lab_from_mot] = [low_state.motor_state[i_mot].dq for i_mot in range(num_lab_joint)]
 
         world_from_pelvis = self.tf_buffer.lookup_transform(
             'world',
@@ -135,18 +131,16 @@ class Stage1Observation:
         pelvis_height = [world_from_pelvis.transform.translation.z]
 
         obs = [
-            base_ang_vel, # 3
-            projected_gravity, # 2 5
-            foot_pose, # 12 17
-            hand_pose, # 12 29
-            joint_pos,
-            joint_vel,
-            hands_command,
-            pelvis_height
+            base_ang_vel,       # 3
+            projected_gravity,  # 3
+            foot_pose,          # 12
+            hand_pose,          # 12
+            joint_pos,          # 29
+            joint_vel,          # 29
+            hands_command,      # 2
+            pelvis_height       # 1
         ]
 
-        self.prev_pelvis_height = pelvis_height
-        # print([np.shape(o) for o in obs])
         return np.concatenate(obs, axis=-1)
     
 
@@ -185,15 +179,11 @@ class Stage2Observation(Stage1Observation):
         hand_pose = np.concatenate([hp_l[0], hp_r[0], hp_l[1], hp_r[1]])
 
         # Map `low_state` to index-mapped joint_{pos,vel}
-        joint_pos = np.zeros(num_lab_joint,
-                             dtype=np.float32)
-        joint_vel = np.zeros(num_lab_joint,
-                             dtype=np.float32)
-        joint_pos[lab_from_mot] = [low_state.motor_state[i_mot].q for i_mot in
-                                   range(len(lab_from_mot))]
+        joint_pos = np.zeros(num_lab_joint, dtype=np.float32)
+        joint_vel = np.zeros(num_lab_joint, dtype=np.float32)
+        joint_pos[lab_from_mot] = [low_state.motor_state[i_mot].q for i_mot in range(num_lab_joint)]
         joint_pos -= self.config.lab_joint_offsets
-        joint_vel[lab_from_mot] = [low_state.motor_state[i_mot].dq for i_mot in
-                                   range(len(lab_from_mot))]
+        joint_vel[lab_from_mot] = [low_state.motor_state[i_mot].dq for i_mot in range(num_lab_joint)]
 
         world_from_pelvis = self.tf_buffer.lookup_transform(
             'world',
@@ -209,19 +199,18 @@ class Stage2Observation(Stage1Observation):
             prev_pelvis_height = self.prev_pelvis_height
 
         obs = [
-            base_ang_vel,
-            projected_gravity,
-            foot_pose,
-            hand_pose,
-            joint_pos,
-            joint_vel,
-            height_command,
-            pelvis_height,
-            prev_pelvis_height
+            base_ang_vel,       # 3  3
+            projected_gravity,  # 3  6
+            foot_pose,          # 12 18
+            hand_pose,          # 12 30
+            joint_pos,          # 29 59
+            joint_vel,          # 29 88
+            height_command,     # 2  90
+            pelvis_height,      # 1  91
+            prev_pelvis_height  # 1  92
         ]
 
         self.prev_pelvis_height = pelvis_height
-        # print([np.shape(o) for o in obs])
         return np.concatenate(obs, axis=-1)
     
 from ikctrl import IKCtrl
@@ -285,6 +274,8 @@ class SimpleAction:
             self.ikctrl.joint_names,
             self.config.motor_joint
             )
+        
+        self.counter = 0
 
 
 
@@ -298,6 +289,15 @@ class SimpleAction:
         # motor order
         target_dof_pos = np.zeros(29)
         target_dof_pos += q_mot
+
+        # one_hot = np.zeros(19)
+        # one_hot[5] = -0.1
+        # if self.counter < 50:
+        #     target_dof_pos[self.mot_from_jpa] += one_hot
+        
+        # # print(q[7])
+        # self.counter += 1
+
 
         # checked
         target_dof_pos[self.mot_from_jpa] = self.joint_pos_action_offset +  0.5 * action[..., :19]
@@ -322,12 +322,17 @@ class VelocityHeightCommand:
         self.max_velocity = self.config.max_velocity
         self.slow_bound = self.config.slow_bound
     
-    def __call__(self, current_pelvis_height_w):
-        pelvis_height_diff = self.pelvis_height_w - current_pelvis_height_w
+    def __call__(self, current_pelvis_height_w :float, keymap :bool = False):
+        if not keymap:
+            target_height = 0.7
+        else:
+            target_height = self.pelvis_height_w
+            
+        pelvis_height_diff = target_height - current_pelvis_height_w
         pelvis_lin_vel_z_w = np.clip( np.sign(pelvis_height_diff) 
-                                     * self.max_velocity
-                                     * np.sqrt(np.abs(pelvis_height_diff / self.slow_bound)),
-                                     -self.max_velocity,
-                                     self.max_velocity
-                                     )
-        return np.asarray([pelvis_lin_vel_z_w, self.pelvis_height_w])
+                                    * self.max_velocity
+                                    * np.sqrt(np.abs(pelvis_height_diff / self.slow_bound)),
+                                    -self.max_velocity,
+                                    self.max_velocity
+                                    )
+        return np.asarray([pelvis_lin_vel_z_w, target_height])

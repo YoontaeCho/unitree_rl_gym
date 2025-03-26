@@ -16,7 +16,7 @@ from tf2_ros.transform_listener import TransformListener
 from tf2_ros import TransformBroadcaster
 from common.command_helper_ros import create_damping_cmd, create_zero_cmd, init_cmd_hg, init_cmd_go, MotorMode
 from common.remote_controller import RemoteController, KeyMap
-from config import Config
+from config_sit import SitConfig as Config
 from common.crc import CRC
 from enum import Enum
 from ikctrl import IKCtrl
@@ -134,6 +134,8 @@ class Controller:
         self.q_traj = np.zeros((0, self.num_joints))
         self.dq_traj = np.zeros((0, self.num_joints))
         self.tau_traj = np.zeros((0, self.num_joints))
+        self.observations = np.zeros((0, self.config.obs_dim))
+
 
         # counter
         self.counter = 0
@@ -150,7 +152,7 @@ class Controller:
         self.tf_broadcaster = TransformBroadcaster(self._node)
 
         ### Mapping helpers.
-        self.obsmap = us.Stage1Observation(
+        self.obsmap = us.Stage2Observation(
             '../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf',
             config, self.tf_buffer)
         self.ikctrl = IKCtrl(
@@ -183,7 +185,8 @@ class Controller:
         elif config.msg_type == "go":
             init_cmd_go(self.low_cmd, weak_motor=self.config.weak_motor)
 
-        self.mode = Mode.wait
+        # FIXME: you can change the initial mode here
+        self.mode = Mode.policy
 
         self._mode_change = True
         self._terminate = False
@@ -192,7 +195,8 @@ class Controller:
         try:
             rp.spin(self._node)
         except KeyboardInterrupt:
-            print("KeyboardInterrupt")
+            self.log_metrics_and_trajectories()
+            print("Log saved.")
         finally:
             self._node.destroy_timer(self._timer)
             create_damping_cmd(self.low_cmd)
@@ -314,10 +318,17 @@ class Controller:
         if self.terminate_by_pelvis_condition(xyz, quat_wxyz):
             raise ValueError("Terminated by pelvis condition.")
 
-        height_command = self.vhcommand(current_pelvis_height_w = xyz[2])
-
+        curr_keymap = self.remote_controller.button[KeyMap.down] == 1
+        # print(f"current keymap: {curr_keymap}")
+        # print(xyz[2])
+        height_command = self.vhcommand(current_pelvis_height_w = xyz[2], keymap = curr_keymap)
+        # print(f"height command: {height_command}")
         # For stage 1 & 2.
         self.obs = self.obsmap(self.low_state, height_command)
+        
+        # observation dumping
+        self.dump_observations()
+
         obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
         obs_tensor = obs_tensor.detach().clone().float()
         self.action = self.policy(obs_tensor).detach().numpy().squeeze()
@@ -347,6 +358,10 @@ class Controller:
         
         # send the command
         self.send_cmd(self.low_cmd)
+
+    def dump_observations(self):
+        self.observations = np.vstack((self.observations, self.obs))
+        
             
     def log_metrics_and_trajectories(self):     
         # Calculate pos diff & torque diff metrics
@@ -367,7 +382,8 @@ class Controller:
             "timestamp": self.timestamp,
             "q_traj": self.q_traj,
             "dq_traj": self.dq_traj,
-            "tau_traj": self.tau_traj
+            "tau_traj": self.tau_traj,
+            "observations": self.observations
         }
         log_data = {
             "metrics": metrics,
@@ -376,10 +392,13 @@ class Controller:
         
         # Save the log with experiment name
         model = os.path.basename(self.config.policy_path).split('.')[0]
-        setting = f"init_{self.config.initial_smoothing}_"
-        setting += f"later_{self.config.later_smoothing}_"
-        setting += f"kpkd_{self.config.kpkd_smoothing}"
-        file_name = f'{self.logpath}/log_{model}_{setting}_{str(self.timestamp[0])}.npy'
+        setting = f"init_{str(self.config.initial_smoothing).replace('.', '_')}_"
+        setting += f"later_{str(self.config.later_smoothing).replace('.', '_')}_"
+        setting += f"kpkd_{str(self.config.kpkd_smoothing).replace('.', '_')}"
+
+        exp = f"height_{str(self.config.target_height).replace('.', '_')}" 
+        
+        file_name = f"{self.logpath}/log_{model}_{setting}_{exp}_{str(self.timestamp[0]).split('.')[0]}.npy"
         np.save(file_name, log_data)
         print(f"Log saved at {file_name}")
         
