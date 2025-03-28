@@ -35,9 +35,7 @@ lab_joint = [
     'right_wrist_yaw_joint'
 ]
 
-def plot_log(file_name, start_time, end_time):
-    dir_path = Path('/tmp/eetrack_stand/')
-    file_path = dir_path / file_name
+def plot_log(file_path, start_time, end_time):
     data = np.load(file_path, allow_pickle=True).item()
     
     timestamp_high_freq = data['trajectories']['timestamp_high_freq']
@@ -50,54 +48,66 @@ def plot_log(file_name, start_time, end_time):
     actions = data['trajectories']['actions']
     raw_joint_pos_targets = data['trajectories']['raw_joint_pos_targets']
     joint_pos_targets = data['trajectories']['joint_pos_targets']
-    
-    # Filter the data
-    t_start = timestamp_high_freq[-1] + start_time
-    t_end = timestamp_high_freq[-1] + end_time
-    high_freq_filter = np.logical_and(timestamp_high_freq >= t_start, timestamp_high_freq <= t_end)
-    low_freq_filter = np.logical_and(timestamp_low_freq >= t_start, timestamp_low_freq <= t_end)
-    
-    timestamp_high_freq = timestamp_high_freq[high_freq_filter]
-    q_traj = q_traj[high_freq_filter]
-    dq_traj = dq_traj[high_freq_filter]
-    tau_traj = tau_traj[high_freq_filter]
-    
-    timestamp_low_freq = timestamp_low_freq[low_freq_filter]
-    observations = observations[low_freq_filter]
-    actions = actions[low_freq_filter]
-    raw_joint_pos_targets = raw_joint_pos_targets[low_freq_filter]
-    joint_pos_targets = joint_pos_targets[low_freq_filter]
-    
+
+    # Calculate dof pos jitter
+    # |q_t - 2 * q_t-1 + q_t-2|
+    # plot jitter by timestamp_high_freq vs jitter
+    jitter = q_traj[:-2] - 2 * q_traj[1:-1] + q_traj[2:]
+    timestamp = timestamp_high_freq[1:-1]
+
     # Plot
     num_joints = q_traj.shape[1]    
     fig, axs = plt.subplots(5, 6, figsize=(20, 15))
     axs = axs.flatten()
+
+    start_idx = -1000
     
     for idx in range(len(axs)):
         if idx >= num_joints:
             axs[idx].axis('off')
             continue
 
-        axs[idx].plot(timestamp_high_freq, q_traj[:, idx], color='r', label='q_traj')
-        axs[idx].plot(timestamp_low_freq, raw_joint_pos_targets[:, idx], color='g', label='raw_target')
-        axs[idx].plot(timestamp_low_freq, joint_pos_targets[:, idx], color='b', label='filtered_target')
+        axs[idx].plot(timestamp[start_idx:], jitter[start_idx:, idx], color='r', label='jitter')
         axs[idx].set_title(f"{lab_joint[idx]}")
+        axs[idx].set_ylim(-0.02, 0.02)
         
         # axs[idx].plot(timestamp_high_freq, dq_traj[:, idx], color='r', label='dq_traj')
         
-        axs[idx].legend()
+        # axs[idx].legend()
             
     plt.tight_layout()   
     plt.show()
+    
+    # # Plot
+    # num_joints = q_traj.shape[1]    
+    # fig, axs = plt.subplots(5, 6, figsize=(20, 15))
+    # axs = axs.flatten()
+    
+    # for idx in range(len(axs)):
+    #     if idx >= num_joints:
+    #         axs[idx].axis('off')
+    #         continue
+
+    #     axs[idx].plot(timestamp_high_freq, q_traj[:, idx], color='r', label='q_traj')
+    #     axs[idx].plot(timestamp_low_freq, raw_joint_pos_targets[:, idx], color='g', label='raw_target')
+    #     axs[idx].plot(timestamp_low_freq, joint_pos_targets[:, idx], color='b', label='filtered_target')
+    #     axs[idx].set_title(f"{lab_joint[idx]}")
+        
+    #     # axs[idx].plot(timestamp_high_freq, dq_traj[:, idx], color='r', label='dq_traj')
+        
+    #     # axs[idx].legend()
+            
+    # plt.tight_layout()   
+    # plt.show()
 
 def main():
-    # NOTE: change the file_name
-    file_name = "log"
+    # NOTE: change the file_path
+    file_path = "/tmp/eetrack_stand/log_daop_sit_exported_init_0_8_later_1_0_kpkd_1_0_height_0_3_1743163059.npy"
     
     # NOTE: change the start_time and end_time
     start_time = -5
     end_time = 0
-    plot_log(file_name, start_time, end_time)
+    plot_log(file_path, start_time, end_time)
 
 if __name__ == "__main__":
     main()

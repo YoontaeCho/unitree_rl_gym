@@ -326,7 +326,6 @@ class VelocityHeightCommand:
         if sitting:
             target_height = self.pelvis_height_w
         else:
-            # target_height = self.pelvis_height_w
             target_height = 0.7
             
         pelvis_height_diff = target_height - current_pelvis_height_w

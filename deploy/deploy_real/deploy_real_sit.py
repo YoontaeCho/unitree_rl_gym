@@ -419,8 +419,8 @@ class Controller:
         print("----------------------------------------------------------")
         
         # Normalize timestamps with respect to the first timestamp_high_freq
-        self.timestamp_high_freq = self.timestamp_high_freq - self.timestamp_high_freq[0]
         self.timestamp_low_freq = self.timestamp_low_freq - self.timestamp_high_freq[0]
+        self.timestamp_high_freq = self.timestamp_high_freq - self.timestamp_high_freq[0]
         
         # Save metrics and trajectories
         metrics = {
@@ -442,16 +442,18 @@ class Controller:
             "metrics": metrics,
             "trajectories": trajectories
         }
-        
+
         # Save the log with experiment name
         model = os.path.basename(self.config.policy_path).split('.')[0]
         setting = f"init_{str(self.config.initial_smoothing).replace('.', '_')}_"
         setting += f"later_{str(self.config.later_smoothing).replace('.', '_')}_"
         setting += f"kpkd_{str(self.config.kpkd_smoothing).replace('.', '_')}"
-
-        exp = f"height_{str(self.config.target_height).replace('.', '_')}" 
         
-        file_name = f"{self.logpath}/log_{model}_{setting}_{exp}_{str(self.timestamp[0]).split('.')[0]}.npy"
+        exp = f"height_{str(self.config.target_height).replace('.', '_')}" 
+
+        timestamp = clock.get_time().nanoseconds / 1e9
+        
+        file_name = f"{self.logpath}/log_{model}_{setting}_{exp}_{str(timestamp).split('.')[0]}.npy"
         np.save(file_name, log_data)
         print(f"Log saved at {file_name}")
         
