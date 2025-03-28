@@ -130,13 +130,17 @@ class Controller:
         # num joints
         self.num_joints = len(self.config.motor_joint)
         
-        # log trajectory
-        self.timestamp = np.array([])
+        # log trajectory (1000Hz)
+        self.timestamp_high_freq = np.array([])
         self.q_traj = np.zeros((0, self.num_joints))
         self.dq_traj = np.zeros((0, self.num_joints))
         self.tau_traj = np.zeros((0, self.num_joints))
 
+        # log trajectory (50Hz)
+        self.timestamp_low_freq = np.array([])
         self.observations = np.zeros((0, self.config.obs_dim))
+        self.actions = np.zeros((0, self.num_joints))
+        self.raw_joint_pos_targets = np.zeros((0, self.num_joints))
         self.joint_pos_targets = np.zeros((0, self.num_joints))
 
 
@@ -216,14 +220,14 @@ class Controller:
         
         # log trajectory
         # joint order = lab joint config order
-        timestamp = clock.get_time().nanoseconds / 1e9
+        timestamp_high_freq = clock.get_time().nanoseconds / 1e9
         curr_q = np.zeros(self.num_joints)
         curr_dq = np.zeros(self.num_joints)
         curr_tau = np.zeros(self.num_joints)
         curr_q[self.lab_from_mot] = [self.low_state.motor_state[mot_idx].q for mot_idx in range(self.num_joints)]
         curr_dq[self.lab_from_mot] = [self.low_state.motor_state[mot_idx].dq for mot_idx in range(self.num_joints)]
         curr_tau[self.lab_from_mot] = [self.low_state.motor_state[mot_idx].tau_est for mot_idx in range(self.num_joints)]
-        self.timestamp = np.append(self.timestamp, timestamp)
+        self.timestamp_high_freq = np.append(self.timestamp_high_freq, timestamp_high_freq)
         self.q_traj = np.vstack((self.q_traj, curr_q))
         self.dq_traj = np.vstack((self.dq_traj, curr_dq))
         self.tau_traj = np.vstack((self.tau_traj, curr_tau))
@@ -353,6 +357,8 @@ class Controller:
         #                 target_dof_pos[mot_idx] = self.config.later_smoothing * target_dof_pos[mot_idx] + \
         #                                 (1-self.config.later_smoothing) * self.prev_joint_pos_target[mot_idx]
         # self.prev_joint_pos_target = target_dof_pos
+        
+        raw_target_dof_pos = target_dof_pos.copy()
 
         # smoothing for all joints
         if self.config.later_smoothing:
@@ -366,7 +372,7 @@ class Controller:
             self.prev_joint_pos_target = target_dof_pos
 
         # observation dumping
-        self.dump_observations_and_joint_pos_target(target_dof_pos)
+        self.dump_observations_and_joint_pos_target(raw_target_dof_pos, target_dof_pos)
 
         # FIXME(hh) kpkd coefficient smoothing
         # Build low cmd
@@ -380,11 +386,26 @@ class Controller:
         # send the command
         self.send_cmd(self.low_cmd)
 
-    def dump_observations_and_joint_pos_target(self, target_dof_pos):
+    def dump_observations_and_joint_pos_target(self, raw_target_dof_pos, target_dof_pos):
+        # log timestamp
+        timestamp_low_freq = clock.get_time().nanoseconds / 1e9
+        self.timestamp_low_freq = np.append(self.timestamp_low_freq, timestamp_low_freq)
+        
+        # log raw joint pos target (before smoothing)
+        raw_target_dof_pos_lab = np.zeros(29)
+        raw_target_dof_pos_lab[self.lab_from_mot] = raw_target_dof_pos
+        self.raw_joint_pos_targets = np.vstack((self.raw_joint_pos_targets, raw_target_dof_pos_lab))
+        
+        # log joint pos target
         target_dof_pos_lab = np.zeros(29)
         target_dof_pos_lab[self.lab_from_mot] = target_dof_pos
-        self.observations = np.vstack((self.observations, self.obs))
         self.joint_pos_targets = np.vstack((self.joint_pos_targets, target_dof_pos_lab))
+        
+        # log observation
+        self.observations = np.vstack((self.observations, self.obs))
+        
+        # log action
+        self.actions = np.vstack((self.actions, self.action))
         
             
     def log_metrics_and_trajectories(self):     
@@ -397,17 +418,24 @@ class Controller:
         print("torque_diff", torque_diff)
         print("----------------------------------------------------------")
         
+        # Normalize timestamps with respect to the first timestamp_high_freq
+        self.timestamp_high_freq = self.timestamp_high_freq - self.timestamp_high_freq[0]
+        self.timestamp_low_freq = self.timestamp_low_freq - self.timestamp_high_freq[0]
+        
         # Save metrics and trajectories
         metrics = {
             "pos_diff": pos_diff,
             "torque_diff": torque_diff
         }
         trajectories = {
-            "timestamp": self.timestamp,
+            "timestamp_high_freq": self.timestamp_high_freq,
             "q_traj": self.q_traj,
             "dq_traj": self.dq_traj,
             "tau_traj": self.tau_traj,
+            "timestamp_low_freq": self.timestamp_low_freq,
             "observations": self.observations,
+            "actions": self.actions,
+            "raw_joint_pos_targets": self.raw_joint_pos_targets,
             "joint_pos_targets" : self.joint_pos_targets
         }
         log_data = {
