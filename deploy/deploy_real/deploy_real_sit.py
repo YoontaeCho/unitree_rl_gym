@@ -137,6 +137,7 @@ class Controller:
         self.tau_traj = np.zeros((0, self.num_joints))
 
         self.observations = np.zeros((0, self.config.obs_dim))
+        self.joint_pos_targets = np.zeros((0, self.num_joints))
 
 
         # counter
@@ -332,9 +333,6 @@ class Controller:
         # print(f"height command: {height_command}")
         # For stage 1 & 2.
         self.obs = self.obsmap(self.low_state, height_command)
-        
-        # observation dumping
-        self.dump_observations()
 
         obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
         obs_tensor = obs_tensor.detach().clone().float()
@@ -342,30 +340,33 @@ class Controller:
 
         # target_dof_pos : motor joint ordered
         target_dof_pos = self.actmap(self.action, self.obs)
-        
+
         # FIXME(hh) joint position target smoothing
         # smoothing for only lower body
-        for mot_idx in self.mot_from_lower:
-            if self.config.later_smoothing:
-                if self.prev_joint_pos_target is not None:
-                    if self.counter < 100:
-                        target_dof_pos[mot_idx] = self.config.initial_smoothing * target_dof_pos[mot_idx] + \
-                                        (1-self.config.initial_smoothing) * self.prev_joint_pos_target[mot_idx]
-                    else:
-                        target_dof_pos[mot_idx] = self.config.later_smoothing * target_dof_pos[mot_idx] + \
-                                        (1-self.config.later_smoothing) * self.prev_joint_pos_target[mot_idx]
-        self.prev_joint_pos_target = target_dof_pos
+        # for mot_idx in self.mot_from_lower:
+        #     if self.config.later_smoothing:
+        #         if self.prev_joint_pos_target is not None:
+        #             if self.counter < 100:
+        #                 target_dof_pos[mot_idx] = self.config.initial_smoothing * target_dof_pos[mot_idx] + \
+        #                                 (1-self.config.initial_smoothing) * self.prev_joint_pos_target[mot_idx]
+        #             else:
+        #                 target_dof_pos[mot_idx] = self.config.later_smoothing * target_dof_pos[mot_idx] + \
+        #                                 (1-self.config.later_smoothing) * self.prev_joint_pos_target[mot_idx]
+        # self.prev_joint_pos_target = target_dof_pos
 
         # smoothing for all joints
-        # if self.config.later_smoothing:
-        #     if self.prev_joint_pos_target is not None:
-        #         if self.counter < 100:
-        #             target_dof_pos = self.config.initial_smoothing * target_dof_pos + \
-        #                             (1-self.config.initial_smoothing) * self.prev_joint_pos_target
-        #         else:
-        #             target_dof_pos = self.config.later_smoothing * target_dof_pos + \
-        #                             (1-self.config.later_smoothing) * self.prev_joint_pos_target
-        #     self.prev_joint_pos_target = target_dof_pos
+        if self.config.later_smoothing:
+            if self.prev_joint_pos_target is not None:
+                if self.counter < 100:
+                    target_dof_pos = self.config.initial_smoothing * target_dof_pos + \
+                                    (1-self.config.initial_smoothing) * self.prev_joint_pos_target
+                else:
+                    target_dof_pos = self.config.later_smoothing * target_dof_pos + \
+                                    (1-self.config.later_smoothing) * self.prev_joint_pos_target
+            self.prev_joint_pos_target = target_dof_pos
+
+        # observation dumping
+        self.dump_observations_and_joint_pos_target(target_dof_pos)
 
         # FIXME(hh) kpkd coefficient smoothing
         # Build low cmd
@@ -379,8 +380,11 @@ class Controller:
         # send the command
         self.send_cmd(self.low_cmd)
 
-    def dump_observations(self):
+    def dump_observations_and_joint_pos_target(self, target_dof_pos):
+        target_dof_pos_lab = np.zeros(29)
+        target_dof_pos_lab[self.lab_from_mot] = target_dof_pos
         self.observations = np.vstack((self.observations, self.obs))
+        self.joint_pos_targets = np.vstack((self.joint_pos_targets, target_dof_pos_lab))
         
             
     def log_metrics_and_trajectories(self):     
@@ -403,7 +407,8 @@ class Controller:
             "q_traj": self.q_traj,
             "dq_traj": self.dq_traj,
             "tau_traj": self.tau_traj,
-            "observations": self.observations
+            "observations": self.observations,
+            "joint_pos_targets" : self.joint_pos_targets
         }
         log_data = {
             "metrics": metrics,
