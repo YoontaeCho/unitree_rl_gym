@@ -153,11 +153,12 @@ class eetrack:
         # self.init_time = rp.time.Time()#.nanoseconds / 1e9 + 1.0
         self.init_time = self.clock.get_time()
         self.init_root_state_w = root_state_w
+        self.init_root_pos_w = root_state_w[:, :3]
 
         self.ranges = ranges
         self.init_eetrack_sampler()
 
-        self.create_eetrack(root_state_w)
+        self.create_eetrack(root_state_w[:, -4:])
         self.eetrack_subgoal = self.create_subgoal()
 
         self.is_initial_goal = True
@@ -220,6 +221,9 @@ class eetrack:
 
         eetrack_start_b = self.eetrack_init_xyz_b_sampler.sample((1,)).to(self.device)
         eetrack_end_b = eetrack_start_b + self.eetrack_line_length * eetrack_xyz_dir_b
+
+        eetrack_start_b = eetrack_start_b.double()
+        eetrack_end_b = eetrack_end_b.double()
 
         # Rotate the eetrack line (yaw) and add initial root position.
         self.eetrack_start_w = (

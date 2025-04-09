@@ -16,7 +16,7 @@ from tf2_ros.transform_listener import TransformListener
 from tf2_ros import TransformBroadcaster, TransformStamped
 from common.command_helper_ros import create_damping_cmd, create_zero_cmd, init_cmd_hg, init_cmd_go, MotorMode
 from common.remote_controller import RemoteController, KeyMap
-from config_sit import SitConfig as Config
+from config_e2e import E2EConfig as Config
 from common.crc import CRC
 from enum import Enum
 from ikctrl import IKCtrl
@@ -113,7 +113,7 @@ class Controller:
         
         # Load policy
         print(config.policy_path)
-        self.sit_policy = th.jit.load(config.policy_path) # FIXME sit_policy_path
+        self.sit_policy = th.jit.load(config.sit_policy_path) # FIXME sit_policy_path
         self.sit_policy.eval()
 
         # smoothing
@@ -139,7 +139,9 @@ class Controller:
 
         # log trajectory (50Hz)
         self.timestamp_low_freq = np.array([])
-        self.observations = np.zeros((0, self.config.obs_dim))
+        self.sit_observations = np.zeros((0, self.config.sit_obs_dim))
+        self.eetrack_observations = np.zeros((0, self.config.eetrack_obs_dim))
+
         self.actions = np.zeros((0, self.num_joints))
         self.raw_joint_pos_targets = np.zeros((0, self.num_joints))
         self.joint_pos_targets = np.zeros((0, self.num_joints))
@@ -174,7 +176,8 @@ class Controller:
         # eetrack
         self.eetrack_actmap = us.SimpleEETrackAction(config, self.ikctrl)
         self.eetrack_command = None
-        self.eetrack_policy = th.jit.load(config.eetrack_policy_path) 
+        self.eetrack_policy = th.jit.load(config.eetrack_policy_path)
+        self.eetrack_policy.eval()
         self.eetrack_obsmap = us.EETrackObservation(
             '../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf',
             config, self.tf_buffer
@@ -204,6 +207,10 @@ class Controller:
             init_cmd_go(self.low_cmd, weak_motor=self.config.weak_motor)
 
         self.mode = Mode.policy
+        
+
+        self.is_eetrack_first_iter = True
+        self.task = "sit"
 
         self.sitting = False
         self._mode_change = True
@@ -348,8 +355,6 @@ class Controller:
         
         if self.remote_controller.button[KeyMap.B] == 1:
             self.task = "eetrack"
-        else:
-            self.task = "sit"
 
 
         self.counter += 1
@@ -388,6 +393,10 @@ class Controller:
             target_dof_pos = self.sit_actmap(self.action, self.obs)
             
         elif self.task == "eetrack":
+            if self.is_eetrack_first_iter:
+                print("\n[EETrack] EETrack has began.")
+                self.is_eetrack_first_iter = False
+
             if self.eetrack_command is None:
                 self.eetrack_command = ue.eetrack(th.from_numpy(root_state_w)[None],
                                    self.tf_buffer,
@@ -410,9 +419,8 @@ class Controller:
                 
             # Keymap press -> changes is_initial_goal == False
             if self.remote_controller.button[KeyMap.down] == 1:
+                print("\n[SubGoal] Subgoal Sampling has begun.")
                 self.eetrack_command.is_initial_goal = False
-            else:
-                self.eetrack_command.is_initial_goal = True
 
             hands_command = self.eetrack_command.get_command(
                 th.from_numpy(root_state_w)[None]
@@ -453,10 +461,10 @@ class Controller:
         # FIXME(hh) kpkd coefficient smoothing
         # Build low cmd
         for mot_idx in range(self.num_joints):
-            self.low_cmd.motor_cmd[mot_idx].q = float(target_dof_pos[mot_idx])
+            self.low_cmd.motor_cmd[mot_idx].q = 0.0 # float(target_dof_pos[mot_idx])
             self.low_cmd.motor_cmd[mot_idx].dq = 0.0
-            self.low_cmd.motor_cmd[mot_idx].kp = self.config.kpkd_smoothing * float(self.config.kps[mot_idx])
-            self.low_cmd.motor_cmd[mot_idx].kd = self.config.kpkd_smoothing * float(self.config.kds[mot_idx])
+            self.low_cmd.motor_cmd[mot_idx].kp = 0.0 #self.config.kpkd_smoothing * float(self.config.kps[mot_idx])
+            self.low_cmd.motor_cmd[mot_idx].kd = 0.0 #self.config.kpkd_smoothing * float(self.config.kds[mot_idx])
             self.low_cmd.motor_cmd[mot_idx].tau = 0.0
         
         # send the command
@@ -478,8 +486,12 @@ class Controller:
         self.joint_pos_targets = np.vstack((self.joint_pos_targets, target_dof_pos_lab))
         
         # log observation
-        self.observations = np.vstack((self.observations, self.obs))
-        
+        if self.task == "sit":
+            self.sit_observations = np.vstack((self.sit_observations, self.obs))
+        elif self.task == "eetrack":
+            self.eetrack_observations = np.vstack((self.eetrack_observations, self.obs))
+        else:
+            raise ValueError("Invalid task")
         # log action
         self.actions = np.vstack((self.actions, self.action))
         
@@ -509,7 +521,8 @@ class Controller:
             "dq_traj": self.dq_traj,
             "tau_traj": self.tau_traj,
             "timestamp_low_freq": self.timestamp_low_freq,
-            "observations": self.observations,
+            "sit_observations": self.sit_observations,
+            "eetrack_observations": self.eetrack_observations,
             "actions": self.actions,
             "raw_joint_pos_targets": self.raw_joint_pos_targets,
             "joint_pos_targets" : self.joint_pos_targets
@@ -564,8 +577,14 @@ class Controller:
             self.default_pos_state()
         elif self.mode == Mode.policy:
             if self._mode_change:
-                print("Run policy.")
-                print("Press Button A to finish.")
+                print("Run Policy.\n")
+                print("--------------[ Basic Guidelines ]---------------")
+                print("[Exit] Press Button A to finish.")
+                print("-------------------------------------------------")
+                print("[EETrack] Press Button B to change task to EETrack.")
+                print("-------------------------------------------------")
+                print("[SubGoal] Press down button to start subgoal sampling.")
+
                 self._mode_change = False
                 self.counter = 0
             self.run_policy()

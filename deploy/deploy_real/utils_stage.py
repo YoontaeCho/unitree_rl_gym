@@ -89,8 +89,16 @@ class EETrackObservation:
         base_ang_vel = ang_vel.squeeze(0)
         return base_ang_vel
     
-    def _projected_gravity(self, quat):
+    def _projected_gravity(self):
         # TODO(ycho): check if the convention "q_base^{-1} @ g" holds.
+        world_from_pelvis = self.tf_buffer.lookup_transform(
+            'world',
+            'pelvis',
+            rp.time.Time()
+            # clock.get_time()
+        )
+        rxn = world_from_pelvis.transform.rotation
+        quat = np.array([rxn.w, rxn.x, rxn.y, rxn.z])
         projected_gravity = get_gravity_orientation(quat)
         return projected_gravity
     
@@ -137,14 +145,7 @@ class EETrackObservation:
                  ):
 
         base_ang_vel = self._base_ang_vel(low_state)
-        # NOTE(ycho): requires running `fake_world_tf_pub.py`.
-        projected_gravity = self._projected_gravity(
-            self.tf_buffer.lookup_transform(
-                'world',
-                'pelvis',
-                rp.time.Time()
-            ).transform.rotation
-        )
+        projected_gravity = self._projected_gravity()
         foot_pose = self._foot_pose()
         hand_pose = self._hand_pose()
         joint_pos, joint_vel = self._joint_pos_vel(low_state)
@@ -164,20 +165,14 @@ class EETrackObservation:
         return np.concatenate(obs, axis=-1)
     
 
-class SitObservation(BaseObservation):
+class SitObservation(EETrackObservation):
     def __call__(self,
                  low_state: LowStateHG,
                  height_command: np.ndarray
                  ):
         base_ang_vel = self._base_ang_vel(low_state)
         # NOTE(ycho): requires running `fake_world_tf_pub.py`.
-        projected_gravity = self._projected_gravity(
-            self.tf_buffer.lookup_transform(
-                'world',
-                'pelvis',
-                rp.time.Time()
-            ).transform.rotation
-        )
+        projected_gravity = self._projected_gravity()
         foot_pose = self._foot_pose()
         hand_pose = self._hand_pose()
         joint_pos, joint_vel = self._joint_pos_vel(low_state)

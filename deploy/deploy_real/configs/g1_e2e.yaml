@@ -180,15 +180,16 @@ sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/daop_sit_exported.pt
 
 
 # EETRACK
-eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/daop_sit_exported.pt"
-
+eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/exp49_low_rew_dao.pt"
+policy_path: ""
 
 slow_bound: 0.2
 max_velocity: 0.1
-target_height: 0.3
+target_height: 0.7
 
 initial_smoothing: 0.8
 later_smoothing: 1.0
 kpkd_smoothing: 1.
 
-obs_dim: 92 # for nominal obs
+sit_obs_dim: 92 # for nominal obs
+eetrack_obs_dim: 95 # for nominal obs
