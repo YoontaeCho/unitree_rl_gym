@@ -31,7 +31,7 @@ def body_pose(
     """ --> tf does not exist """
     if stamp is None:
         stamp = rp.time.Time()
-        # stamp = clock.get_time()
+        # stamp = self.clock.get_time()
     try:
         # t = "ref{=pelvis}_from_frame" transform
         t = tf_buffer.lookup_transform(
@@ -112,17 +112,6 @@ def interpolate_position(pos1, pos2, n_segments):
     return interp_pos
 
 
-class GlobalClock:
-    def __init__(self, node):
-        self.node = node
-
-    def get_time(self):
-        return self.node.get_clock().now()
-
-
-clock = None
-
-
 class Range:
     def __init__(self, 
                 init_x_b,
@@ -146,26 +135,32 @@ class Range:
         self.dz_local = dz_local
 
 class eetrack:
-    def __init__(self, root_state_w, tf_buffer, ranges : Range):
+    def __init__(self, root_state_w, tf_buffer, clock, ranges : Range):
+        self.clock = clock
         self.tf_buffer = tf_buffer
         
-        self.eetrack_end = None
-        self.eetrack_subgoal = None
-        self.number_of_subgoals = 60
-        self.eetrack_line_length = 0.3
+        self.eetrack_line_length = 0.1
+        self.eetrack_vel = 0.01
+
+        self.step_dt = 0.02
+        self.dt_segment_length = self.eetrack_vel * self.step_dt
+        self.non_first_subgoal_sampling_time = self.dt_segment_length / self.eetrack_vel
+        self.number_of_subgoals = int(self.eetrack_line_length / self.dt_segment_length)
+        
         self.device = "cpu"
-        self.waypoints = self.create_eetrack(root_state_w)
-        self.eetrack_subgoal = self.create_subgoal(
-                root_state_w,
-                self.waypoints)
         self.sg_idx = 0
         # first subgoal sampling time = 1.0s
         # self.init_time = rp.time.Time()#.nanoseconds / 1e9 + 1.0
-        self.init_time = clock.get_time()
+        self.init_time = self.clock.get_time()
         self.init_root_state_w = root_state_w
 
         self.ranges = ranges
         self.init_eetrack_sampler()
+
+        self.create_eetrack(root_state_w)
+        self.eetrack_subgoal = self.create_subgoal()
+
+        self.is_initial_goal = True
 
 
     def init_eetrack_sampler(self):
@@ -236,22 +231,6 @@ class eetrack:
         self.eetrack_quat_w = math_utils.quat_mul(math_utils.yaw_quat(root_state_w), eetrack_quat_b)
 
 
-    def create_direction(self):
-        angle_from_eetrack_line = torch.rand(1, device=self.device) * np.pi
-        angle_from_xyplane_in_global_frame = torch.rand(
-            1, device=self.device) * np.pi - np.pi / 2
-        # For testing
-        angle_from_eetrack_line = torch.rand(1, device=self.device) * np.pi / 2
-        angle_from_xyplane_in_global_frame = torch.rand(
-            1, device=self.device) * 0
-        roll = torch.zeros(1, device=self.device)
-        pitch = angle_from_xyplane_in_global_frame
-        yaw = angle_from_eetrack_line
-        euler = torch.stack([roll, pitch, yaw], dim=1)
-        quat = math_utils.quat_from_euler_xyz(
-            euler[:, 0], euler[:, 1], euler[:, 2])
-        return quat
-
     def create_subgoal(self):
         eetrack_subgoals = interpolate_position(
             self.eetrack_start_w,
@@ -272,17 +251,26 @@ class eetrack:
         return th.cat([eetrack_subgoals, eetrack_quat], dim=2)
 
     def update_command(self):
-        # print(rp.time.Time().nanoseconds)
-        time = (clock.get_time() - self.init_time).nanoseconds / 1e9
-        if (time >= 1.0):
-            self.sg_idx = int((time - 1) / 0.1 + 1)
-        print(time, self.sg_idx)
-        # self.sg_idx.clamp_(0, self.number_of_subgoals + 1)
+        """
+        update command for eetrack
+        initial_goal: True if this is the first command.
+        initial_goal should be given as True or False by user.
+        """
+        if self.is_initial_goal:
+            self.sg_idx = 0
+            self.init_time = self.clock.get_time()
+        else:
+            # print(rp.time.Time().nanoseconds)
+            time = (self.clock.get_time() - self.init_time).nanoseconds / 1e9
+            if (time >= 1.0):
+                # subgoal is updated on every 0.02s
+                update_time = 0.02
+                self.sg_idx = int((time - 1) / update_time + 1)
+            # self.sg_idx.clamp_(0, self.number_of_subgoals + 1)
         self.sg_idx = min(
                 self.sg_idx,
                 self.eetrack_subgoal.shape[-2] - 1)
-        self.next_command_s_left = self.eetrack_subgoal[...,
-                                                        self.sg_idx, :]
+        self.next_command_s_left = self.eetrack_subgoal[..., self.sg_idx, :]
 
     def get_command(self, root_state_w):
         self.update_command()

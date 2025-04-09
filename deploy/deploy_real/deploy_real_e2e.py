@@ -13,7 +13,7 @@ from unitree_go.msg import LowCmd as LowCmdGo, LowState as LowStateGo
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
-from tf2_ros import TransformBroadcaster
+from tf2_ros import TransformBroadcaster, TransformStamped
 from common.command_helper_ros import create_damping_cmd, create_zero_cmd, init_cmd_hg, init_cmd_go, MotorMode
 from common.remote_controller import RemoteController, KeyMap
 from config_sit import SitConfig as Config
@@ -160,7 +160,7 @@ class Controller:
         self.tf_broadcaster = TransformBroadcaster(self._node)
 
         ### Mapping helpers.
-        self.sit_obsmap = us.Stage2Observation(
+        self.sit_obsmap = us.SitObservation(
             '../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf',
             config, self.tf_buffer)
         self.ikctrl = IKCtrl(
@@ -174,8 +174,11 @@ class Controller:
         # eetrack
         self.eetrack_actmap = us.SimpleEETrackAction(config, self.ikctrl)
         self.eetrack_command = None
-        self.eetrack_policy = None
-        self.eetrack_obsmap = None
+        self.eetrack_policy = th.jit.load(config.eetrack_policy_path) 
+        self.eetrack_obsmap = us.EETrackObservation(
+            '../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf',
+            config, self.tf_buffer
+        )
 
         if config.msg_type == "hg":
             # g1 and h1_2 use the hg msg type
@@ -295,6 +298,29 @@ class Controller:
             self._mode_change = True
             self.mode = Mode.policy
 
+    def publish_hand_target(self):
+        t = TransformStamped()
+
+        # Format header
+        t.header.stamp = self._node.get_clock().now().to_msg()
+        t.header.frame_id = 'world'
+        t.child_frame_id = 'target'
+
+        # Populate translation
+        t.transform.translation.x = float(self.target_pose[0])
+        t.transform.translation.y = float(self.target_pose[1])
+        t.transform.translation.z = float(self.target_pose[2])
+
+        # Set world_from_pelvis quaternion based on IMU state
+        qw, qx, qy, qz = [float(x) for x in self.target_pose[3:7]]
+        t.transform.rotation.x = qx
+        t.transform.rotation.y = qy
+        t.transform.rotation.z = qz
+        t.transform.rotation.w = qw
+
+        # Send the transformation
+        self.tf_broadcaster.sendTransform(t)
+
         
     def terminate_by_pelvis_condition(self, xyz, quat, limit_euler_angle=[0.9, 1.0]) -> bool:
         """
@@ -320,7 +346,10 @@ class Controller:
             self.mode = Mode.finish
             return
         
-        self.task = None
+        if self.remote_controller.button[KeyMap.B] == 1:
+            self.task = "eetrack"
+        else:
+            self.task = "sit"
 
 
         self.counter += 1
@@ -363,10 +392,35 @@ class Controller:
                 self.eetrack_command = ue.eetrack(th.from_numpy(root_state_w)[None],
                                    self.tf_buffer,
                                    clock,
-                                   height=-0.4
-                                   )
+                                   ue.Range(
+                                        # Initial pose of the end_effector in the base (pelvis) frame
+                                        # Currently, it is fixed.
+                                        init_x_b=(0.4877,0.4877),
+                                        init_y_b=(0.3531, 0.3531),
+                                        init_z_b=(0.0, 0.0),
+                                        # in degree
+                                        init_roll_b=(0.0, 0.0),
+                                        init_pitch_b=(20.0, 20.0),
+                                        init_yaw_b=(20.0, 20.0),
+                                        # Direction of the end_effector path in the local (end_effector) frame
+                                        dx_local=(0.0, 0.0),
+                                        dy_local=(1.0, 1.0),
+                                        dz_local=(0.0, 0.0),
+                                   ))
+                
+            # Keymap press -> changes is_initial_goal == False
+            if self.remote_controller.button[KeyMap.down] == 1:
+                self.eetrack_command.is_initial_goal = False
+            else:
+                self.eetrack_command.is_initial_goal = True
+
             hands_command = self.eetrack_command.get_command(
-                th.from_numpy(root_state_w)[None])[0].detach().cpu().numpy()
+                th.from_numpy(root_state_w)[None]
+                )[0].detach().cpu().numpy()
+            self.target_pose = np.copy(
+                self.eetrack_command.next_command_s_left.squeeze().detach().cpu().numpy()
+            )
+            self.publish_hand_target()
 
             self.obs = self.eetrack_obsmap(self.low_state, hands_command)
 
