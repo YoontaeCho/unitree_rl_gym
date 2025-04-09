@@ -22,6 +22,7 @@ from enum import Enum
 from ikctrl import IKCtrl
 
 import utils_stage as us
+import utils_eetrack as ue
 
 
 class Mode(Enum):
@@ -112,8 +113,8 @@ class Controller:
         
         # Load policy
         print(config.policy_path)
-        self.policy = th.jit.load(config.policy_path)
-        self.policy.eval()
+        self.sit_policy = th.jit.load(config.policy_path) # FIXME sit_policy_path
+        self.sit_policy.eval()
 
         # smoothing
         self.prev_joint_pos_target = None
@@ -159,19 +160,19 @@ class Controller:
         self.tf_broadcaster = TransformBroadcaster(self._node)
 
         ### Mapping helpers.
-        self.obsmap = us.Stage2Observation(
+        self.sit_obsmap = us.Stage2Observation(
             '../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf',
             config, self.tf_buffer)
         self.ikctrl = IKCtrl(
             '../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf',
             config.arm_joint,
             frame='left_rubber_hand')
-        self.actmap = us.SimpleAction(config, self.ikctrl)
+        self.sit_actmap = us.SimpleAction(config, self.ikctrl)
         self.vhcommand = us.VelocityHeightCommand(config)
 
 
         # eetrack
-        self.eetrack_actmap = None
+        self.eetrack_actmap = us.SimpleEETrackAction(config, self.ikctrl)
         self.eetrack_command = None
         self.eetrack_policy = None
         self.eetrack_obsmap = None
@@ -199,7 +200,6 @@ class Controller:
         elif config.msg_type == "go":
             init_cmd_go(self.low_cmd, weak_motor=self.config.weak_motor)
 
-        # FIXME: you can change the initial mode here
         self.mode = Mode.policy
 
         self.sitting = False
@@ -313,12 +313,16 @@ class Controller:
         return out_of_limit.item()
     
 
-    def run_sitting_policy(self):
+    def run_policy(self):
         # If the button A is pressed, then finish the policy.
         if self.remote_controller.button[KeyMap.A] == 1:
             self._mode_change = True
             self.mode = Mode.finish
             return
+        
+        self.task = None
+
+
         self.counter += 1
 
         world_from_pelvis = body_pose(
@@ -328,92 +332,54 @@ class Controller:
             rot_type='quat'
         )
         xyz, quat_wxyz = world_from_pelvis
+        root_state_w = np.zeros(7)
+        root_state_w[0:3] = xyz
+        root_state_w[3:7] = quat_wxyz
         
         # Add termination condition.
         if self.terminate_by_pelvis_condition(xyz, quat_wxyz):
             raise ValueError("Terminated by pelvis condition.")
 
+        if self.task == "sit":
         # Press down button to sit
-        curr_keymap = self.remote_controller.button[KeyMap.down] == 1
-        if curr_keymap:
-            self.sitting = True
+            curr_keymap = self.remote_controller.button[KeyMap.down] == 1
+            if curr_keymap:
+                self.sitting = True
 
-        height_command = self.vhcommand(current_pelvis_height_w = xyz[2], sitting=self.sitting)
+            height_command = self.vhcommand(current_pelvis_height_w = xyz[2], sitting=self.sitting)
 
-        # For stage 1 & 2.
-        self.obs = self.obsmap(self.low_state, height_command)
+            # For stage 1 & 2.
+            self.obs = self.sit_obsmap(self.low_state, height_command)
 
-        obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
-        obs_tensor = obs_tensor.detach().clone().float()
-        self.action = self.policy(obs_tensor).detach().numpy().squeeze()
+            obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
+            obs_tensor = obs_tensor.detach().clone().float()
+            self.action = self.sit_policy(obs_tensor).detach().numpy().squeeze()
 
-        # target_dof_pos : motor joint ordered
-        target_dof_pos = self.actmap(self.action, self.obs)
-        raw_target_dof_pos = target_dof_pos.copy()
+            # target_dof_pos : motor joint ordered
+            target_dof_pos = self.sit_actmap(self.action, self.obs)
+            
+        elif self.task == "eetrack":
+            if self.eetrack_command is None:
+                self.eetrack_command = ue.eetrack(th.from_numpy(root_state_w)[None],
+                                   self.tf_buffer,
+                                   clock,
+                                   height=-0.4
+                                   )
+            hands_command = self.eetrack_command.get_command(
+                th.from_numpy(root_state_w)[None])[0].detach().cpu().numpy()
 
-        # smoothing for all joints
-        if self.config.later_smoothing:
-            if self.prev_joint_pos_target is not None:
-                if self.counter < 100:
-                    target_dof_pos = self.config.initial_smoothing * target_dof_pos + \
-                                    (1-self.config.initial_smoothing) * self.prev_joint_pos_target
-                else:
-                    target_dof_pos = self.config.later_smoothing * target_dof_pos + \
-                                    (1-self.config.later_smoothing) * self.prev_joint_pos_target
-            self.prev_joint_pos_target = target_dof_pos
+            self.obs = self.eetrack_obsmap(self.low_state, hands_command)
 
-        # observation dumping
-        self.dump_observations_and_joint_pos_target(raw_target_dof_pos, target_dof_pos)
+            obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
+            obs_tensor = obs_tensor.detach().clone().float()
+            self.action = self.eetrack_policy(obs_tensor).detach().numpy().squeeze()
 
-        # FIXME(hh) kpkd coefficient smoothing
-        # Build low cmd
-        for mot_idx in range(self.num_joints):
-            self.low_cmd.motor_cmd[mot_idx].q = float(target_dof_pos[mot_idx])
-            self.low_cmd.motor_cmd[mot_idx].dq = 0.0
-            self.low_cmd.motor_cmd[mot_idx].kp = self.config.kpkd_smoothing * float(self.config.kps[mot_idx])
-            self.low_cmd.motor_cmd[mot_idx].kd = self.config.kpkd_smoothing * float(self.config.kds[mot_idx])
-            self.low_cmd.motor_cmd[mot_idx].tau = 0.0
-        
-        # send the command
-        self.send_cmd(self.low_cmd)
+            # target_dof_pos : motor joint ordered
+            target_dof_pos = self.eetrack_actmap(self.action, self.obs)
 
+        else:
+            raise ValueError("Unknown task")
 
-    def run_eetrack_policy(self):
-        # If the button A is pressed, then finish the policy.
-        if self.remote_controller.button[KeyMap.A] == 1:
-            self._mode_change = True
-            self.mode = Mode.finish
-            return
-        self.counter += 1
-
-        world_from_pelvis = body_pose(
-            self.tf_buffer,
-            'pelvis',
-            'world',
-            rot_type='quat'
-        )
-        xyz, quat_wxyz = world_from_pelvis
-        
-        # Add termination condition.
-        if self.terminate_by_pelvis_condition(xyz, quat_wxyz):
-            raise ValueError("Terminated by pelvis condition.")
-
-        # Press down button to sit
-        curr_keymap = self.remote_controller.button[KeyMap.down] == 1
-        if curr_keymap:
-            self.sitting = True
-
-        height_command = self.vhcommand(current_pelvis_height_w = xyz[2], sitting=self.sitting)
-
-        # For stage 1 & 2.
-        self.obs = self.obsmap(self.low_state, height_command)
-
-        obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
-        obs_tensor = obs_tensor.detach().clone().float()
-        self.action = self.policy(obs_tensor).detach().numpy().squeeze()
-
-        # target_dof_pos : motor joint ordered
-        target_dof_pos = self.actmap(self.action, self.obs)
         raw_target_dof_pos = target_dof_pos.copy()
 
         # smoothing for all joints

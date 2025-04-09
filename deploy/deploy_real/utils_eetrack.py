@@ -1,44 +1,15 @@
-from legged_gym import LEGGED_GYM_ROOT_DIR
 from typing import Union, List
 import numpy as np
-import time
 import torch
 import torch as th
-from pathlib import Path
 
 import rclpy as rp
-from unitree_hg.msg import LowCmd as LowCmdHG, LowState as LowStateHG
-from unitree_go.msg import LowCmd as LowCmdGo, LowState as LowStateGo
 
-from nav_msgs.msg import Path as PathMsg
-from geometry_msgs.msg import PoseStamped
 
 from tf2_ros import TransformException
-from tf2_ros.buffer import Buffer
-from tf2_ros.transform_listener import TransformListener
-from tf2_ros import TransformBroadcaster, TransformStamped
-from common.command_helper_ros import create_damping_cmd, create_zero_cmd, init_cmd_hg, init_cmd_go, MotorMode
-from common.rotation_helper import get_gravity_orientation, transform_imu_data
-from common.remote_controller import RemoteController, KeyMap
-from config import Config
-from common.crc import CRC
-from enum import Enum
-import pinocchio as pin
-from ikctrl import IKCtrl, xyzw2wxyz
-from yourdfpy import URDF
 
 import math_utils
 import random as rd
-from act_to_dof import ActToDof
-
-
-class Mode(Enum):
-    wait = 0
-    zero_torque = 1
-    default_pos = 2
-    damping = 3
-    policy = 4
-    null = 5
 
 
 axis_angle_from_quat = math_utils.as_np(math_utils.axis_angle_from_quat)
@@ -49,17 +20,6 @@ quat_rotate_inverse = math_utils.as_np(math_utils.quat_rotate_inverse)
 wrap_to_pi = math_utils.as_np(math_utils.wrap_to_pi)
 combine_frame_transforms = math_utils.as_np(
     math_utils.combine_frame_transforms)
-
-
-class GlobalClock:
-    def __init__(self, node):
-        self.node = node
-
-    def get_time(self):
-        return self.node.get_clock().now()
-
-
-clock = None
 
 
 def body_pose(
@@ -96,9 +56,6 @@ def body_pose(
     elif rot_type == 'quat':
         return (xyz, quat_wxyz)
     raise ValueError(f"Unknown rot_type: {rot_type}")
-
-
-from common.xml_helper import extract_link_data
 
 
 def compute_com(tf_buffer, com_data, body_frames: List[str]):
@@ -155,16 +112,43 @@ def interpolate_position(pos1, pos2, n_segments):
     return interp_pos
 
 
+class GlobalClock:
+    def __init__(self, node):
+        self.node = node
+
+    def get_time(self):
+        return self.node.get_clock().now()
+
+
+clock = None
+
+
+class Range:
+    def __init__(self, 
+                init_x_b,
+                init_y_b,
+                init_z_b,
+                init_roll_b,
+                init_pitch_b,
+                init_yaw_b,
+                dx_local, 
+                dy_local, 
+                dz_local
+                ):
+        self.init_x_b = init_x_b
+        self.init_y_b = init_y_b
+        self.init_z_b = init_z_b
+        self.init_roll_b = init_roll_b
+        self.init_pitch_b = init_pitch_b
+        self.init_yaw_b = init_yaw_b
+        self.dx_local = dx_local
+        self.dy_local = dy_local
+        self.dz_local = dz_local
+
 class eetrack:
-    def __init__(self, root_state_w, tf_buffer):
+    def __init__(self, root_state_w, tf_buffer, ranges : Range):
         self.tf_buffer = tf_buffer
-        # self.eetrack_midpt = root_state_w.clone()
-        # self.eetrack_midpt[..., 1] += 0.3
-        self.eetrack_midpt = (
-            root_state_w[..., :3] +
-            quat_rotate(root_state_w[0, 3:7].detach().cpu().numpy(),
-                        np.array([0.3, 0.0, 0.0]))[None]
-        )
+        
         self.eetrack_end = None
         self.eetrack_subgoal = None
         self.number_of_subgoals = 60
@@ -178,77 +162,79 @@ class eetrack:
         # first subgoal sampling time = 1.0s
         # self.init_time = rp.time.Time()#.nanoseconds / 1e9 + 1.0
         self.init_time = clock.get_time()
+        self.init_root_state_w = root_state_w
+
+        self.ranges = ranges
+        self.init_eetrack_sampler()
+
+
+    def init_eetrack_sampler(self):
+        min_eetrack_init_xyz_b = th.tensor(
+            [self.ranges.init_x_b[0], self.ranges.init_y_b[0], self.ranges.init_z_b[0]], device=self.device
+        )
+        max_eetrack_init_xyz_b = th.tensor(
+            [self.ranges.init_x_b[1], self.ranges.init_y_b[1], self.ranges.init_z_b[1]], device=self.device
+        )
+        ensure_not_same = min_eetrack_init_xyz_b == max_eetrack_init_xyz_b
+        max_eetrack_init_xyz_b[ensure_not_same] += th.finfo(max_eetrack_init_xyz_b.dtype).eps
+        self.eetrack_init_xyz_b_sampler = th.distributions.Uniform(
+            low=min_eetrack_init_xyz_b,
+            high=max_eetrack_init_xyz_b,
+        )
+
+        min_eetrack_init_rpy_b = (
+            th.pi
+            / 180
+            * th.tensor([self.ranges.init_roll_b[0], self.ranges.init_pitch_b[0], self.ranges.init_yaw_b[0]], device=self.device)
+        )
+        max_eetrack_init_rpy_b = (
+            th.pi
+            / 180
+            * th.tensor([self.ranges.init_roll_b[1], self.ranges.init_pitch_b[1], self.ranges.init_yaw_b[1]], device=self.device)
+        )
+        ensure_not_same = min_eetrack_init_rpy_b == max_eetrack_init_rpy_b
+        max_eetrack_init_rpy_b[ensure_not_same] += th.finfo(max_eetrack_init_rpy_b.dtype).eps
+        self.eetrack_init_rpy_b_sampler = th.distributions.Uniform(
+            low=min_eetrack_init_rpy_b,
+            high=max_eetrack_init_rpy_b,
+        )
+
+        min_eetrack_xyz_dir_local = th.tensor(
+            [self.ranges.dx_local[0], self.ranges.dy_local[0], self.ranges.dz_local[0]], device=self.device
+        )
+        max_eetrack_xyz_dir_local = th.tensor(
+            [self.ranges.dx_local[1], self.ranges.dy_local[1], self.ranges.dz_local[1]], device=self.device
+        )
+        ensure_not_same = min_eetrack_xyz_dir_local == max_eetrack_xyz_dir_local
+        max_eetrack_xyz_dir_local[ensure_not_same] += th.finfo(max_eetrack_xyz_dir_local.dtype).eps
+        self.eetrack_xyz_dir_local_sampler = th.distributions.Uniform(
+            low=min_eetrack_xyz_dir_local,
+            high=max_eetrack_xyz_dir_local,
+        )
 
     def create_eetrack(self, root_state_w):
-        self.eetrack_start = self.eetrack_midpt.clone()
-        self.eetrack_end = self.eetrack_midpt.clone()
-        is_hor = rd.choice([True, False])
-        eetrack_offset = rd.uniform(-0.5, 0.5)
-        # For testing
-        is_box = True
-        is_hor = True
 
-        eetrack_offset = 0.0
-        if is_box:
-            waypoints = []
+        euler = self.eetrack_init_rpy_b_sampler.sample((1,)).to(self.device)
+        eetrack_quat_b = math_utils.quat_from_euler_xyz(euler[:, 0], euler[:, 1], euler[:, 2])
 
-            dx = (self.eetrack_line_length) / 2.
-            dy = (self.eetrack_line_length) / 2.
+        eetrack_xyz_dir_local = self.eetrack_xyz_dir_local_sampler.sample((1,)).to(self.device)
+        # Ensure the norm of direction is 1.
+        eetrack_xyz_dir_local /= eetrack_xyz_dir_local.norm(dim=-1, keepdim=True)
 
-            deltas = [
-                    [0, +dy, +dx + 0.1],
-                    [0, +dy, -dx + 0.1],
-                    [0, -dy, -dx + 0.1],
-                    [0, -dy, +dx + 0.1],
-                    [0, +dy, +dx + 0.1]
-            ]
+        eetrack_xyz_dir_b = math_utils.quat_apply(eetrack_quat_b, eetrack_xyz_dir_local)
 
-            for delta in deltas:
-                waypoint = self.eetrack_midpt.clone()
-                waypoint += math_utils.quat_rotate(
-                    root_state_w[..., 3:7].float(),
-                    th.as_tensor(delta, dtype=th.float32)[None]
-                )
-                waypoints.append( waypoint )
-            return waypoints
+        eetrack_start_b = self.eetrack_init_xyz_b_sampler.sample((1,)).to(self.device)
+        eetrack_end_b = eetrack_start_b + self.eetrack_line_length * eetrack_xyz_dir_b
 
-        elif is_hor:
-            dx = (self.eetrack_line_length) / 2.
-            dz = eetrack_offset
-            delta_body0 = [0, +dx, dz]
-            delta_body1 = [0, -dx, dz]
+        # Rotate the eetrack line (yaw) and add initial root position.
+        self.eetrack_start_w = (
+            math_utils.quat_apply_yaw(root_state_w, eetrack_start_b) + self.init_root_pos_w
+        )
+        self.eetrack_end_w = (
+            math_utils.quat_apply_yaw(root_state_w, eetrack_end_b) + self.init_root_pos_w
+        )
+        self.eetrack_quat_w = math_utils.quat_mul(math_utils.yaw_quat(root_state_w), eetrack_quat_b)
 
-            self.eetrack_start += math_utils.quat_rotate(
-                root_state_w[..., 3:7].float(),
-                th.as_tensor(delta_body0, dtype=th.float32)[None]
-            )
-            self.eetrack_end += math_utils.quat_rotate(
-                root_state_w[..., 3:7].float(),
-                th.as_tensor(delta_body1, dtype=th.float32)[None]
-            )
-            # self.eetrack_start[..., 2] += eetrack_offset
-            # self.eetrack_end[..., 2] += eetrack_offset
-            # self.eetrack_start[..., 0] -= (self.eetrack_line_length) / 2.
-            # self.eetrack_end[..., 0] += (self.eetrack_line_length) / 2.
-        else:
-            # self.eetrack_start[..., 0] += eetrack_offset
-            # self.eetrack_end[..., 0] += eetrack_offset
-            # self.eetrack_start[..., 2] += (self.eetrack_line_length) / 2.
-            # self.eetrack_end[..., 2] -= (self.eetrack_line_length) / 2.
-            dx = eetrack_offset
-            dz = (self.eetrack_line_length) / 2.
-            delta_body0 = [0, dx, +dz]
-            delta_body1 = [0, dx, -dz]
-            self.eetrack_start += math_utils.quat_rotate(
-                root_state_w[..., 3:7],
-                th.as_tensor(delta_body0)[None]
-            )
-            self.eetrack_end += math_utils.quat_rotate(
-                root_state_w[..., 3:7],
-                th.as_tensor(delta_body1)[None]
-            )
-
-        return self.eetrack_start, self.eetrack_end
 
     def create_direction(self):
         angle_from_eetrack_line = torch.rand(1, device=self.device) * np.pi
@@ -266,29 +252,24 @@ class eetrack:
             euler[:, 0], euler[:, 1], euler[:, 2])
         return quat
 
-    def create_subgoal(self, root_state_w, waypoints):
-        qs = []
-        for p0, p1 in zip(waypoints[:-1], waypoints[1:]):
-            eetrack_subgoals = interpolate_position(
-                p0, p1, self.number_of_subgoals)
-            eetrack_subgoals = [
-                (
-                    l.clone().to(self.device, dtype=torch.float32)
-                    if isinstance(l, torch.Tensor)
-                    else torch.tensor(l, device=self.device, dtype=torch.float32)
-                )
-                for l in eetrack_subgoals
-            ]
-            eetrack_subgoals = torch.stack(eetrack_subgoals, axis=1)
+    def create_subgoal(self):
+        eetrack_subgoals = interpolate_position(
+            self.eetrack_start_w,
+            self.eetrack_end_w,
+            self.number_of_subgoals,
+        )
+        eetrack_subgoals = [
+            (
+                l.clone().to(self.device, dtype=th.float32)
+                if isinstance(l, th.Tensor)
+                else th.tensor(l, device=self.device, dtype=th.float32)
+            )
+            for l in eetrack_subgoals
+        ]
+        eetrack_subgoals = th.stack(eetrack_subgoals, axis=1)
+        eetrack_quat = self.eetrack_quat_w.unsqueeze(1).repeat(1, self.number_of_subgoals + 1, 1)
 
-            eetrack_ori = self.create_direction().unsqueeze(
-                1).repeat(1, self.number_of_subgoals + 1, 1)
-            if True:
-                eetrack_ori[..., :] = root_state_w[..., None, 3:7]
-            # welidng_subgoals -> Nenv x Npoints x (3 + 4)
-            q = torch.cat([eetrack_subgoals, eetrack_ori], dim=2)
-            qs.append(q)
-        return torch.cat(qs, dim=1)
+        return th.cat([eetrack_subgoals, eetrack_quat], dim=2)
 
     def update_command(self):
         # print(rp.time.Time().nanoseconds)

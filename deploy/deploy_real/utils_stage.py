@@ -312,6 +312,29 @@ class SimpleAction:
             )
 
         return target_dof_pos
+
+class SimpleEETrackAction(SimpleAction):
+    def __call__(self, action, obs):
+        """Generate motor-ordered joint position command from action and current joint position"""
+        q = obs[..., 30:59] #FIXME: 32:61 is not always correct
+        q_mot = np.zeros(29)
+        q_mot[self.mot_from_lab] = q
+        q_mot[self.mot_from_lab] += np.asarray(self.config.lab_joint_offsets)
+
+        # motor order
+        target_dof_pos = np.zeros(29)
+        target_dof_pos += q_mot
+
+
+        target_dof_pos[self.mot_from_lab] += 0.3 * action
+
+        target_dof_pos = np.clip(
+                target_dof_pos,
+                self.lim_lo_pin[self.pin_from_mot],
+                self.lim_hi_pin[self.pin_from_mot]
+            )
+
+        return target_dof_pos
     
 
 class VelocityHeightCommand:
@@ -337,4 +360,3 @@ class VelocityHeightCommand:
                                     # 0
                                     )
         return np.asarray([pelvis_lin_vel_z_w, target_height])
-    
