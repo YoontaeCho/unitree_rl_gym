@@ -69,6 +69,34 @@ non_arm_joint: ['left_hip_pitch_joint', 'right_hip_pitch_joint', 'waist_yaw_join
 'right_elbow_joint', 'right_wrist_roll_joint', 'right_wrist_pitch_joint',
 'right_wrist_yaw_joint']
 
+# Left
+ik_joint: [
+  'waist_yaw_joint',
+  # 'waist_roll_joint',
+  # 'waist_pitch_joint',
+  "left_shoulder_pitch_joint",
+  "left_shoulder_roll_joint",
+  "left_shoulder_yaw_joint",
+  "left_elbow_joint",
+  "left_wrist_roll_joint",
+  "left_wrist_pitch_joint",
+  "left_wrist_yaw_joint"
+]
+
+# Right
+# ik_joint: [
+#   'waist_yaw_joint',
+#   # 'waist_roll_joint',
+#   # 'waist_pitch_joint',
+#   "right_shoulder_pitch_joint",
+#   "right_shoulder_roll_joint",
+#   "right_shoulder_yaw_joint",
+#   "right_elbow_joint",
+#   "right_wrist_roll_joint",
+#   "right_wrist_pitch_joint",
+#   "right_wrist_yaw_joint"
+# ]
+
 
 motor_joint: [
         'left_hip_pitch_joint',
@@ -164,6 +192,38 @@ default_angles: [
   0.0, 0.0, 0., 0.0, 0., 0., 0., 
   0.0, 0.0, 0., 0.0, 0., 0., 0., 
 ]
+
+# default_angles: [
+#   -1.4464452266693115,
+#   -0.06095869094133377,
+#   -0.007070920895785093,
+#   1.3124569654464722,
+#   0.14881552755832672,
+#   0.016985688358545303,
+#   -1.4410617351531982,
+#   -0.05005890503525734,
+#   -0.012400895357131958,
+#   1.3196070194244385,
+#   0.02278277650475502,
+#   -0.015014365315437317,
+#   -0.6938877105712891,
+#   0.07862728089094162,
+#   -0.06226418539881706,
+#   -0.22125276923179626,
+#   0.25748106837272644,
+#   0.7268792390823364,
+#   0.12331768125295639,
+#   0.07951533794403076,
+#   0.16175828874111176,
+#   0.04914874583482742,
+#   0.07270829379558563,
+#   0.03274090215563774,
+#   -0.27590084075927734,
+#   1.3668848276138306,
+#   -0.09779127687215805,
+#   -0.8871471285820007,
+#   0.3509058058261871,
+# ]
 
 # arm_waist_joint2motor_idx: [12, 13, 14, 
 #                             15, 16, 17, 18, 19, 20, 21, 
