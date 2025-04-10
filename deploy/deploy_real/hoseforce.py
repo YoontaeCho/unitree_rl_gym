@@ -85,7 +85,7 @@ class HoseForceEstimator:
         tau_residual_arm = tau_residual[self.mot_from_arm]
         
         pin.computeJointJacobians(self.robot.model, data, q_pin)
-        pin.updateFramePlacements(self.robot.model, data, self.eef_id)
+        pin.updateFramePlacements(self.robot.model, data)
         J = pin.getFrameJacobian(
             self.robot.model,
             data,
@@ -94,6 +94,6 @@ class HoseForceEstimator:
         )
         J_arm = J[:, self.pin_from_arm]
         
-        F_eef, _, _, _ = np.linalg.lstsq(J.T, tau_residual_arm, rcond=None)
+        F_eef, _, _, _ = np.linalg.lstsq(J_arm.T, tau_residual_arm, rcond=None)
         
         return F_eef

@@ -22,7 +22,7 @@ from enum import Enum
 from deploy.deploy_real.hoseforce import HoseForceEstimator
 
 import utils_stage as us
-
+from icecream import ic
 
 class Mode(Enum):
     wait = 0
@@ -95,8 +95,8 @@ class Controller:
         # log ee force
         self.ee_force_traj = np.zeros((0, 6)) # [Fx, Fy, Fz, Mx, My, Mz]
         self.extforce = HoseForceEstimator(
-            '../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf',
-            end_effector='left_rubber_hand',
+            '../../resources/robots/g1_description/g1_29dof_rev_1_0_replace_with_welder.urdf',
+            end_effector='welder',
             config=self.config)
 
         # ROS handles & helpers
@@ -163,42 +163,36 @@ class Controller:
         """
         Do nothing but save the initial position when 'start' is pressed.
         """
-        if self.remote_controller.button[KeyMap.A] == 1:
+        if self.remote_controller.button[KeyMap.start] == 1:
             self._mode_change = True
             self.mode = Mode.hold
             print("Initial position saved.")
             for mot_idx in range(self.num_joints):
                 self.initial_pos[mot_idx] = self.low_state.motor_state[mot_idx].q
-
-    # def compute_force(self, q_mot, tau_mot):
-    #     q_pin = np.zeros(len(self.joint_names))
-    #     q_pin[self.pin_from_mot] = q_mot
-        
-    #     data = self.robot.data
-    #     pin.computeGeneralizedGravity(self.robot.model, data, q_pin)
-    #     tau_gravity = data.g[self.pin_from_mot]
-    #     tau_residual = tau_mot - tau_gravity
-    #     tau_residual_arm = tau_residual[self.mot_from_arm]
-        
-    #     pin.computeJointJacobians(self.robot.model, data, q_pin)
-    #     pin.updateFramePlacements(self.robot.model, data, self.eef_id)
-    #     J = pin.getFrameJacobian(
-    #         self.robot.model,
-    #         data,
-    #         self.eef_id,
-    #         pin.ReferenceFrame.LOCAL_WORLD_ALIGNED
-    #     )
-    #     J_arm = J[:, self.pin_from_arm]
-        
-    #     F_eef, _, _, _ = np.linalg.lstsq(J.T, tau_residual_arm, rcond=None)
-        
-    #     return F_eef
+            ic(self.initial_pos)
 
     def run_hold_position(self):
         """
         Keep current position.
         Calculate end effector force & torque based on the estimated joint torque and Jacobian.
         """
+        if self.remote_controller.button[KeyMap.A] == 1:
+            self._mode_change = True
+            self.mode = Mode.finish
+
+        # log current data
+        timestamp = clock.get_time().nanoseconds / 1e9
+        curr_q = np.zeros(self.num_joints)
+        curr_dq = np.zeros(self.num_joints)
+        curr_tau = np.zeros(self.num_joints)
+        curr_q[self.lab_from_mot] = [self.low_state.motor_state[mot_idx].q for mot_idx in range(self.num_joints)]
+        curr_dq[self.lab_from_mot] = [self.low_state.motor_state[mot_idx].dq for mot_idx in range(self.num_joints)]
+        curr_tau[self.lab_from_mot] = [self.low_state.motor_state[mot_idx].tau_est for mot_idx in range(self.num_joints)]
+        self.timestamp = np.append(self.timestamp, timestamp)
+        self.q_traj = np.vstack((self.q_traj, curr_q))
+        self.dq_traj = np.vstack((self.dq_traj, curr_dq))
+        self.tau_traj = np.vstack((self.tau_traj, curr_tau))
+
         # target dof pos : initial position
         target_dof_pos = np.zeros(self.num_joints)
         for mot_idx in range(self.num_joints):
@@ -209,7 +203,7 @@ class Controller:
         tau_mot = np.zeros(self.num_joints)
         for mot_idx in range(self.num_joints):
             q_mot[mot_idx] = self.low_state.motor_state[mot_idx].q
-            tau_mot[mot_idx] = self.low_state.motor_state[mot_idx].tau
+            tau_mot[mot_idx] = self.low_state.motor_state[mot_idx].tau_est
         F_eef = self.extforce.compute_force(q_mot, tau_mot)
         self.ee_force_traj = np.vstack((self.ee_force_traj, F_eef))
         
@@ -252,7 +246,7 @@ class Controller:
     def run_wrapper(self):
         if self.mode == Mode.wait:
             if self.low_state.crc != 0:
-                self.mode = Mode.zero_torque
+                self.mode = Mode.initial
                 self.low_cmd.mode_machine = self.mode_machine_
                 print("Successfully connected to the robot.")
         elif self.mode == Mode.initial:
