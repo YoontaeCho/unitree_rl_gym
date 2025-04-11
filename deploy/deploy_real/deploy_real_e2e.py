@@ -128,6 +128,9 @@ class Controller:
         self.lab_from_mot = index_map(self.config.lab_joint, self.config.motor_joint)
         self.mot_from_lower = index_map(self.config.motor_joint, self.config.lower_joint)
         
+        self.mot_from_lab_eetrack = index_map(self.config.motor_joint, self.config.lab_joint_eetrack)
+        self.lab_from_mot_eetrack = index_map(self.config.lab_joint_eetrack, self.config.motor_joint)
+        
         # num joints
         self.num_joints = len(self.config.motor_joint)
         

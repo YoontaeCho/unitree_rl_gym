@@ -64,6 +64,11 @@ class Config:
             else:
                 self.lab_joint=[]
                 
+            if 'lab_joint_eetrack' in config:
+                self.lab_joint_eetrack = config['lab_joint_eetrack']
+            else:
+                self.lab_joint_eetrack=[]
+                
             if 'lab_joint_offsets' in config:
                 self.lab_joint_offsets = config['lab_joint_offsets']
             else:
