@@ -153,6 +153,7 @@ class Controller:
 
         # counter
         self.counter = 0
+        self.eetrack_initial_counter = 0
 
         # ROS handles & helpers
         rp.init()
@@ -397,6 +398,7 @@ class Controller:
             if self.is_eetrack_first_iter:
                 print("\n[EETrack] EETrack has began.")
                 self.is_eetrack_first_iter = False
+                self.eetrack_initial_counter = self.counter
 
             if self.eetrack_command is None:
                 self.eetrack_command = ue.eetrack(th.from_numpy(root_state_w)[None],
@@ -449,6 +451,17 @@ class Controller:
         if self.config.later_smoothing:
             if self.prev_joint_pos_target is not None:
                 if self.counter < 100:
+                    target_dof_pos = self.config.initial_smoothing * target_dof_pos + \
+                                    (1-self.config.initial_smoothing) * self.prev_joint_pos_target
+                else:
+                    target_dof_pos = self.config.later_smoothing * target_dof_pos + \
+                                    (1-self.config.later_smoothing) * self.prev_joint_pos_target
+            self.prev_joint_pos_target = target_dof_pos
+        
+        if self.task =="eetrack":
+            eetrack_counter = self.counter - self.eetrack_initial_counter
+            if self.prev_joint_pos_target is not None:
+                if eetrack_counter < 100:
                     target_dof_pos = self.config.initial_smoothing * target_dof_pos + \
                                     (1-self.config.initial_smoothing) * self.prev_joint_pos_target
                 else:
