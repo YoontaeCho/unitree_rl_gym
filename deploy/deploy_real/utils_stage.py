@@ -252,6 +252,10 @@ class SimpleAction:
             self.config.motor_joint,
             self.config.lab_joint
             )
+        self.mot_from_lab_eetrack = index_map(
+            self.config.motor_joint,
+            self.config.lab_joint_eetrack
+            )
         
         self.pin_from_mot = index_map(
             self.ikctrl.joint_names,
@@ -301,15 +305,15 @@ class SimpleEETrackAction(SimpleAction):
         """Generate motor-ordered joint position command from action and current joint position"""
         q = obs[..., 30:59] #FIXME: 32:61 is not always correct
         q_mot = np.zeros(29)
-        q_mot[self.mot_from_lab] = q
-        q_mot[self.mot_from_lab] += np.asarray(self.config.lab_joint_offsets)
+        q_mot[self.mot_from_lab_eetrack] = q
+        q_mot[self.mot_from_lab_eetrack] += np.asarray(self.config.lab_joint_offsets)
 
         # motor order
         target_dof_pos = np.zeros(29)
         target_dof_pos += q_mot
 
 
-        target_dof_pos[self.mot_from_lab] += 0.3 * action
+        target_dof_pos[self.mot_from_lab_eetrack] += 0.3 * action
 
         target_dof_pos = np.clip(
                 target_dof_pos,
