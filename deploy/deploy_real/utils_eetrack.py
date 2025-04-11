@@ -281,7 +281,7 @@ class eetrack:
 
         pos_hand_b_left, quat_hand_b_left = body_pose(
             self.tf_buffer,
-            "left_rubber_hand",
+            "end_effector",
             rot_type='quat'
         )
 

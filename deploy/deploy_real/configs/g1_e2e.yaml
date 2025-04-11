@@ -217,7 +217,7 @@ policy_path: ""
 
 slow_bound: 0.2
 max_velocity: 0.1
-target_height: 0.7
+target_height: 0.3
 
 initial_smoothing: 0.8
 later_smoothing: 1.0

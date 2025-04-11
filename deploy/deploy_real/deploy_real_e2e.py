@@ -169,7 +169,7 @@ class Controller:
         self.sit_obsmap = us.SitObservation(config, self.tf_buffer)
         
         self.sit_robot = ur.Robot(
-            '../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf')
+            '../../resources/robots/g1_description/g1_29dof_rev_1_0_replace_with_welder.urdf')
         self.sit_actmap = us.SimpleAction(config, self.sit_robot)
         self.vhcommand = us.VelocityHeightCommand(config)
 
@@ -181,9 +181,7 @@ class Controller:
         self.eetrack_command = None
         self.eetrack_policy = th.jit.load(config.eetrack_policy_path)
         self.eetrack_policy.eval()
-        self.eetrack_obsmap = us.EETrackObservation(
-            '../../resources/robots/g1_description/g1_29dof_rev_1_0_replace_with_welder.urdf',
-            config, self.tf_buffer
+        self.eetrack_obsmap = us.EETrackObservation(config, self.tf_buffer
         )
 
         if config.msg_type == "hg":
@@ -464,10 +462,10 @@ class Controller:
         # FIXME(hh) kpkd coefficient smoothing
         # Build low cmd
         for mot_idx in range(self.num_joints):
-            self.low_cmd.motor_cmd[mot_idx].q = 0.0 # float(target_dof_pos[mot_idx])
+            self.low_cmd.motor_cmd[mot_idx].q = float(target_dof_pos[mot_idx])
             self.low_cmd.motor_cmd[mot_idx].dq = 0.0
-            self.low_cmd.motor_cmd[mot_idx].kp = 0.0 #self.config.kpkd_smoothing * float(self.config.kps[mot_idx])
-            self.low_cmd.motor_cmd[mot_idx].kd = 0.0 #self.config.kpkd_smoothing * float(self.config.kds[mot_idx])
+            self.low_cmd.motor_cmd[mot_idx].kp = self.config.kpkd_smoothing * float(self.config.kps[mot_idx])
+            self.low_cmd.motor_cmd[mot_idx].kd = self.config.kpkd_smoothing * float(self.config.kds[mot_idx])
             self.low_cmd.motor_cmd[mot_idx].tau = 0.0
         
         # send the command

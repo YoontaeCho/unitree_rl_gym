@@ -105,7 +105,7 @@ class EETrackObservation:
         return foot_pose
     
     def _hand_pose(self):   
-        hp_l = body_pose(self.tf_buffer, 'left_rubber_hand')
+        hp_l = body_pose(self.tf_buffer, 'end_effector')
         hp_r = body_pose(self.tf_buffer, 'right_rubber_hand')
         hand_pose = np.concatenate([hp_l[0], hp_r[0], hp_l[1], hp_r[1]])
         return hand_pose
@@ -162,6 +162,12 @@ class EETrackObservation:
     
 
 class SitObservation(EETrackObservation):
+    def _hand_pose(self):   
+        hp_l = body_pose(self.tf_buffer, 'welder')
+        hp_r = body_pose(self.tf_buffer, 'right_rubber_hand')
+        hand_pose = np.concatenate([hp_l[0], hp_r[0], hp_l[1], hp_r[1]])
+        return hand_pose
+    
     def __call__(self,
                  low_state: LowStateHG,
                  height_command: np.ndarray
