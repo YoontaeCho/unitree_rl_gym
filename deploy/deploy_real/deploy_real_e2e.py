@@ -23,6 +23,7 @@ from ikctrl import IKCtrl
 
 import utils_stage as us
 import utils_eetrack as ue
+import utils_robot as ur
 
 
 class Mode(Enum):
@@ -120,7 +121,7 @@ class Controller:
         self.prev_joint_pos_target = None
         
         # log path
-        self.logpath = Path('/tmp/eetrack_stand/')
+        self.logpath = Path('/tmp/e2e/')
         self.logpath.mkdir(parents=True, exist_ok=True)
 
         # == build index map ==
@@ -165,24 +166,23 @@ class Controller:
         self.tf_broadcaster = TransformBroadcaster(self._node)
 
         ### Mapping helpers.
-        self.sit_obsmap = us.SitObservation(
-            '../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf',
-            config, self.tf_buffer)
-        self.ikctrl = IKCtrl(
-            '../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf',
-            config.arm_joint,
-            frame='left_rubber_hand')
-        self.sit_actmap = us.SimpleAction(config, self.ikctrl)
+        self.sit_obsmap = us.SitObservation(config, self.tf_buffer)
+        
+        self.sit_robot = ur.Robot(
+            '../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf')
+        self.sit_actmap = us.SimpleAction(config, self.sit_robot)
         self.vhcommand = us.VelocityHeightCommand(config)
 
 
         # eetrack
-        self.eetrack_actmap = us.SimpleEETrackAction(config, self.ikctrl)
+        self.eetrack_robot = ur.Robot(
+            '../../resources/robots/g1_description/g1_29dof_rev_1_0_replace_with_welder.urdf')
+        self.eetrack_actmap = us.SimpleEETrackAction(config, self.eetrack_robot)
         self.eetrack_command = None
         self.eetrack_policy = th.jit.load(config.eetrack_policy_path)
         self.eetrack_policy.eval()
         self.eetrack_obsmap = us.EETrackObservation(
-            '../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf',
+            '../../resources/robots/g1_description/g1_29dof_rev_1_0_replace_with_welder.urdf',
             config, self.tf_buffer
         )
 
@@ -421,8 +421,8 @@ class Controller:
                                    ))
                 
             # Keymap press -> changes is_initial_goal == False
-            if self.remote_controller.button[KeyMap.down] == 1:
-                print("\n[SubGoal] Subgoal Sampling has begun.")
+            if self.remote_controller.button[KeyMap.start] == 1:
+                print("\n[EETrack] Subgoal Sampling has begun.")
                 self.eetrack_command.is_initial_goal = False
 
             hands_command = self.eetrack_command.get_command(
@@ -536,16 +536,12 @@ class Controller:
         }
 
         # Save the log with experiment name
-        model = os.path.basename(self.config.policy_path).split('.')[0]
-        setting = f"init_{str(self.config.initial_smoothing).replace('.', '_')}_"
-        setting += f"later_{str(self.config.later_smoothing).replace('.', '_')}_"
-        setting += f"kpkd_{str(self.config.kpkd_smoothing).replace('.', '_')}"
-        
-        exp = f"height_{str(self.config.target_height).replace('.', '_')}" 
+        sit_model = os.path.basename(self.config.sit_policy_path).split('.')[0]
+        eetrack_model = os.path.basename(self.config.eetrack_policy_path).split('.')[0]
 
         timestamp = clock.get_time().nanoseconds / 1e9
         
-        file_name = f"{self.logpath}/log_{model}_{setting}_{exp}_{str(timestamp).split('.')[0]}.npy"
+        file_name = f"{self.logpath}/log_{sit_model}_{eetrack_model}_{str(timestamp).split('.')[0]}.npy"
         np.save(file_name, log_data)
         print(f"Log saved at {file_name}")
         
@@ -582,11 +578,14 @@ class Controller:
             if self._mode_change:
                 print("Run Policy.\n")
                 print("--------------[ Basic Guidelines ]---------------")
-                print("[Exit] Press Button A to finish.")
+                print("[Sit] Press Button {down} to move pelvis to target height 0.3m.")
                 print("-------------------------------------------------")
-                print("[EETrack] Press Button B to change task to EETrack.")
+                print("[EETrack] Press Button {B} to change task to EETrack.")
                 print("-------------------------------------------------")
-                print("[SubGoal] Press down button to start subgoal sampling.")
+                print("[EETrack] Press down {start} to start subgoal sampling.")
+                print("-------------------------------------------------")
+                print("[Exit] Press Button {A} to finish.")
+                print("-------------------------------------------------")
 
                 self._mode_change = False
                 self.counter = 0

@@ -69,18 +69,14 @@ def index_map(k_to, k_from):
 
 class EETrackObservation:
     def __init__(self,
-                 urdf_path: str,
                  config,
                  tf_buffer: Buffer):
-        self.links = list(URDF.load(urdf_path).link_map.keys())
         self.config = config
         self.num_lab_joint = len(config.lab_joint)
         self.tf_buffer = tf_buffer
         self.lab_from_mot = index_map(config.lab_joint,
                                       config.motor_joint)
         # bring default values
-        self.com_data = extract_link_data(
-            '../../resources/robots/g1_description/g1_29dof_rev_1_0.xml')
         self.prev_pelvis_height = None
     
     def _base_ang_vel(self, low_state: LowStateHG):
@@ -196,13 +192,13 @@ class SitObservation(EETrackObservation):
     
     
     
-from ikctrl import IKCtrl
+from utils_robot import Robot
 
 class SimpleAction:
-    def __init__(self, config, ikctrl: IKCtrl):
-        self.ikctrl = ikctrl
-        self.lim_lo_pin = self.ikctrl.robot.model.lowerPositionLimit
-        self.lim_hi_pin = self.ikctrl.robot.model.upperPositionLimit
+    def __init__(self, config, robot_model: Robot):
+        self.robot_model = robot_model
+        self.lim_lo_pin = self.robot_model.robot.model.lowerPositionLimit
+        self.lim_hi_pin = self.robot_model.robot.model.upperPositionLimit
         self.config = config
         self.mot_from_jpa = index_map(
             self.config.motor_joint, 
@@ -239,6 +235,7 @@ class SimpleAction:
             self.config.rjpa_joint,
             self.config.lab_joint
             )   
+        
 
         self.default_offset = np.asarray(self.config.lab_joint_offsets)
 
@@ -258,7 +255,7 @@ class SimpleAction:
             )
         
         self.pin_from_mot = index_map(
-            self.ikctrl.joint_names,
+            self.robot_model.joint_names,
             self.config.motor_joint
             )
         
