@@ -274,7 +274,9 @@ class SimpleAction:
         q = obs[..., 30:59] #FIXME: 32:61 is not always correct
         q_mot = np.zeros(29)
         q_mot[self.mot_from_lab] = q
-        q_mot[self.mot_from_lab] += np.asarray(self.config.lab_joint_offsets)
+
+        # NOTE(hh) Why should we add this?
+        # q_mot[self.mot_from_lab] += np.asarray(self.config.lab_joint_offsets)
 
         # motor order
         target_dof_pos = np.zeros(29)
@@ -306,10 +308,12 @@ class SimpleAction:
 class SimpleEETrackAction(SimpleAction):
     def __call__(self, action, obs):
         """Generate motor-ordered joint position command from action and current joint position"""
-        q = obs[..., 30:59] #FIXME: 32:61 is not always correct
+        q = obs[..., 30:59]
         q_mot = np.zeros(29)
         q_mot[self.mot_from_lab] = q
-        q_mot[self.mot_from_lab] += np.asarray(self.config.lab_joint_offsets)
+
+        # NOTE(hh) Why should we add this?
+        # q_mot[self.mot_from_lab] += np.asarray(self.config.lab_joint_offsets)
 
         # motor order
         target_dof_pos = np.zeros(29)
