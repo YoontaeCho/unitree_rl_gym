@@ -212,7 +212,7 @@ sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/daop_sit_exported.pt
 
 
 # EETRACK
-eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/exp49_low_rew_dao.pt"
+eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/interp_dao.pt"
 policy_path: ""
 
 slow_bound: 0.2

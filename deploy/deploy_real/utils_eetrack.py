@@ -235,7 +235,7 @@ class eetrack:
         self.eetrack_quat_w = math_utils.quat_mul(math_utils.yaw_quat(root_state_w), eetrack_quat_b)
 
 
-    def create_subgoal(self, ):
+    def create_subgoal(self):
         # initial hand pos
         pos_hand_w_left, quat_hand_w_left = body_pose(
             self.tf_buffer,
@@ -245,8 +245,9 @@ class eetrack:
         )
         
         # initial hand pos -> eetrack start pos
+        # breakpoint()
         to_eeline_subgoals = interpolate_position(
-            pos_hand_w_left,
+            torch.tensor(pos_hand_w_left).unsqueeze(0),
             self.eetrack_start_w,
             100
         )
@@ -269,7 +270,7 @@ class eetrack:
             for l in eetrack_subgoals
         ]
         eetrack_subgoals = th.stack(eetrack_subgoals, axis=1)
-        eetrack_quat = self.eetrack_quat_w.unsqueeze(1).repeat(1, self.number_of_subgoals + 1, 1)
+        eetrack_quat = self.eetrack_quat_w.unsqueeze(1).repeat(1, 101 + self.number_of_subgoals + 1, 1)
 
         return th.cat([eetrack_subgoals, eetrack_quat], dim=2)
 

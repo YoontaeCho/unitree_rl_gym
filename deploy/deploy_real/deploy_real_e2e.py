@@ -478,7 +478,7 @@ class Controller:
             self.low_cmd.motor_cmd[mot_idx].q = float(target_dof_pos[mot_idx])
             self.low_cmd.motor_cmd[mot_idx].dq = 0.0
             self.low_cmd.motor_cmd[mot_idx].kp = self.config.kpkd_smoothing * float(self.config.kps[mot_idx])
-            self.low_cmd.motor_cmd[mot_idx].kd = self.config.kpkd_smoothing * float(self.config.kds[mot_idx])
+            self.low_cmd.motor_cmd[mot_idx].kd = 1.5 * self.config.kpkd_smoothing * float(self.config.kds[mot_idx])
             self.low_cmd.motor_cmd[mot_idx].tau = 0.0
         
         # send the command
