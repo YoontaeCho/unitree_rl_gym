@@ -13,9 +13,10 @@ import pinocchio as pin
 import pink
 import yaml
 from common.np_math import (index_map, with_dir)
-from math_utils import (as_np, quat_rotate)
+from math_utils import (as_np, quat_rotate, quat_inv)
 
 quat_rotate = as_np(quat_rotate)
+quat_inv = as_np(quat_inv)
 
 
 class FakeWorldPublisher(Node):
@@ -99,10 +100,8 @@ class FakeWorldPublisher(Node):
         xyz_lf = np.asarray( pelvis_from_lf.translation,
                             dtype=np.float32)
 
-        pelvis_z_rf = -quat_rotate(
-            world_from_pelvis_quat, xyz_rf)[2] + 0.02
-        pelvis_z_lf = -quat_rotate(
-            world_from_pelvis_quat, xyz_lf)[2] + 0.02
+        pelvis_z_rf = -quat_rotate(quat_inv(world_from_pelvis_quat), xyz_rf)[2] + 0.035
+        pelvis_z_lf = -quat_rotate(quat_inv(world_from_pelvis_quat), xyz_lf)[2] + 0.035
         return 0.5 * pelvis_z_lf + 0.5 * pelvis_z_rf
 
 
