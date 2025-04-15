@@ -143,9 +143,9 @@ class eetrack:
         self.eetrack_vel = 0.01
 
         self.step_dt = 0.02
-        self.dt_segment_length = self.eetrack_vel * self.step_dt
+        self.dt_segment_length = self.eetrack_vel * self.step_dt # 0.0002
         self.non_first_subgoal_sampling_time = self.dt_segment_length / self.eetrack_vel
-        self.number_of_subgoals = int(self.eetrack_line_length / self.dt_segment_length)
+        self.number_of_subgoals = int(self.eetrack_line_length / self.dt_segment_length) # 0.1 / 0.0002 = 500
         
         self.device = "cpu"
         self.sg_idx = 0
@@ -235,12 +235,31 @@ class eetrack:
         self.eetrack_quat_w = math_utils.quat_mul(math_utils.yaw_quat(root_state_w), eetrack_quat_b)
 
 
-    def create_subgoal(self):
-        eetrack_subgoals = interpolate_position(
+    def create_subgoal(self, ):
+        # initial hand pos
+        pos_hand_w_left, quat_hand_w_left = body_pose(
+            self.tf_buffer,
+            frame="end_effector",
+            ref_frame="world",
+            rot_type='quat'
+        )
+        
+        # initial hand pos -> eetrack start pos
+        to_eeline_subgoals = interpolate_position(
+            pos_hand_w_left,
+            self.eetrack_start_w,
+            100
+        )
+
+        # eetrack start pos -> eetrack end pos
+        on_eeline_subgoals = interpolate_position(
             self.eetrack_start_w,
             self.eetrack_end_w,
             self.number_of_subgoals,
         )
+
+        eetrack_subgoals = to_eeline_subgoals + on_eeline_subgoals
+        
         eetrack_subgoals = [
             (
                 l.clone().to(self.device, dtype=th.float32)
