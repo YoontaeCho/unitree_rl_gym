@@ -20,7 +20,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/pelvis.STL"/>
+        <mesh filename="meshes/pelvis.STL"/>
       </geometry>
       <material name="dark">
         <color rgba="0.2 0.2 0.2 1"/>
@@ -36,7 +36,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/pelvis_contour_link.STL"/>
+        <mesh filename="meshes/pelvis_contour_link.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -45,7 +45,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/pelvis_contour_link.STL"/>
+        <mesh filename="meshes/pelvis_contour_link.STL"/>
       </geometry>
     </collision>
   </link>
@@ -64,7 +64,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/left_hip_pitch_link.STL"/>
+        <mesh filename="meshes/left_hip_pitch_link.STL"/>
       </geometry>
       <material name="dark">
         <color rgba="0.2 0.2 0.2 1"/>
@@ -73,7 +73,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/left_hip_pitch_link.STL"/>
+        <mesh filename="meshes/left_hip_pitch_link.STL"/>
       </geometry>
     </collision>
   </link>
@@ -93,7 +93,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/left_hip_roll_link.STL"/>
+        <mesh filename="meshes/left_hip_roll_link.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -102,7 +102,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/left_hip_roll_link.STL"/>
+        <mesh filename="meshes/left_hip_roll_link.STL"/>
       </geometry>
     </collision>
   </link>
@@ -122,7 +122,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/left_hip_yaw_link.STL"/>
+        <mesh filename="meshes/left_hip_yaw_link.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -131,7 +131,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/left_hip_yaw_link.STL"/>
+        <mesh filename="meshes/left_hip_yaw_link.STL"/>
       </geometry>
     </collision>
   </link>
@@ -151,7 +151,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/left_knee_link.STL"/>
+        <mesh filename="meshes/left_knee_link.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -160,7 +160,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/left_knee_link.STL"/>
+        <mesh filename="meshes/left_knee_link.STL"/>
       </geometry>
     </collision>
   </link>
@@ -180,7 +180,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/left_ankle_pitch_link.STL"/>
+        <mesh filename="meshes/left_ankle_pitch_link.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -189,7 +189,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/left_ankle_pitch_link.STL"/>
+        <mesh filename="meshes/left_ankle_pitch_link.STL"/>
       </geometry>
     </collision>
   </link>
@@ -209,19 +209,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/left_ankle_roll_link.STL"/>
+        <mesh filename="meshes/left_ankle_roll_link.STL"/>
       </geometry>
       <material name="dark">
         <color rgba="0.2 0.2 0.2 1"/>
       </material>
     </visual>
     <collision>
-      <origin xyz="0.03826199 0.0 -0.02540915" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.20820672 0.07558269 0.02"/>
-      </geometry>
-    </collision>
-    <!-- <collision>
       <origin xyz="-0.05 0.025 -0.03" rpy="0 0 0"/>
       <geometry>
         <sphere radius="0.005"/>
@@ -244,7 +238,7 @@
       <geometry>
         <sphere radius="0.005"/>
       </geometry>
-    </collision> -->
+    </collision>
   </link>
   <joint name="left_ankle_roll_joint" type="revolute">
     <origin xyz="0 0 -0.017558" rpy="0 0 0"/>
@@ -262,7 +256,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_hip_pitch_link.STL"/>
+        <mesh filename="meshes/right_hip_pitch_link.STL"/>
       </geometry>
       <material name="dark">
         <color rgba="0.2 0.2 0.2 1"/>
@@ -271,7 +265,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_hip_pitch_link.STL"/>
+        <mesh filename="meshes/right_hip_pitch_link.STL"/>
       </geometry>
     </collision>
   </link>
@@ -291,7 +285,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_hip_roll_link.STL"/>
+        <mesh filename="meshes/right_hip_roll_link.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -300,7 +294,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_hip_roll_link.STL"/>
+        <mesh filename="meshes/right_hip_roll_link.STL"/>
       </geometry>
     </collision>
   </link>
@@ -320,7 +314,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_hip_yaw_link.STL"/>
+        <mesh filename="meshes/right_hip_yaw_link.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -329,7 +323,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_hip_yaw_link.STL"/>
+        <mesh filename="meshes/right_hip_yaw_link.STL"/>
       </geometry>
     </collision>
   </link>
@@ -349,7 +343,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_knee_link.STL"/>
+        <mesh filename="meshes/right_knee_link.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -358,7 +352,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_knee_link.STL"/>
+        <mesh filename="meshes/right_knee_link.STL"/>
       </geometry>
     </collision>
   </link>
@@ -378,7 +372,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_ankle_pitch_link.STL"/>
+        <mesh filename="meshes/right_ankle_pitch_link.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -387,7 +381,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_ankle_pitch_link.STL"/>
+        <mesh filename="meshes/right_ankle_pitch_link.STL"/>
       </geometry>
     </collision>
   </link>
@@ -405,21 +399,15 @@
       <inertia ixx="0.0002231" ixy="-2E-07" ixz="8.91E-05" iyy="0.0016161" iyz="1E-07" izz="0.0016667"/>
     </inertial>
     <visual>
-      <origin xyz="0.0 0 0.0" rpy="0 0 0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_ankle_roll_link.STL"/>
+        <mesh filename="meshes/right_ankle_roll_link.STL"/>
       </geometry>
       <material name="dark">
         <color rgba="0.2 0.2 0.2 1"/>
       </material>
     </visual>
     <collision>
-      <origin xyz="0.03826199 0.0 -0.02540915" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.20820672 0.07558269 0.02"/>
-      </geometry>
-    </collision>
-    <!-- <collision>
       <origin xyz="-0.05 0.025 -0.03" rpy="0 0 0"/>
       <geometry>
         <sphere radius="0.005"/>
@@ -442,7 +430,7 @@
       <geometry>
         <sphere radius="0.005"/>
       </geometry>
-    </collision> -->
+    </collision>
   </link>
   <joint name="right_ankle_roll_joint" type="revolute">
     <origin xyz="0 0 -0.017558" rpy="0 0 0"/>
@@ -462,7 +450,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/waist_yaw_link_rev_1_0.STL"/>
+        <mesh filename="meshes/waist_yaw_link_rev_1_0.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -485,7 +473,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/waist_roll_link_rev_1_0.STL"/>
+        <mesh filename="meshes/waist_roll_link_rev_1_0.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -508,7 +496,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/torso_link_rev_1_0.STL"/>
+        <mesh filename="meshes/torso_link_rev_1_0.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -517,7 +505,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/torso_link_rev_1_0.STL"/>
+        <mesh filename="meshes/torso_link_rev_1_0.STL"/>
       </geometry>
     </collision>
   </link>
@@ -544,7 +532,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/logo_link.STL"/>
+        <mesh filename="meshes/logo_link.STL"/>
       </geometry>
       <material name="dark">
         <color rgba="0.2 0.2 0.2 1"/>
@@ -553,7 +541,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/logo_link.STL"/>
+        <mesh filename="meshes/logo_link.STL"/>
       </geometry>
     </collision>
   </link>
@@ -568,7 +556,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/head_link.STL"/>
+        <mesh filename="meshes/head_link.STL"/>
       </geometry>
       <material name="dark">
         <color rgba="0.2 0.2 0.2 1"/>
@@ -577,7 +565,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/head_link.STL"/>
+        <mesh filename="meshes/head_link.STL"/>
       </geometry>
     </collision>
   </link>
@@ -589,7 +577,8 @@
 
 
   <!-- IMU -->
-  <link name="imu_in_torso"></link>
+  <link name="imu_in_torso">
+  </link>
   <joint name="imu_in_torso_joint" type="fixed">
     <origin xyz="-0.03959 -0.00224 0.14792" rpy="0 0 0"/>
     <parent link="torso_link"/>
@@ -610,7 +599,105 @@
     <parent link="torso_link"/>
     <child link="d435_link"/>
   </joint>
+  
+  <!-- zed -->
+  <material name="zed2_mat">
+    <color rgba="0.25 0.25 0.25 1.0"/>
+  </material>
+  <link name="zed_mount">
+  <visual>
+      <origin xyz="0 0 0" rpy="0 0 3.14159"/>
+      <geometry>
+        <mesh filename="meshes/zed_mount.stl"/>
+      </geometry>
+    </visual>
+  </link>
+  <joint name="zed_mount_joint" type="fixed">
+    <origin xyz="0.0027 0.0 0.3667" rpy="0 -0.04014257279586953 0"/>
+    <parent link="head_link"/>
+    <child link="zed_mount"/>
+  </joint>
+  <joint name="zed_camera_joint" type="fixed">
+    <origin xyz="0.06920661025 0.0 0.08033553926" rpy="0 0.8234498317 0"/>
+    <parent link="zed_mount"/>
+    <child link="zed2_camera_link"/>
+  </joint>
+  <link name="zed2_camera_link"/>
+  <!-- Camera Center -->
+  <link name="zed2_camera_center">
+    <visual>
+      <origin rpy="0 0 0" xyz="0.0 0 0.0"/>
+      <geometry>
+        <mesh filename="meshes/zed2.obj"/>
+      </geometry>
+      <material name="zed2_mat"/>
+    </visual>
+    <collision>
+      <origin rpy="0 0 0" xyz="0.0 0 0.0"/>
+      <geometry>
+        <mesh filename="meshes/zed2.obj"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="zed2_camera_center_joint" type="fixed">
+    <parent link="zed2_camera_link"/>
+    <child link="zed2_camera_center"/>
+    <origin rpy="0 0.05 0" xyz="0 0 0.015"/>
+  </joint>
+  <!-- Left Camera -->
+  <link name="zed2_left_camera_frame">
+  </link>
+  <joint name="zed2_left_camera_joint" type="fixed">
+    <parent link="zed2_camera_center"/>
+    <child link="zed2_left_camera_frame"/>
+    <origin rpy="0 0 0" xyz="-0.01 0.06 0"/>
+  </joint>
+  <link name="zed2_left_camera_optical_frame"/>
+  <joint name="zed2_left_camera_optical_joint" type="fixed">
+    <origin rpy="-1.5707963267948966 0.0 -1.5707963267948966" xyz="0 0 0"/>
+    <parent link="zed2_left_camera_frame"/>
+    <child link="zed2_left_camera_optical_frame"/>
+  </joint>
+  <!-- Right Camera -->
+  <link name="zed2_right_camera_frame">
+  </link>
+  <joint name="zed2_right_camera_joint" type="fixed">
+    <parent link="zed2_camera_center"/>
+    <child link="zed2_right_camera_frame"/>
+    <origin rpy="0 0 0" xyz="-0.01 -0.06 0"/>
+  </joint>
+  <link name="zed2_right_camera_optical_frame"/>
+  <joint name="zed2_right_camera_optical_joint" type="fixed">
+    <origin rpy="-1.5707963267948966 0.0 -1.5707963267948966" xyz="0 0 0"/>
+    <parent link="zed2_right_camera_frame"/>
+    <child link="zed2_right_camera_optical_frame"/>
+  </joint>
+  <link name="zed2_mag_link"/>
+  <joint name="zed2_mag_joint" type="fixed">
+    <parent link="zed2_camera_center"/>
+    <child link="zed2_mag_link"/>
+    <origin rpy="0 0 0" xyz="0 0 0"/>
+  </joint>
+  <link name="zed2_baro_link"/>
+  <joint name="zed2_baro_joint" type="fixed">
+    <parent link="zed2_camera_center"/>
+    <child link="zed2_baro_link"/>
+    <origin rpy="0 0 0" xyz="0 0 0"/>
+  </joint>
+  <link name="zed2_temp_left_link"/>
+  <joint name="zed2_temp_left_joint" type="fixed">
+    <parent link="zed2_left_camera_frame"/>
+    <child link="zed2_temp_left_link"/>
+    <origin rpy="0 0 0" xyz="0 0 0"/>
+  </joint>
+  <link name="zed2_temp_right_link"/>
+  <joint name="zed2_temp_right_joint" type="fixed">
+    <parent link="zed2_right_camera_frame"/>
+    <child link="zed2_temp_right_link"/>
+    <origin rpy="0 0 0" xyz="0 0 0"/>
+  </joint>
 
+  <!-- mid360 -->
   <!-- mid360 -->
   <link name="mid360_link">
   <visual>
@@ -652,7 +739,6 @@
     <child link="mid360_link_IMU"/>
   </joint>
 
-
   <!-- Arm -->
   <link name="left_shoulder_pitch_link">
     <inertial>
@@ -663,7 +749,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/left_shoulder_pitch_link.STL"/>
+        <mesh filename="meshes/left_shoulder_pitch_link.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -692,7 +778,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/left_shoulder_roll_link.STL"/>
+        <mesh filename="meshes/left_shoulder_roll_link.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -721,7 +807,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/left_shoulder_yaw_link.STL"/>
+        <mesh filename="meshes/left_shoulder_yaw_link.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -730,7 +816,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/left_shoulder_yaw_link.STL"/>
+        <mesh filename="meshes/left_shoulder_yaw_link.STL"/>
       </geometry>
     </collision>
   </link>
@@ -750,7 +836,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/left_elbow_link.STL"/>
+        <mesh filename="meshes/left_elbow_link.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -759,7 +845,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/left_elbow_link.STL"/>
+        <mesh filename="meshes/left_elbow_link.STL"/>
       </geometry>
     </collision>
   </link>
@@ -786,7 +872,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/left_wrist_roll_link.STL"/>
+        <mesh filename="meshes/left_wrist_roll_link.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -795,7 +881,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/left_wrist_roll_link.STL"/>
+        <mesh filename="meshes/left_wrist_roll_link.STL"/>
       </geometry>
     </collision>
   </link>
@@ -815,7 +901,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/left_wrist_pitch_link.STL"/>
+        <mesh filename="meshes/left_wrist_pitch_link.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -824,7 +910,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/left_wrist_pitch_link.STL"/>
+        <mesh filename="meshes/left_wrist_pitch_link.STL"/>
       </geometry>
     </collision>
   </link>
@@ -844,7 +930,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/left_wrist_yaw_link.STL"/>
+        <mesh filename="meshes/left_wrist_yaw_link.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -853,62 +939,31 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/left_wrist_yaw_link.STL"/>
+        <mesh filename="meshes/left_wrist_yaw_link.STL"/>
       </geometry>
     </collision>
   </link>
   <joint name="left_hand_palm_joint" type="fixed">
     <origin xyz="0.0415 0.003 0" rpy="0 0 0"/>
     <parent link="left_wrist_yaw_link"/>
-    <child link="welder"/>
+    <child link="left_rubber_hand"/>
   </joint>
-  <link name="welder">
+  <link name="left_rubber_hand">
     <inertial>
       <origin xyz="0.05361310808 -0.00295905240 0.00215413091" rpy="0 0 0"/>
-      <mass value="0.3"/>
-      <inertia ixx="0.00010099485234748" ixy="-0.00003618590790516" ixz="-0.00000074301518642" iyy="0.00028135871571621" iyz="-0.00000330189743286" izz="0.00021894770413514"/>
+      <mass value="0.170"/>
+      <inertia ixx="0.00010099485234748" ixy="0.00003618590790516" ixz="-0.00000074301518642" iyy="0.00028135871571621" iyz="0.00000330189743286" izz="0.00021894770413514"/>
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/welder.STL"/>
+        <mesh filename="meshes/left_rubber_hand.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
       </material>
     </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/welder_coacd.STL"/>
-      </geometry>
-    </collision>
   </link>
-  <joint name="end_effector_joint" type="fixed">
-    <origin xyz="0.222 0 0.103" rpy="0 0 0"/>
-    <parent link="welder"/>
-    <child link="end_effector"/>
-  </joint>
-  <link name="end_effector">
-    <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="0.0001"/>
-      <inertia ixx="0.000010099485234748" ixy="-0.000003618590790516" ixz="-0.000000074301518642" iyy="0.000028135871571621" iyz="-0.000000330189743286" izz="0.000021894770413514"/>
-    </inertial>
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <sphere radius= "0.008"/>
-      </geometry>
-      <material name="red">
-        <color rgba="1 0 0 1"/>
-      </material>
-    </visual>
-  </link>
-
-
-
-  
   <link name="right_shoulder_pitch_link">
     <inertial>
       <origin xyz="0 -0.035892 -0.011628" rpy="0 0 0"/>
@@ -918,7 +973,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_shoulder_pitch_link.STL"/>
+        <mesh filename="meshes/right_shoulder_pitch_link.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -947,7 +1002,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_shoulder_roll_link.STL"/>
+        <mesh filename="meshes/right_shoulder_roll_link.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -976,7 +1031,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_shoulder_yaw_link.STL"/>
+        <mesh filename="meshes/right_shoulder_yaw_link.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -985,7 +1040,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_shoulder_yaw_link.STL"/>
+        <mesh filename="meshes/right_shoulder_yaw_link.STL"/>
       </geometry>
     </collision>
   </link>
@@ -1005,7 +1060,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_elbow_link.STL"/>
+        <mesh filename="meshes/right_elbow_link.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -1014,7 +1069,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_elbow_link.STL"/>
+        <mesh filename="meshes/right_elbow_link.STL"/>
       </geometry>
     </collision>
   </link>
@@ -1041,7 +1096,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_wrist_roll_link.STL"/>
+        <mesh filename="meshes/right_wrist_roll_link.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -1050,7 +1105,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_wrist_roll_link.STL"/>
+        <mesh filename="meshes/right_wrist_roll_link.STL"/>
       </geometry>
     </collision>
   </link>
@@ -1070,7 +1125,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_wrist_pitch_link.STL"/>
+        <mesh filename="meshes/right_wrist_pitch_link.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -1079,7 +1134,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_wrist_pitch_link.STL"/>
+        <mesh filename="meshes/right_wrist_pitch_link.STL"/>
       </geometry>
     </collision>
   </link>
@@ -1099,7 +1154,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_wrist_yaw_link.STL"/>
+        <mesh filename="meshes/right_wrist_yaw_link.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
@@ -1108,7 +1163,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_wrist_yaw_link.STL"/>
+        <mesh filename="meshes/right_wrist_yaw_link.STL"/>
       </geometry>
     </collision>
   </link>
@@ -1126,17 +1181,11 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_rubber_hand.STL"/>
+        <mesh filename="meshes/right_rubber_hand.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
       </material>
     </visual>
-    <collision>
-      <origin xyz="0.07 0.01 0" rpy="0 0 0.3"/>
-      <geometry>
-        <box size="0.12 0.03 0.08"/>
-      </geometry>
-    </collision>
   </link>
 </robot>
