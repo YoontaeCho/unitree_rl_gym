@@ -347,6 +347,11 @@ class Controller:
             print(f"euler: {euler}")
         return out_of_limit.item()
     
+    def print_sit_status(self): 
+        height_error = self.vhcommand.pelvis_height_w - self.sit_obsmap._pelvis_height()[0]
+        print(f"Vel command : {self.vhcommand.pelvis_lin_vel_z_w}")
+        print(f"Height error : {height_error}")
+    
 
     def run_policy(self):
         # If the button A is pressed, then finish the policy.
@@ -376,25 +381,30 @@ class Controller:
         if self.terminate_by_pelvis_condition(xyz, quat_wxyz):
             raise ValueError("Terminated by pelvis condition.")
 
-        if self.task == "sit":
+    # if self.task == "sit":
         # Press down button to sit
-            curr_keymap = self.remote_controller.button[KeyMap.down] == 1
-            if curr_keymap:
-                self.sitting = True
+        curr_keymap = self.remote_controller.button[KeyMap.down] == 1
+        if curr_keymap:
+            self.sitting = True
 
-            height_command = self.vhcommand(current_pelvis_height_w = xyz[2], sitting=self.sitting)
+        height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.04, sitting=self.sitting)
+        # height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.00, sitting=self.sitting)
 
-            # For stage 1 & 2.
-            self.obs = self.sit_obsmap(self.low_state, height_command)
+        # For stage 1 & 2.
+        self.obs = self.sit_obsmap(self.low_state, height_command)
 
-            obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
-            obs_tensor = obs_tensor.detach().clone().float()
-            self.action = self.sit_policy(obs_tensor).detach().numpy().squeeze()
+        obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
+        obs_tensor = obs_tensor.detach().clone().float()
+        self.action = self.sit_policy(obs_tensor).detach().numpy().squeeze()
 
-            # target_dof_pos : motor joint ordered
-            target_dof_pos = self.sit_actmap(self.action, self.obs)
+        # target_dof_pos : motor joint ordered
+        sit_target_dof_pos = self.sit_actmap(self.action, self.obs)
+        if self.task == "sit":
+            target_dof_pos = sit_target_dof_pos
+
+            # self.print_sit_status()
             
-        elif self.task == "eetrack":
+        if self.task == "eetrack":
             if self.is_eetrack_first_iter:
                 print("\n[EETrack] EETrack has began.")
                 self.is_eetrack_first_iter = False
@@ -440,10 +450,16 @@ class Controller:
             self.action = self.eetrack_policy(obs_tensor).detach().numpy().squeeze()
 
             # target_dof_pos : motor joint ordered
-            target_dof_pos = self.eetrack_actmap(self.action, self.obs)
+            eetrack_target_dof_pos = self.eetrack_actmap(self.action, self.obs)
 
-        else:
-            raise ValueError("Unknown task")
+            # interpolate
+            eetrack_counter = self.counter - self.eetrack_initial_counter
+            total_count = 150
+            if eetrack_counter < total_count:
+                alpha = eetrack_counter / total_count
+                target_dof_pos = alpha * eetrack_target_dof_pos + (1-alpha) * sit_target_dof_pos
+            else:
+                target_dof_pos = eetrack_target_dof_pos
 
         raw_target_dof_pos = target_dof_pos.copy()
 
@@ -458,16 +474,16 @@ class Controller:
                                     (1-self.config.later_smoothing) * self.prev_joint_pos_target
             self.prev_joint_pos_target = target_dof_pos
         
-        if self.task =="eetrack":
-            eetrack_counter = self.counter - self.eetrack_initial_counter
-            if self.prev_joint_pos_target is not None:
-                if eetrack_counter < 100:
-                    target_dof_pos = self.config.initial_smoothing * target_dof_pos + \
-                                    (1-self.config.initial_smoothing) * self.prev_joint_pos_target
-                else:
-                    target_dof_pos = self.config.later_smoothing * target_dof_pos + \
-                                    (1-self.config.later_smoothing) * self.prev_joint_pos_target
-            self.prev_joint_pos_target = target_dof_pos
+        # if self.task =="eetrack":
+        #     eetrack_counter = self.counter - self.eetrack_initial_counter
+        #     if self.prev_joint_pos_target is not None:
+        #         if eetrack_counter < 200:
+        #             target_dof_pos = 0.3 * target_dof_pos + \
+        #                             (1 - 0.3) * self.prev_joint_pos_target
+        #         else:
+        #             target_dof_pos = self.config.later_smoothing * target_dof_pos + \
+        #                             (1 - self.config.later_smoothing) * self.prev_joint_pos_target
+        #     self.prev_joint_pos_target = target_dof_pos
 
         # observation dumping
         self.dump_observations_and_joint_pos_target(raw_target_dof_pos, target_dof_pos)
@@ -475,12 +491,12 @@ class Controller:
         # FIXME(hh) kpkd coefficient smoothing
         # Build low cmd
         for mot_idx in range(self.num_joints):
-            self.low_cmd.motor_cmd[mot_idx].q = float(target_dof_pos[mot_idx])
+            self.low_cmd.motor_cmd[mot_idx].q =  float(target_dof_pos[mot_idx])
             self.low_cmd.motor_cmd[mot_idx].dq = 0.0
             self.low_cmd.motor_cmd[mot_idx].kp = self.config.kpkd_smoothing * float(self.config.kps[mot_idx])
-            self.low_cmd.motor_cmd[mot_idx].kd = 1.5 * self.config.kpkd_smoothing * float(self.config.kds[mot_idx])
+            self.low_cmd.motor_cmd[mot_idx].kd = self.config.kpkd_smoothing * float(self.config.kds[mot_idx])
             self.low_cmd.motor_cmd[mot_idx].tau = 0.0
-        
+         
         # send the command
         self.send_cmd(self.low_cmd)
 

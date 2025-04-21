@@ -125,7 +125,9 @@ class EETrackObservation:
             'pelvis',
             rp.time.Time()
         )
-        pelvis_height = [world_from_pelvis.transform.translation.z]
+        pelvis_height = [world_from_pelvis.transform.translation.z + 0.04]
+        # pelvis_height = [world_from_pelvis.transform.translation.z + 0.00]
+        # print(f'pelvis_height: {pelvis_height}')
         return pelvis_height
     
     def _pelvis_height_prev(self):
@@ -276,7 +278,7 @@ class SimpleAction:
         q_mot[self.mot_from_lab] = q
 
         # NOTE(hh) Why should we add this?
-        # q_mot[self.mot_from_lab] += np.asarray(self.config.lab_joint_offsets)
+        q_mot[self.mot_from_lab] += np.asarray(self.config.lab_joint_offsets)
 
         # motor order
         target_dof_pos = np.zeros(29)
@@ -313,7 +315,7 @@ class SimpleEETrackAction(SimpleAction):
         q_mot[self.mot_from_lab] = q
 
         # NOTE(hh) Why should we add this?
-        # q_mot[self.mot_from_lab] += np.asarray(self.config.lab_joint_offsets)
+        q_mot[self.mot_from_lab] += np.asarray(self.config.lab_joint_offsets)
 
         # motor order
         target_dof_pos = np.zeros(29)
@@ -353,4 +355,5 @@ class VelocityHeightCommand:
                                     self.max_velocity
                                     # 0
                                     )
+        self.pelvis_lin_vel_z_w = pelvis_lin_vel_z_w
         return np.asarray([pelvis_lin_vel_z_w, target_height])

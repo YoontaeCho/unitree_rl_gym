@@ -270,7 +270,8 @@ class eetrack:
             for l in eetrack_subgoals
         ]
         eetrack_subgoals = th.stack(eetrack_subgoals, axis=1)
-        eetrack_quat = self.eetrack_quat_w.unsqueeze(1).repeat(1, 101 + self.number_of_subgoals + 1, 1)
+        # eetrack_quat = self.eetrack_quat_w.unsqueeze(1).repeat(1, 101 + self.number_of_subgoals + 1, 1)
+        eetrack_quat = torch.tensor(quat_hand_w_left).unsqueeze(0).unsqueeze(1).repeat(1, 101 + self.number_of_subgoals + 1, 1)
 
         return th.cat([eetrack_subgoals, eetrack_quat], dim=2)
 
@@ -291,9 +292,7 @@ class eetrack:
                 update_time = 0.02
                 self.sg_idx = int((time - 1) / update_time + 1)
             # self.sg_idx.clamp_(0, self.number_of_subgoals + 1)
-        self.sg_idx = min(
-                self.sg_idx,
-                self.eetrack_subgoal.shape[-2] - 1)
+        self.sg_idx = 0
         self.next_command_s_left = self.eetrack_subgoal[..., self.sg_idx, :]
 
     def get_command(self, root_state_w):
