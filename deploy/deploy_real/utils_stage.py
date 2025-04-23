@@ -78,6 +78,7 @@ class EETrackObservation:
                                       config.motor_joint)
         # bring default values
         self.prev_pelvis_height = None
+        self.curr_joint_pos = None
     
     def _base_ang_vel(self, low_state: LowStateHG):
         ang_vel = np.array([low_state.imu_state.gyroscope],
@@ -115,6 +116,7 @@ class EETrackObservation:
         joint_pos = np.zeros(self.num_lab_joint, dtype=np.float32)
         joint_vel = np.zeros(self.num_lab_joint, dtype=np.float32)
         joint_pos[self.lab_from_mot] = [low_state.motor_state[i_mot].q for i_mot in range(self.num_lab_joint)]
+        self.curr_joint_pos = joint_pos.copy()
         joint_pos -= self.config.lab_joint_offsets
         joint_vel[self.lab_from_mot] = [low_state.motor_state[i_mot].dq for i_mot in range(self.num_lab_joint)]
         return joint_pos, joint_vel

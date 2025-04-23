@@ -454,10 +454,15 @@ class Controller:
 
             # interpolate
             eetrack_counter = self.counter - self.eetrack_initial_counter
-            total_count = 150
-            if eetrack_counter < total_count:
+            total_count = 25
+            # if eetrack_counter < total_count:
+            if True:
                 alpha = eetrack_counter / total_count
-                target_dof_pos = alpha * eetrack_target_dof_pos + (1-alpha) * sit_target_dof_pos
+                alpha = np.clip(0.1 * np.exp(2.5*alpha), 0, 0.5)
+                current_joint_pos = self.eetrack_obsmap.curr_joint_pos
+                delta_joint_pos = eetrack_target_dof_pos - current_joint_pos
+                delta_joint_pos = np.clip(delta_joint_pos, -alpha, alpha)
+                target_dof_pos = current_joint_pos + delta_joint_pos
             else:
                 target_dof_pos = eetrack_target_dof_pos
 
