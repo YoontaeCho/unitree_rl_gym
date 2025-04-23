@@ -476,17 +476,6 @@ class Controller:
                                     (1-self.config.later_smoothing) * self.prev_joint_pos_target
             self.prev_joint_pos_target = target_dof_pos
         
-        # if self.task =="eetrack":
-        #     eetrack_counter = self.counter - self.eetrack_initial_counter
-        #     if self.prev_joint_pos_target is not None:
-        #         if eetrack_counter < 200:
-        #             target_dof_pos = 0.3 * target_dof_pos + \
-        #                             (1 - 0.3) * self.prev_joint_pos_target
-        #         else:
-        #             target_dof_pos = self.config.later_smoothing * target_dof_pos + \
-        #                             (1 - self.config.later_smoothing) * self.prev_joint_pos_target
-        #     self.prev_joint_pos_target = target_dof_pos
-
         # observation dumping
         self.dump_observations_and_joint_pos_target(raw_target_dof_pos, target_dof_pos)
 
