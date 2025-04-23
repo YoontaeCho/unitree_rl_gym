@@ -204,7 +204,7 @@ exp_name: "dao_stand"
 # nominal
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/epi_10_export.pt"
 # daop
-sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/daop_sit_exported.pt"
+sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/sit_ver_3.pt"
 # daop with large joint vel noise
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/daop_sit_large_vel_noise.pt"
 
