@@ -19,4 +19,7 @@ class E2EConfig(Config):
 
         self.sit_policy_path = self._config["sit_policy_path"].replace("{LEGGED_GYM_ROOT_DIR}", LEGGED_GYM_ROOT_DIR)
         self.eetrack_policy_path = self._config["eetrack_policy_path"].replace("{LEGGED_GYM_ROOT_DIR}", LEGGED_GYM_ROOT_DIR)
+
+        if getattr(self._config, "eetrack_joint_offsets", None):
+            self.eetrack_joint_offsets = self.config["eetrack_joint_offsets"]
         

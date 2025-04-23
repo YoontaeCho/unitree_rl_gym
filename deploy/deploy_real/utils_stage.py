@@ -359,3 +359,47 @@ class VelocityHeightCommand:
                                     )
         self.pelvis_lin_vel_z_w = pelvis_lin_vel_z_w
         return np.asarray([pelvis_lin_vel_z_w, target_height])
+
+
+class SitActionVer2:
+    def __init__(self, config, robot_model: Robot):
+        self.robot_model = robot_model
+        self.lim_lo_pin = self.robot_model.robot.model.lowerPositionLimit
+        self.lim_hi_pin = self.robot_model.robot.model.upperPositionLimit
+        self.config = config
+        self.mot_from_lab = index_map(
+            self.config.motor_joint,
+            self.config.lab_joint
+            )
+
+
+
+    def __call__(self, action):
+        # motor order
+        target_dof_pos = np.zeros(29)
+        # checked
+        target_dof_pos[self.mot_from_lab] = 0.5 * action
+
+
+        target_dof_pos = np.clip(
+                target_dof_pos,
+                self.lim_lo_pin[self.pin_from_mot],
+                self.lim_hi_pin[self.pin_from_mot]
+            )
+
+class EETrackActionVer2(SitActionVer2):
+    def __call__(self, action):
+        # motor order
+        default_offset = np.zeros(29)
+        default_offset[self.mot_from_lab] += np.asarray(self.config.eetrack_joint_offsets)
+
+        target_dof_pos = np.zeros(29)
+        # checked
+        target_dof_pos[self.mot_from_lab] = 0.5 * action
+
+
+        target_dof_pos = np.clip(
+                target_dof_pos,
+                self.lim_lo_pin[self.pin_from_mot],
+                self.lim_hi_pin[self.pin_from_mot]
+            )
