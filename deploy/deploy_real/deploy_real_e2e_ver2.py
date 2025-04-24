@@ -384,24 +384,25 @@ class Controller:
         if self.terminate_by_pelvis_condition(xyz, quat_wxyz):
             raise ValueError("Terminated by pelvis condition.")
 
-        if self.task == "sit":
+        # if self.task == "sit":
             # Press down button to sit
-            curr_keymap = self.remote_controller.button[KeyMap.down] == 1
-            if curr_keymap:
-                self.sitting = True
+        curr_keymap = self.remote_controller.button[KeyMap.down] == 1
+        if curr_keymap:
+            self.sitting = True
 
-            height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.04, sitting=self.sitting)
-            # height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.00, sitting=self.sitting)
+        height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.04, sitting=self.sitting)
+        # height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.00, sitting=self.sitting)
 
-            # For stage 1 & 2.
-            self.obs = self.sit_obsmap(self.low_state, height_command)
+        # For stage 1 & 2.
+        self.obs = self.sit_obsmap(self.low_state, height_command)
 
-            obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
-            obs_tensor = obs_tensor.detach().clone().float()
-            self.sit_action = self.sit_policy(obs_tensor).detach().numpy().squeeze()
+        obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
+        obs_tensor = obs_tensor.detach().clone().float()
+        self.sit_action = self.sit_policy(obs_tensor).detach().numpy().squeeze()
 
-            # target_dof_pos : motor joint ordered
-            sit_target_dof_pos = self.sit_actmap(self.sit_action)
+        # target_dof_pos : motor joint ordered
+        sit_target_dof_pos = self.sit_actmap(self.sit_action)
+        if self.task == "sit":
             target_dof_pos = sit_target_dof_pos
 
             # self.print_sit_status()
@@ -457,16 +458,20 @@ class Controller:
 
             # interpolate
             eetrack_counter = self.counter - self.eetrack_initial_counter
-            total_count = 25
+            total_count = 100
             # if eetrack_counter < total_count:
-            if True:
+            if False:
                 x = eetrack_counter / total_count
                 alpha = np.clip(0.1 * np.exp(2.5*x), 0, 0.5)
                 self.current_joint_pos[self.mot_from_lab] = self.eetrack_obsmap.curr_joint_pos
                 delta_joint_pos = eetrack_target_dof_pos - self.current_joint_pos
                 delta_joint_pos = np.clip(delta_joint_pos, -alpha, alpha)
                 target_dof_pos = self.current_joint_pos + delta_joint_pos
-
+            if eetrack_counter < total_count:
+                alpha = eetrack_counter / total_count
+                target_dof_pos = alpha * eetrack_target_dof_pos + (1-alpha) * sit_target_dof_pos
+            else:
+                target_dof_pos = eetrack_target_dof_pos
             # if True:
             #     for i in range(self.num_joints):
                     # self.config.kps[i] *= 0.5

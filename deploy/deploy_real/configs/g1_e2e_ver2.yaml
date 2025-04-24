@@ -245,7 +245,13 @@ sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/sit_ver3.pt"
 
 # EETRACK
 # eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/dao_low_entropy_delay_curr_subgoal_metric_th_curr_min_step.pt"
-eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/eetrack_0422.pt"
+# sit maintain
+# eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/dao_abs_action_sitting_only_low_entropy.pt"
+# eetrack
+# eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/eetrack_0422.pt"
+# eetrack
+eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/eetrack_1cm.pt"
+
 policy_path: ""
 
 slow_bound: 0.2
