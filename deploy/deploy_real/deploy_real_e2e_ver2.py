@@ -146,9 +146,12 @@ class Controller:
         self.sit_observations = np.zeros((0, self.config.sit_obs_dim))
         self.eetrack_observations = np.zeros((0, self.config.eetrack_obs_dim))
 
-        self.actions = np.zeros((0, self.num_joints))
+        self.sit_actions = np.zeros((0, self.num_joints))
+        self.eetrack_actions = np.zeros((0, self.num_joints))
         self.raw_joint_pos_targets = np.zeros((0, self.num_joints))
         self.joint_pos_targets = np.zeros((0, self.num_joints))
+
+        self.current_joint_pos = np.zeros(self.num_joints)
 
 
         # counter
@@ -208,7 +211,7 @@ class Controller:
         elif config.msg_type == "go":
             init_cmd_go(self.low_cmd, weak_motor=self.config.weak_motor)
 
-        self.mode = Mode.policy
+        self.mode = Mode.wait
         
 
         self.is_eetrack_first_iter = True
@@ -259,7 +262,7 @@ class Controller:
     def zero_torque_state(self):
         if self.remote_controller.button[KeyMap.start] == 1:
             self._mode_change = True
-            self.mode = Mode.default_pos
+            self.mode = Mode.policy
         else:
             create_zero_cmd(self.low_cmd)
             self.send_cmd(self.low_cmd)
@@ -395,10 +398,10 @@ class Controller:
 
             obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
             obs_tensor = obs_tensor.detach().clone().float()
-            self.action = self.sit_policy(obs_tensor).detach().numpy().squeeze()
+            self.sit_action = self.sit_policy(obs_tensor).detach().numpy().squeeze()
 
             # target_dof_pos : motor joint ordered
-            sit_target_dof_pos = self.sit_actmap(self.action)
+            sit_target_dof_pos = self.sit_actmap(self.sit_action)
             target_dof_pos = sit_target_dof_pos
 
             # self.print_sit_status()
@@ -446,22 +449,28 @@ class Controller:
 
             obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
             obs_tensor = obs_tensor.detach().clone().float()
-            self.action = self.eetrack_policy(obs_tensor).detach().numpy().squeeze()
+            self.eetrack_action = self.eetrack_policy(obs_tensor).detach().numpy().squeeze()
 
             # target_dof_pos : motor joint ordered
-            eetrack_target_dof_pos = self.eetrack_actmap(self.action)
+            eetrack_target_dof_pos = self.eetrack_actmap(self.eetrack_action)
+            # target_dof_pos = eetrack_target_dof_pos
 
             # interpolate
             eetrack_counter = self.counter - self.eetrack_initial_counter
             total_count = 25
             # if eetrack_counter < total_count:
             if True:
-                alpha = eetrack_counter / total_count
-                alpha = np.clip(0.1 * np.exp(2.5*alpha), 0, 0.5)
-                current_joint_pos = self.eetrack_obsmap.curr_joint_pos
-                delta_joint_pos = eetrack_target_dof_pos - current_joint_pos
+                x = eetrack_counter / total_count
+                alpha = np.clip(0.1 * np.exp(2.5*x), 0, 0.5)
+                self.current_joint_pos[self.mot_from_lab] = self.eetrack_obsmap.curr_joint_pos
+                delta_joint_pos = eetrack_target_dof_pos - self.current_joint_pos
                 delta_joint_pos = np.clip(delta_joint_pos, -alpha, alpha)
-                target_dof_pos = current_joint_pos + delta_joint_pos
+                target_dof_pos = self.current_joint_pos + delta_joint_pos
+
+            # if True:
+            #     for i in range(self.num_joints):
+                    # self.config.kps[i] *= 0.5
+                    # self.config.kds[i] = 0.0
 
         raw_target_dof_pos = target_dof_pos.copy()
 
@@ -509,12 +518,12 @@ class Controller:
         # log observation
         if self.task == "sit":
             self.sit_observations = np.vstack((self.sit_observations, self.obs))
+            self.sit_actions = np.vstack((self.sit_actions, self.sit_action))
         elif self.task == "eetrack":
             self.eetrack_observations = np.vstack((self.eetrack_observations, self.obs))
+            self.eetrack_actions = np.vstack((self.eetrack_actions, self.eetrack_action))
         else:
             raise ValueError("Invalid task")
-        # log action
-        self.actions = np.vstack((self.actions, self.action))
         
             
     def log_metrics_and_trajectories(self):     
@@ -544,7 +553,8 @@ class Controller:
             "timestamp_low_freq": self.timestamp_low_freq,
             "sit_observations": self.sit_observations,
             "eetrack_observations": self.eetrack_observations,
-            "actions": self.actions,
+            "sit_actions": self.sit_actions,
+            "eetrack_actions": self.eetrack_actions,
             "raw_joint_pos_targets": self.raw_joint_pos_targets,
             "joint_pos_targets" : self.joint_pos_targets
         }

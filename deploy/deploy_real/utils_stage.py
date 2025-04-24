@@ -111,13 +111,13 @@ class EETrackObservation:
         hand_pose = np.concatenate([hp_l[0], hp_r[0], hp_l[1], hp_r[1]])
         return hand_pose
     
-    def _joint_pos_vel(self, low_state: LowStateHG):
+    def _joint_pos_vel(self, low_state: LowStateHG, offset):
         # Map `low_state` to index-mapped joint_{pos,vel}
         joint_pos = np.zeros(self.num_lab_joint, dtype=np.float32)
         joint_vel = np.zeros(self.num_lab_joint, dtype=np.float32)
         joint_pos[self.lab_from_mot] = [low_state.motor_state[i_mot].q for i_mot in range(self.num_lab_joint)]
         self.curr_joint_pos = joint_pos.copy()
-        joint_pos -= self.config.lab_joint_offsets
+        joint_pos -= offset
         joint_vel[self.lab_from_mot] = [low_state.motor_state[i_mot].dq for i_mot in range(self.num_lab_joint)]
         return joint_pos, joint_vel
     
@@ -148,7 +148,7 @@ class EETrackObservation:
         projected_gravity = self._projected_gravity()
         foot_pose = self._foot_pose()
         hand_pose = self._hand_pose()
-        joint_pos, joint_vel = self._joint_pos_vel(low_state)
+        joint_pos, joint_vel = self._joint_pos_vel(low_state, self.config.eetrack_joint_offsets)
         pelvis_height = self._pelvis_height()
 
         obs = [
@@ -181,7 +181,7 @@ class SitObservation(EETrackObservation):
         projected_gravity = self._projected_gravity()
         foot_pose = self._foot_pose()
         hand_pose = self._hand_pose()
-        joint_pos, joint_vel = self._joint_pos_vel(low_state)
+        joint_pos, joint_vel = self._joint_pos_vel(low_state, self.config.lab_joint_offsets)
         pelvis_height = self._pelvis_height()
         prev_pelvis_height = self._pelvis_height_prev()
 
@@ -371,9 +371,11 @@ class SitActionVer2:
             self.config.motor_joint,
             self.config.lab_joint
             )
-
-
-
+        self.pin_from_mot = index_map(
+            self.robot_model.joint_names,
+            self.config.motor_joint
+            )
+        
     def __call__(self, action):
         # motor order
         target_dof_pos = np.zeros(29)
@@ -386,20 +388,18 @@ class SitActionVer2:
                 self.lim_lo_pin[self.pin_from_mot],
                 self.lim_hi_pin[self.pin_from_mot]
             )
+        return target_dof_pos
 
 class EETrackActionVer2(SitActionVer2):
     def __call__(self, action):
         # motor order
-        default_offset = np.zeros(29)
-        default_offset[self.mot_from_lab] += np.asarray(self.config.eetrack_joint_offsets)
-
         target_dof_pos = np.zeros(29)
         # checked
-        target_dof_pos[self.mot_from_lab] = 0.5 * action
-
+        target_dof_pos[self.mot_from_lab] = 0.5 * action + np.asarray(self.config.eetrack_joint_offsets)
 
         target_dof_pos = np.clip(
                 target_dof_pos,
                 self.lim_lo_pin[self.pin_from_mot],
                 self.lim_hi_pin[self.pin_from_mot]
             )
+        return target_dof_pos

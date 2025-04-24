@@ -292,6 +292,7 @@ class eetrack:
                 update_time = 0.02
                 self.sg_idx = int((time - 1) / update_time + 1)
             # self.sg_idx.clamp_(0, self.number_of_subgoals + 1)
+        # FIXME
         self.sg_idx = 0
         self.next_command_s_left = self.eetrack_subgoal[..., self.sg_idx, :]
 
