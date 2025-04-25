@@ -22,4 +22,8 @@ class E2EConfig(Config):
 
         # ver2
         self.eetrack_joint_offsets = self._config["eetrack_joint_offsets"]
-        
+        if 'rest_joint' in self._config:
+            self.rest_joint = self._config['rest_joint']
+
+        if 'arm_joint' in self._config:
+            self.arm_joint = self._config['arm_joint']

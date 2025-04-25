@@ -111,6 +111,13 @@ def interpolate_position(pos1, pos2, n_segments):
     interp_pos.append(pos2)
     return interp_pos
 
+def interpolate_quaternion(quat1, quat2, n_segments):
+    quat1 = torch.from_numpy(quat1[None, None, ...])
+    quat2 = quat2[None, ...]
+    t = torch.linspace(0, 1, n_segments + 1).view(1, -1, 1)
+    interp_q = math_utils.slerp_vectorized(quat1, quat2, t)
+    interp_q = interp_q[0]
+    return interp_q
 
 class Range:
     def __init__(self, 
@@ -243,13 +250,14 @@ class eetrack:
             ref_frame="world",
             rot_type='quat'
         )
+
+        self.to_eetrack_sgs_num = 200
         
         # initial hand pos -> eetrack start pos
-        # breakpoint()
         to_eeline_subgoals = interpolate_position(
             torch.tensor(pos_hand_w_left).unsqueeze(0),
             self.eetrack_start_w,
-            100
+            self.to_eetrack_sgs_num
         )
 
         # eetrack start pos -> eetrack end pos
@@ -270,8 +278,16 @@ class eetrack:
             for l in eetrack_subgoals
         ]
         eetrack_subgoals = th.stack(eetrack_subgoals, axis=1)
-        # eetrack_quat = self.eetrack_quat_w.unsqueeze(1).repeat(1, 101 + self.number_of_subgoals + 1, 1)
-        eetrack_quat = torch.tensor(quat_hand_w_left).unsqueeze(0).unsqueeze(1).repeat(1, 101 + self.number_of_subgoals + 1, 1)
+
+
+        to_eetrack_quat = interpolate_quaternion(
+            quat_hand_w_left,
+            self.eetrack_quat_w,
+            self.to_eetrack_sgs_num
+        ).unsqueeze(0)
+        on_eetrack_quat = self.eetrack_quat_w.unsqueeze(1).repeat(1, self.number_of_subgoals + 1, 1)
+        
+        eetrack_quat = torch.cat([to_eetrack_quat, on_eetrack_quat], dim=1)
 
         return th.cat([eetrack_subgoals, eetrack_quat], dim=2)
 
@@ -291,9 +307,10 @@ class eetrack:
                 # subgoal is updated on every 0.02s
                 update_time = 0.02
                 self.sg_idx = int((time - 1) / update_time + 1)
-            # self.sg_idx.clamp_(0, self.number_of_subgoals + 1)
+                # if self.sg_idx < 15
+                self.sg_idx = min(self.sg_idx , self.to_eetrack_sgs_num + self.number_of_subgoals + 1)
         # FIXME
-        self.sg_idx = 0
+        # self.sg_idx = 0
         self.next_command_s_left = self.eetrack_subgoal[..., self.sg_idx, :]
 
     def get_command(self, root_state_w):

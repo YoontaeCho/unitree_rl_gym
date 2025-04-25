@@ -121,6 +121,13 @@ class EETrackObservation:
         joint_vel[self.lab_from_mot] = [low_state.motor_state[i_mot].dq for i_mot in range(self.num_lab_joint)]
         return joint_pos, joint_vel
     
+    def _joint_pos_absolute(self, low_state: LowStateHG, offset):
+        # Map `low_state` to index-mapped joint_{pos,vel}
+        joint_pos = np.zeros(self.num_lab_joint, dtype=np.float32)
+        joint_pos[self.lab_from_mot] = [low_state.motor_state[i_mot].q for i_mot in range(self.num_lab_joint)]
+
+        return joint_pos
+    
     def _pelvis_height(self):
         world_from_pelvis = self.tf_buffer.lookup_transform(
             'world',
@@ -150,8 +157,6 @@ class EETrackObservation:
         hand_pose = self._hand_pose()
         joint_pos, joint_vel = self._joint_pos_vel(low_state, self.config.eetrack_joint_offsets)
         pelvis_height = self._pelvis_height()
-
-        # hands_command = np.zeros(6)
 
         obs = [
             base_ang_vel,       # 3
@@ -373,6 +378,10 @@ class SitActionVer2:
             self.config.motor_joint,
             self.config.lab_joint
             )
+        self.lab_from_mot = index_map(
+            self.config.lab_joint,
+            self.config.motor_joint
+            )
         self.pin_from_mot = index_map(
             self.robot_model.joint_names,
             self.config.motor_joint
@@ -398,6 +407,81 @@ class EETrackActionVer2(SitActionVer2):
         target_dof_pos = np.zeros(29)
         # checked
         target_dof_pos[self.mot_from_lab] = 0.5 * action + np.asarray(self.config.eetrack_joint_offsets)
+
+        target_dof_pos = np.clip(
+                target_dof_pos,
+                self.lim_lo_pin[self.pin_from_mot],
+                self.lim_hi_pin[self.pin_from_mot]
+            )
+        return target_dof_pos
+
+
+
+class EETrackObservationHW(EETrackObservation):
+    def __call__(self,
+                 low_state: LowStateHG,
+                 hands_command: np.ndarray,
+                 initial_pos: np.ndarray
+                 ):
+
+        base_ang_vel = self._base_ang_vel(low_state)
+        projected_gravity = self._projected_gravity()
+        foot_pose = self._foot_pose()
+        hand_pose = self._hand_pose()
+        joint_pos, joint_vel = self._joint_pos_vel(low_state, self.config.lab_joint_offsets)
+        joint_pos_abs = self._joint_pos_absolute(low_state, self.config.lab_joint_offsets)
+        pelvis_height = self._pelvis_height()
+
+        arm_index = [11, 15, 19, 21, 23, 25, 27]
+        rest_index = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 16, 17, 18, 20, 22, 24, 26, 28]
+        # arm_initial_pos = initial_pos[arm_index]
+        initial_pos_lab = np.zeros(29)
+        initial_pos_lab[self.lab_from_mot] = initial_pos
+        rest_initial_pos = initial_pos_lab[rest_index]
+        rest_heuristic_action = initial_pos_lab[rest_index] - joint_pos_abs[rest_index] 
+
+        hands_command = np.zeros(6)
+
+        obs = [
+            base_ang_vel,       # 3
+            projected_gravity,  # 3 6
+            foot_pose,          # 12 18
+            hand_pose,          # 12 30
+            joint_pos,          # 29 59
+            rest_initial_pos,  # 22 81
+            rest_heuristic_action, # 22 103
+            joint_vel,          # 29 132
+            hands_command,      # 6 138
+            pelvis_height       # 1 139
+        ]
+
+        return np.concatenate(obs, axis=-1)
+
+
+class EETrackActionHW(SitActionVer2):
+    def __call__(self, action, obs, initial_pos):
+        arm_index = [11, 15, 19, 21, 23, 25, 27]
+        rest_index = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 16, 17, 18, 20, 22, 24, 26, 28]
+        # lab order
+        q = obs[..., 30:59]
+
+        # mot
+        target_dof_pos = np.zeros(29)
+        # lab
+        arm_only = np.zeros(29)
+        arm_only += q
+        arm_only += np.asarray(self.config.lab_joint_offsets)
+        arm_only[arm_index] += action
+
+        initial_pos_lab = np.zeros(29)
+        initial_pos_lab[self.lab_from_mot] = initial_pos
+
+
+        mot_from_rest = index_map(self.config.motor_joint, self.config.rest_joint)
+        mot_from_arm = index_map(self.config.motor_joint, self.config.arm_joint)
+    
+        target_dof_pos[mot_from_rest] = initial_pos_lab[rest_index]
+        target_dof_pos[mot_from_arm] = arm_only[arm_index]
 
         target_dof_pos = np.clip(
                 target_dof_pos,

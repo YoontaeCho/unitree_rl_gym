@@ -21,7 +21,7 @@ from common.crc import CRC
 from enum import Enum
 from ikctrl import IKCtrl
 
-import utils_stage as us
+import utils_stage_hw as us
 import utils_eetrack as ue
 import utils_robot as ur
 
@@ -121,7 +121,7 @@ class Controller:
         self.prev_joint_pos_target = None
         
         # log path
-        self.logpath = Path('/tmp/e2e/')
+        self.logpath = Path('/tmp/hw/')
         self.logpath.mkdir(parents=True, exist_ok=True)
 
         # == build index map ==
@@ -147,7 +147,7 @@ class Controller:
         self.eetrack_observations = np.zeros((0, self.config.eetrack_obs_dim))
 
         self.sit_actions = np.zeros((0, self.num_joints))
-        self.eetrack_actions = np.zeros((0, self.num_joints))
+        self.eetrack_actions = np.zeros((0, 7))
         self.raw_joint_pos_targets = np.zeros((0, self.num_joints))
         self.joint_pos_targets = np.zeros((0, self.num_joints))
 
@@ -174,18 +174,18 @@ class Controller:
         
         self.sit_robot = ur.Robot(
             '../../resources/robots/g1_description/g1_29dof_rev_1_0_replace_with_welder.urdf')
-        self.sit_actmap = us.SitActionVer2(config, self.sit_robot)
+        self.sit_actmap = us.SimpleAction(config, self.sit_robot)
         self.vhcommand = us.VelocityHeightCommand(config)
 
 
         # eetrack
         self.eetrack_robot = ur.Robot(
             '../../resources/robots/g1_description/g1_29dof_rev_1_0_replace_with_welder.urdf')
-        self.eetrack_actmap = us.EETrackActionVer2(config, self.eetrack_robot)
+        self.eetrack_actmap = us.EETrackActionHW(config, self.eetrack_robot)
         self.eetrack_command = None
         self.eetrack_policy = th.jit.load(config.eetrack_policy_path)
         self.eetrack_policy.eval()
-        self.eetrack_obsmap = us.EETrackObservation(config, self.tf_buffer
+        self.eetrack_obsmap = us.EETrackObservationHW(config, self.tf_buffer
         )
 
         if config.msg_type == "hg":
@@ -384,26 +384,26 @@ class Controller:
         if self.terminate_by_pelvis_condition(xyz, quat_wxyz):
             raise ValueError("Terminated by pelvis condition.")
 
-        # if self.task == "sit":
-            # Press down button to sit
-        curr_keymap = self.remote_controller.button[KeyMap.down] == 1
-        if curr_keymap:
-            self.sitting = True
-
-        height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.04, sitting=self.sitting)
-        # height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.00, sitting=self.sitting)
-
-        # For stage 1 & 2.
-        self.obs = self.sit_obsmap(self.low_state, height_command)
-
-        obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
-        obs_tensor = obs_tensor.detach().clone().float()
-        self.sit_action = self.sit_policy(obs_tensor).detach().numpy().squeeze()
-
-        # target_dof_pos : motor joint ordered
-        sit_target_dof_pos = self.sit_actmap(self.sit_action)
         if self.task == "sit":
-            target_dof_pos = sit_target_dof_pos
+            # Press down button to sit
+            curr_keymap = self.remote_controller.button[KeyMap.down] == 1
+            if curr_keymap:
+                self.sitting = True
+
+            height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.04, sitting=self.sitting)
+            # height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.00, sitting=self.sitting)
+
+            # For stage 1 & 2.
+            self.obs = self.sit_obsmap(self.low_state, height_command)
+
+            obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
+            obs_tensor = obs_tensor.detach().clone().float()
+            self.sit_action = self.sit_policy(obs_tensor).detach().numpy().squeeze()
+
+            # target_dof_pos : motor joint ordered
+            self.sit_target_dof_pos = self.sit_actmap(self.sit_action, self.obs)
+        # if self.task == "sit":
+            target_dof_pos = self.sit_target_dof_pos
 
             # self.print_sit_status()
             
@@ -420,9 +420,9 @@ class Controller:
                                    ue.Range(
                                         # Initial pose of the end_effector in the base (pelvis) frame
                                         # Currently, it is fixed.
-                                        init_x_b=(0.4877,0.4877),
-                                        init_y_b=(0.3531, 0.3531),
-                                        init_z_b=(0.0, 0.0),
+                                        init_x_b=(0.5, 0.5),
+                                        init_y_b=(0.3, 0.3),
+                                        init_z_b=(-0.05, -0.05),
                                         # in degree
                                         init_roll_b=(0.0, 0.0),
                                         init_pitch_b=(20.0, 20.0),
@@ -446,14 +446,14 @@ class Controller:
             )
             self.publish_hand_target()
 
-            self.obs = self.eetrack_obsmap(self.low_state, hands_command)
+            self.obs = self.eetrack_obsmap(self.low_state, hands_command, self.sit_target_dof_pos)
 
             obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
             obs_tensor = obs_tensor.detach().clone().float()
             self.eetrack_action = self.eetrack_policy(obs_tensor).detach().numpy().squeeze()
 
             # target_dof_pos : motor joint ordered
-            eetrack_target_dof_pos = self.eetrack_actmap(self.eetrack_action)
+            eetrack_target_dof_pos = self.eetrack_actmap(self.eetrack_action, self.obs, self.sit_target_dof_pos)
             # target_dof_pos = eetrack_target_dof_pos
 
             # interpolate
@@ -461,18 +461,16 @@ class Controller:
             total_count = 100
             # if eetrack_counter < total_count:
             if False:
-                # CLAMP
                 x = eetrack_counter / total_count
                 alpha = np.clip(0.1 * np.exp(2.5*x), 0, 0.5)
                 self.current_joint_pos[self.mot_from_lab] = self.eetrack_obsmap.curr_joint_pos
                 delta_joint_pos = eetrack_target_dof_pos - self.current_joint_pos
                 delta_joint_pos = np.clip(delta_joint_pos, -alpha, alpha)
                 target_dof_pos = self.current_joint_pos + delta_joint_pos
-            # if eetrack_counter < total_count:
             if False:
-                # LERP
-                alpha = eetrack_counter / total_count
-                target_dof_pos = alpha * eetrack_target_dof_pos + (1-alpha) * sit_target_dof_pos
+                if eetrack_counter < total_count:
+                    alpha = eetrack_counter / total_count
+                    target_dof_pos = alpha * eetrack_target_dof_pos + (1-alpha) * self.sit_target_dof_pos
             else:
                 target_dof_pos = eetrack_target_dof_pos
             # if True:

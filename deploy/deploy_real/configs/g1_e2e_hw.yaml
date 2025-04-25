@@ -78,52 +78,38 @@ arm_joint: [
     "left_wrist_yaw_joint"
 ]
 
-lab_joint_eetrack: [
-    'left_hip_pitch_joint', 
-    'right_hip_pitch_joint', 
-    'left_hip_roll_joint', 
-    'right_hip_roll_joint', 
-    'waist_roll_joint', 
-    'left_hip_yaw_joint', 
-    'right_hip_yaw_joint', 
-    'waist_pitch_joint', 
-    'left_knee_joint', 
-    'right_knee_joint', 
-    'right_shoulder_pitch_joint', 
+rest_joint: [
+      'left_hip_pitch_joint',
+    'right_hip_pitch_joint',
+    'waist_yaw_joint',
+    'left_hip_roll_joint',
+    'right_hip_roll_joint',
+    'waist_roll_joint',
+    'left_hip_yaw_joint',
+    'right_hip_yaw_joint',
+    'waist_pitch_joint',
+    'left_knee_joint',
+    'right_knee_joint',
+    'right_shoulder_pitch_joint',
     'left_ankle_pitch_joint', 
-    'right_ankle_pitch_joint', 
-    'right_shoulder_roll_joint', 
-    'left_ankle_roll_joint', 
-    'right_ankle_roll_joint', 
-    'right_shoulder_yaw_joint', 
-    'right_elbow_joint', 
-    'right_wrist_roll_joint', 
-    'right_wrist_pitch_joint', 
-    'right_wrist_yaw_joint',
-    'waist_yaw_joint', 
-    'left_shoulder_pitch_joint', 
-    'left_shoulder_roll_joint', 
-    'left_shoulder_yaw_joint', 
-    'left_elbow_joint', 
-    'left_wrist_roll_joint', 
-    'left_wrist_pitch_joint', 
-    'left_wrist_yaw_joint'
+    'right_ankle_pitch_joint',
+    'right_shoulder_roll_joint',
+    'left_ankle_roll_joint',
+    'right_ankle_roll_joint',
+    'right_shoulder_yaw_joint',
+    'right_elbow_joint',
+    'right_wrist_roll_joint',
+    'right_wrist_pitch_joint',
+    'right_wrist_yaw_joint'
 ]
 
-# kps: [
-#     200, 150, 150, 200, 20, 20, # left leg
-#     200, 150, 150, 200, 20, 20, # right leg
-#     150, 150, 150,              # waist
-#     40, 40, 40, 40, 40, 40, 40, # left arm
-#     40, 40, 40, 40, 40, 40, 40  # right arm
-# ]
 
 kps: [
     200, 150, 150, 200, 20, 20, # left leg
     200, 150, 150, 200, 20, 20, # right leg
     150, 150, 150,              # waist
-    25, 25, 25, 25, 25, 25, 25, # left arm
-    25, 25, 25, 25, 25, 25, 25  # right arm
+    40, 40, 40, 40, 40, 40, 40, # left arm
+    40, 40, 40, 40, 40, 40, 40  # right arm
 ]
 
 # NOTE:
@@ -246,7 +232,7 @@ exp_name: "dao_stand"
 # nominal
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/epi_10_export.pt"
 # daop
-sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/sit_ver3.pt"
+sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/daop_sit_exported.pt"
 # daop with large joint vel noise
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/daop_sit_large_vel_noise.pt"
 
@@ -258,7 +244,9 @@ sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/sit_ver3.pt"
 # eetrack
 # eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/eetrack_0422.pt"
 # eetrack
-eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/dao_no_sga_smooth.pt"
+# eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/eetrack_1cm.pt"
+eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/policy_80.pt"
+
 
 policy_path: ""
 
@@ -271,4 +259,4 @@ later_smoothing: 1.0
 kpkd_smoothing: 1.
 
 sit_obs_dim: 92 # for nominal obs
-eetrack_obs_dim: 95 # for nominal obs
+eetrack_obs_dim: 139 # for nominal obs

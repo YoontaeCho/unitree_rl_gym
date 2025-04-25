@@ -1609,6 +1609,31 @@ def slerp(q0: torch.Tensor, q1: torch.Tensor, steps: torch.Tensor):
 
     return quat_mul(q0, diff_quat)
 
+def safe_rotvec2quat_vectorized(rotvec: torch.Tensor, form: Literal["xyzw", "wxyz"] = "wxyz"):
+    # NOTE: Exactly the same as safe_rotvec2quat, but vectorized for performance
+    angle = torch.linalg.vector_norm(rotvec, dim=-1)
+    small_angle = angle <= 1e-3
+    large_angle = ~small_angle
+    scale = torch.empty_like(angle)
+    scale[small_angle] = 0.5 - angle[small_angle] ** 2 / 48 + angle[small_angle] ** 4 / 3840
+    scale[large_angle] = torch.sin(angle[large_angle] / 2) / angle[large_angle]
+
+    xyz = scale.unsqueeze(-1) * rotvec
+    w = torch.cos(angle / 2).unsqueeze(-1)
+    if form == "wxyz":
+        return torch.cat([w, xyz], dim=-1)
+    else:
+        return torch.cat([xyz, w], dim=-1)
+
+def slerp_vectorized(q0: torch.Tensor, q1: torch.Tensor, steps: torch.Tensor):
+    quat_diff = quat_mul(quat_conjugate(q0), q1)
+    quat_diff = quat_unique(quat_diff)
+    rot_vec = axis_angle_from_quat(quat_diff)
+    diff = steps * rot_vec
+    diff_quat = safe_rotvec2quat_vectorized(diff)
+    q0 = q0.expand(-1, diff_quat.shape[1], -1)
+    return quat_mul(q0, diff_quat)
+
 def main():
     quat = np.random.normal(size=4)
     quat /= np.linalg.norm(quat)
