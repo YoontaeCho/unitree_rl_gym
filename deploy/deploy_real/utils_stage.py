@@ -166,6 +166,109 @@ class EETrackObservation:
 
         return np.concatenate(obs, axis=-1)
     
+class EETrackObservationWithLastAction:
+    def __init__(self,
+                 config,
+                 tf_buffer: Buffer):
+        self.config = config
+        self.num_lab_joint = len(config.lab_joint)
+        self.tf_buffer = tf_buffer
+        self.lab_from_mot = index_map(config.lab_joint,
+                                      config.motor_joint)
+        # bring default values
+        self.prev_pelvis_height = None
+        self.curr_joint_pos = None
+    
+    def _base_ang_vel(self, low_state: LowStateHG):
+        ang_vel = np.array([low_state.imu_state.gyroscope],
+                           dtype=np.float32)
+        base_ang_vel = ang_vel.squeeze(0)
+        return base_ang_vel
+    
+    def _projected_gravity(self):
+        # TODO(ycho): check if the convention "q_base^{-1} @ g" holds.
+        world_from_pelvis = self.tf_buffer.lookup_transform(
+            'world',
+            'pelvis',
+            rp.time.Time()
+            # clock.get_time()
+        )
+        rxn = world_from_pelvis.transform.rotation
+        quat = np.array([rxn.w, rxn.x, rxn.y, rxn.z])
+        projected_gravity = get_gravity_orientation(quat)
+        return projected_gravity
+    
+    def _foot_pose(self):
+        fp_l = body_pose(self.tf_buffer, 'left_ankle_roll_link')
+        fp_r = body_pose(self.tf_buffer, 'right_ankle_roll_link')
+        foot_pose = np.concatenate([fp_l[0], fp_r[0], fp_l[1], fp_r[1]])
+        return foot_pose
+    
+    def _hand_pose(self):   
+        hp_l = body_pose(self.tf_buffer, 'end_effector')
+        hp_r = body_pose(self.tf_buffer, 'right_rubber_hand')
+        hand_pose = np.concatenate([hp_l[0], hp_r[0], hp_l[1], hp_r[1]])
+        return hand_pose
+    
+    def _joint_pos_vel(self, low_state: LowStateHG, offset):
+        # Map `low_state` to index-mapped joint_{pos,vel}
+        joint_pos = np.zeros(self.num_lab_joint, dtype=np.float32)
+        joint_vel = np.zeros(self.num_lab_joint, dtype=np.float32)
+        joint_pos[self.lab_from_mot] = [low_state.motor_state[i_mot].q for i_mot in range(self.num_lab_joint)]
+        self.curr_joint_pos = joint_pos.copy()
+        joint_pos -= offset
+        joint_vel[self.lab_from_mot] = [low_state.motor_state[i_mot].dq for i_mot in range(self.num_lab_joint)]
+        return joint_pos, joint_vel
+    
+    def _pelvis_height(self):
+        world_from_pelvis = self.tf_buffer.lookup_transform(
+            'world',
+            'pelvis',
+            rp.time.Time()
+        )
+        pelvis_height = [world_from_pelvis.transform.translation.z + 0.04]
+        # pelvis_height = [world_from_pelvis.transform.translation.z + 0.00]
+        # print(f'pelvis_height: {pelvis_height}')
+        return pelvis_height
+    
+    def _pelvis_height_prev(self):
+        if self.prev_pelvis_height is None:
+            prev_pelvis_height = self._pelvis_height()
+        else:
+            prev_pelvis_height = self.prev_pelvis_height
+        return prev_pelvis_height
+
+    def __call__(self,
+                 low_state: LowStateHG,
+                 hands_command: np.ndarray,
+                 last_actions: np.ndarray,
+                 last_last_actions: np.ndarray,
+                 ):
+
+        base_ang_vel = self._base_ang_vel(low_state)
+        projected_gravity = self._projected_gravity()
+        foot_pose = self._foot_pose()
+        hand_pose = self._hand_pose()
+        joint_pos, joint_vel = self._joint_pos_vel(low_state, self.config.eetrack_joint_offsets)
+        pelvis_height = self._pelvis_height()
+
+        # hands_command = np.zeros(6)
+
+        obs = [
+            base_ang_vel,       # 3
+            projected_gravity,  # 3
+            foot_pose,          # 12
+            hand_pose,          # 12
+            joint_pos,          # 29
+            joint_vel,          # 29
+            hands_command,      # 2
+            pelvis_height,      # 1
+            last_actions,
+            last_last_actions
+        ]
+
+        return np.concatenate(obs, axis=-1)
+    
 
 class SitObservation(EETrackObservation):
     def _hand_pose(self):   
