@@ -423,15 +423,15 @@ class Controller:
                                         # Initial pose of the end_effector in the base (pelvis) frame
                                         # Currently, it is fixed.
                                         init_x_b=(0.4877,0.4877),
-                                        init_y_b=(0.3531, 0.3531),
+                                        init_y_b=(-0.3531, -0.3531),
                                         init_z_b=(0.0, 0.0),
                                         # in degree
                                         init_roll_b=(0.0, 0.0),
                                         init_pitch_b=(20.0, 20.0),
-                                        init_yaw_b=(20.0, 20.0),
+                                        init_yaw_b=(-20.0, - 20.0),
                                         # Direction of the end_effector path in the local (end_effector) frame
                                         dx_local=(0.0, 0.0),
-                                        dy_local=(1.0, 1.0),
+                                        dy_local=(-1.0, -1.0),
                                         dz_local=(0.0, 0.0),
                                    ))
                 

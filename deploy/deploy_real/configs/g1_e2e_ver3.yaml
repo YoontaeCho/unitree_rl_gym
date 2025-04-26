@@ -122,7 +122,7 @@ kps: [
     200, 150, 150, 200, 20, 20, # left leg
     200, 150, 150, 200, 20, 20, # right leg
     150, 150, 150,              # waist
-    25, 25, 25, 25, 25, 25, 25, # left arm
+    20, 20, 20, 20, 20, 20, 20, # left arm
     20, 20, 20, 20, 20, 20, 20  # right arm
 ]
 
@@ -258,7 +258,7 @@ sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/sit_ver3.pt"
 # eetrack
 # eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/eetrack_0422.pt"
 # eetrack
-eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/dao_no_sg_right_baseline.pt"
+eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/dao_eetrack_right_hand_last_last.pt"
 
 policy_path: ""
 
@@ -271,4 +271,6 @@ later_smoothing: 1.0
 kpkd_smoothing: 1.
 
 sit_obs_dim: 92 # for nominal obs
-eetrack_obs_dim: 95 # for nominal obs
+# eetrack_obs_dim: 95 # for nominal obs
+# eetrack_obs_dim: 124 # for last action obs
+eetrack_obs_dim: 153 # for last last action obs

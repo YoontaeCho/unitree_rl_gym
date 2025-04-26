@@ -299,6 +299,7 @@ class eetrack:
         """
         if self.is_initial_goal:
             self.sg_idx = 0
+            # self.eetrack_subgoal = self.create_subgoal()
             self.init_time = self.clock.get_time()
         else:
             # print(rp.time.Time().nanoseconds)

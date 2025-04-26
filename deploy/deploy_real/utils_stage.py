@@ -106,8 +106,8 @@ class EETrackObservation:
         return foot_pose
     
     def _hand_pose(self):   
-        hp_l = body_pose(self.tf_buffer, 'end_effector')
-        hp_r = body_pose(self.tf_buffer, 'right_rubber_hand')
+        hp_l = body_pose(self.tf_buffer, 'left_rubber_hand')
+        hp_r = body_pose(self.tf_buffer,  'end_effector')
         hand_pose = np.concatenate([hp_l[0], hp_r[0], hp_l[1], hp_r[1]])
         return hand_pose
     
@@ -205,8 +205,8 @@ class EETrackObservationWithLastAction:
         return foot_pose
     
     def _hand_pose(self):   
-        hp_l = body_pose(self.tf_buffer, 'end_effector')
-        hp_r = body_pose(self.tf_buffer, 'right_rubber_hand')
+        hp_l = body_pose(self.tf_buffer, 'left_rubber_hand')
+        hp_r = body_pose(self.tf_buffer,  'end_effector')
         hand_pose = np.concatenate([hp_l[0], hp_r[0], hp_l[1], hp_r[1]])
         return hand_pose
     
@@ -272,8 +272,8 @@ class EETrackObservationWithLastAction:
 
 class SitObservation(EETrackObservation):
     def _hand_pose(self):   
-        hp_l = body_pose(self.tf_buffer, 'welder')
-        hp_r = body_pose(self.tf_buffer, 'right_rubber_hand')
+        hp_l = body_pose(self.tf_buffer, 'left_rubber_hand')
+        hp_r = body_pose(self.tf_buffer,  'end_effector')
         hand_pose = np.concatenate([hp_l[0], hp_r[0], hp_l[1], hp_r[1]])
         return hand_pose
     
