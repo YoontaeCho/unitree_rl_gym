@@ -418,6 +418,18 @@ class EETrackActionVer2(SitActionVer2):
 
 
 class EETrackObservationHW(EETrackObservation):
+
+    def __init__(self, config, tf_buffer):
+        super().__init__(config, tf_buffer)
+        self.lab_from_arm = index_map(
+            self.config.lab_joint,
+            self.config.arm_joint
+        )
+        self.lab_from_rest = index_map(
+            self.config.lab_joint,
+            self.config.arm_joint   
+        )
+
     def __call__(self,
                  low_state: LowStateHG,
                  hands_command: np.ndarray,
@@ -432,13 +444,11 @@ class EETrackObservationHW(EETrackObservation):
         joint_pos_abs = self._joint_pos_absolute(low_state, self.config.lab_joint_offsets)
         pelvis_height = self._pelvis_height()
 
-        arm_index = [11, 15, 19, 21, 23, 25, 27]
-        rest_index = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 16, 17, 18, 20, 22, 24, 26, 28]
         # arm_initial_pos = initial_pos[arm_index]
         initial_pos_lab = np.zeros(29)
         initial_pos_lab[self.lab_from_mot] = initial_pos
-        rest_initial_pos = initial_pos_lab[rest_index]
-        rest_heuristic_action = initial_pos_lab[rest_index] - joint_pos_abs[rest_index] 
+        rest_initial_pos = initial_pos_lab[self.lab_from_rest]
+        rest_heuristic_action = initial_pos_lab[self.lab_from_rest] - joint_pos_abs[self.lab_from_rest] 
 
         hands_command = np.zeros(6)
 
@@ -459,29 +469,40 @@ class EETrackObservationHW(EETrackObservation):
 
 
 class EETrackActionHW(SitActionVer2):
-    def __call__(self, action, obs, initial_pos):
-        arm_index = [11, 15, 19, 21, 23, 25, 27]
-        rest_index = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 16, 17, 18, 20, 22, 24, 26, 28]
+    def __init__(self, config, robot_model):
+        super().__init__(config, robot_model)
+
+        self.lab_from_arm = index_map(
+            self.config.lab_joint,
+            self.config.arm_joint
+        )
+        self.lab_from_rest = index_map(
+            self.config.lab_joint,
+            self.config.rest_joint   
+        )
+
+        self.mot_from_rest = index_map(
+            self.config.motor_joint, 
+            self.config.rest_joint
+        )
+        self.mot_from_arm = index_map(
+            self.config.motor_joint, 
+            self.config.arm_joint
+        )
+
+        self.initial_q = None
+
+    def __call__(self, action, obs):
         # lab order
-        q = obs[..., 30:59]
+        if self.initial_q is None:
+            q = obs[..., 30:59]
+            self.initial_q = q
 
         # mot
         target_dof_pos = np.zeros(29)
-        # lab
-        arm_only = np.zeros(29)
-        arm_only += q
-        arm_only += np.asarray(self.config.lab_joint_offsets)
-        arm_only[arm_index] += action
 
-        initial_pos_lab = np.zeros(29)
-        initial_pos_lab[self.lab_from_mot] = initial_pos
-
-
-        mot_from_rest = index_map(self.config.motor_joint, self.config.rest_joint)
-        mot_from_arm = index_map(self.config.motor_joint, self.config.arm_joint)
-    
-        target_dof_pos[mot_from_rest] = initial_pos_lab[rest_index]
-        target_dof_pos[mot_from_arm] = arm_only[arm_index]
+        target_dof_pos[self.mot_from_rest] = self.initial_q + np.asarray(self.config.eetrack_joint_offsets)
+        target_dof_pos[self.mot_from_arm] = 0.5 * action + np.asarray(self.config.eetrack_joint_offsets)[self.lab_from_arm]
 
         target_dof_pos = np.clip(
                 target_dof_pos,

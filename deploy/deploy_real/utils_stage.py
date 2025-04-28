@@ -256,13 +256,13 @@ class EETrackObservationWithLastAction:
 
         obs = [
             base_ang_vel,       # 3
-            projected_gravity,  # 3
-            foot_pose,          # 12
-            hand_pose,          # 12
-            joint_pos,          # 29
-            joint_vel,          # 29
-            hands_command,      # 2
-            pelvis_height,      # 1
+            projected_gravity,  # 3 6
+            foot_pose,          # 12 18
+            hand_pose,          # 12 30
+            joint_pos,          # 29 59
+            joint_vel,          # 29 88
+            hands_command,      # 6 94
+            pelvis_height,      # 1 95
             last_actions,
             last_last_actions
         ]

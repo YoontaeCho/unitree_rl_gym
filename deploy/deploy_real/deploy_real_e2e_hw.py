@@ -185,7 +185,7 @@ class Controller:
         self.eetrack_command = None
         self.eetrack_policy = th.jit.load(config.eetrack_policy_path)
         self.eetrack_policy.eval()
-        self.eetrack_obsmap = us.EETrackObservationHW(config, self.tf_buffer
+        self.eetrack_obsmap = us.EETrackObservation(config, self.tf_buffer
         )
 
         if config.msg_type == "hg":
@@ -418,19 +418,31 @@ class Controller:
                                    self.tf_buffer,
                                    clock,
                                    ue.Range(
-                                        # Initial pose of the end_effector in the base (pelvis) frame
-                                        # Currently, it is fixed.
-                                        init_x_b=(0.5, 0.5),
-                                        init_y_b=(0.3, 0.3),
-                                        init_z_b=(-0.05, -0.05),
-                                        # in degree
-                                        init_roll_b=(0.0, 0.0),
-                                        init_pitch_b=(20.0, 20.0),
-                                        init_yaw_b=(20.0, 20.0),
-                                        # Direction of the end_effector path in the local (end_effector) frame
-                                        dx_local=(0.0, 0.0),
-                                        dy_local=(1.0, 1.0),
-                                        dz_local=(0.0, 0.0),
+                    ############ EASY GOAL ################
+                    init_x_b=(0.5, 0.5),
+                    init_y_b=(-0.3, -0.3),
+                    init_z_b=(-0.05, -0.05),
+                    # in degree
+                    init_roll_b=(0.0, 0.0),
+                    init_pitch_b=(20.0, 20.0),
+                    init_yaw_b=(-20.0, -20.0),
+                    # Direction of the end_effector path in the local (end_effector) frame
+                    dx_local=(0.0, 0.0),
+                    dy_local=(-1.0, -1.0),
+                    dz_local=(0.0, 0.0),
+
+                    # ############ NEAR GOAL ################
+                    # init_x_b=(0.451, 0.451),
+                    # init_y_b=(-0.3129, -0.3129),
+                    # init_z_b=(-0.0134, -0.0134),
+                    # # in degree
+                    # init_roll_b=(-20.4028, -20.4028),
+                    # init_pitch_b=(30.3627,30.3627,),
+                    # init_yaw_b=(-18.2408,-18.2408,),
+                    # # Direction of the end_effector path in the local (end_effector) frame
+                    # dx_local=(0.0, 0.0),
+                    # dy_local=(-1.0, -1.0),
+                    # dz_local=(0.0, 0.0),
                                    ))
                 
             # Keymap press -> changes is_initial_goal == False
@@ -445,15 +457,16 @@ class Controller:
                 self.eetrack_command.next_command_s_left.squeeze().detach().cpu().numpy()
             )
             self.publish_hand_target()
-
-            self.obs = self.eetrack_obsmap(self.low_state, hands_command, self.sit_target_dof_pos)
+            
+            # FIXME (hh) Changed obsmap to identical as eetrack
+            self.obs = self.eetrack_obsmap(self.low_state, hands_command)
 
             obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
             obs_tensor = obs_tensor.detach().clone().float()
             self.eetrack_action = self.eetrack_policy(obs_tensor).detach().numpy().squeeze()
 
-            # target_dof_pos : motor joint ordered
-            eetrack_target_dof_pos = self.eetrack_actmap(self.eetrack_action, self.obs, self.sit_target_dof_pos)
+            # FIXME (hh) Changed actmap to use joint position of initial state.
+            eetrack_target_dof_pos = self.eetrack_actmap(self.eetrack_action, self.obs)
             # target_dof_pos = eetrack_target_dof_pos
 
             # interpolate
