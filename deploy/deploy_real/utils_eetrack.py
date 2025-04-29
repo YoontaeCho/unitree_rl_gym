@@ -325,8 +325,8 @@ class eetrack:
 
         lerp_command_w_left = self.next_command_s_left
 
-        (lerp_command_b_left_pos,
-         lerp_command_b_left_quat) = math_utils.subtract_frame_transforms(
+        (self.lerp_command_b_left_pos,
+         self.lerp_command_b_left_quat) = math_utils.subtract_frame_transforms(
             root_state_w[..., 0:3],
             root_state_w[..., 3:7],
             lerp_command_w_left[:, 0:3],
@@ -338,8 +338,8 @@ class eetrack:
         pos_delta_b_left, rot_delta_b_left = math_utils.compute_pose_error(
             torch.from_numpy(pos_hand_b_left)[None],
             torch.from_numpy(quat_hand_b_left)[None],
-            lerp_command_b_left_pos,
-            lerp_command_b_left_quat,
+            self.lerp_command_b_left_pos,
+            self.lerp_command_b_left_quat,
         )
         axa_delta_b_left = math_utils.wrap_to_pi(rot_delta_b_left)
 
