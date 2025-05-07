@@ -29,8 +29,12 @@ class Config:
             if 'joint2motor_idx' in config:
                 self.joint2motor_idx = config["joint2motor_idx"]
             
-            self.kps = config["kps"]
-            self.kds = config["kds"]
+            self.kps = config.get("kps", None)
+            self.kds = config.get("kds", None)
+            self.sit_kps = config.get("sit_kps", None)
+            self.sit_kds = config.get("sit_kds", None)
+            self.eetrack_kps = config.get("eetrack_kps", None)
+            self.eetrack_kds = config.get("eetrack_kds", None)
             self.default_angles = np.array(config["default_angles"], dtype=np.float32)
 
             if 'arm_waist_joint2motor_idx' in config:
@@ -82,21 +86,25 @@ class Config:
             # self.max_cmd = np.array(config["max_cmd"], dtype=np.float32)
 
             # self.num_actions = config["num_actions"]
-            # self.num_obs = config["num_obs"]
+            self.num_obs = config.get("num_obs", None)
             # self.joint_pos_target_path = config["joint_pos_target_path"].replace("{LEGGED_GYM_ROOT_DIR}", LEGGED_GYM_ROOT_DIR)
             # self.upper_body_joint = config["upper_body_joint"]
             # self.lower_body_joint = config["lower_body_joint"]
-            self.jpa_joint = config["jpa_joint"]
-            self.rjpa_joint = config["rjpa_joint"]
+            self.jpa_joint = config.get("jpa_joint", None)
+            self.rjpa_joint = config.get("rjpa_joint", None)
 
-            self.exp_name = config["exp_name"]
+            self.exp_name = config.get("exp_name", None)
 
             self.policy_path = config["policy_path"].replace("{LEGGED_GYM_ROOT_DIR}", LEGGED_GYM_ROOT_DIR)
 
-            self.slow_bound = config["slow_bound"]
-            self.max_velocity = config["max_velocity"]
-            self.target_height = config["target_height"]
+            self.slow_bound = config.get("slow_bound", None)
+            self.max_velocity = config.get("max_velocity", None)
+            self.target_height = config.get("target_height", None)
 
-            self.initial_smoothing = config["initial_smoothing"]
-            self.later_smoothing = config["later_smoothing"]
-            self.kpkd_smoothing =config["kpkd_smoothing"]
+            self.initial_smoothing = config.get("initial_smoothing", None)
+            self.later_smoothing = config.get("later_smoothing", None)
+            self.kpkd_smoothing =config.get("kpkd_smoothing", None)
+
+            self.ik_joint = config.get("ik_joint", None)
+            self.eetrack_right_arm_kps = config.get("eetrack_right_arm_kps", None)
+            self.eetrack_right_arm_kds = config.get("eetrack_right_arm_kds", None)

@@ -118,7 +118,16 @@ lab_joint_eetrack: [
 #     40, 40, 40, 40, 40, 40, 40  # right arm
 # ]
 
-kps: [
+sit_kps: [
+    200, 150, 150, 200, 20, 20, # left leg
+    200, 150, 150, 200, 20, 20, # right leg
+    150, 150, 150,              # waist
+    20, 20, 20, 20, 20, 20, 20, # left arm
+    20, 20, 20, 20, 20, 20, 20  # right arm
+]
+
+# arm 20 -> 40
+eetrack_kps: [
     200, 150, 150, 200, 20, 20, # left leg
     200, 150, 150, 200, 20, 20, # right leg
     150, 150, 150,              # waist
@@ -129,10 +138,34 @@ kps: [
 # NOTE:
 # hip pitch 5 -> 10
 # waist yaw, roll 5 -> 10
-kds: [
-    10, 5, 5, 5, 2, 2,           # left leg
-    10, 5, 5, 5, 2, 2,           # right leg
+##### 0428 tuning #####
+# knee 5 -> 10
+# ankle 2 -> 5
+# hip yaw 5 -> 10
+# hip roll 5 -> 10
+sit_kds: [
+    10, 10, 10, 10, 5, 5,           # left leg
+    10, 10, 10, 10, 5, 5,           # right leg
     10, 10, 5,                    # waist
+    10, 10, 10, 10, 10, 10, 10, # left arm
+    10, 10, 10, 10, 10, 10, 10  # right arm
+]
+
+##### 0430 eetrack kds tuning #####
+# waist roll 10 -> 15
+# waist pitch 5 -> 10
+# waist yaw 10 -> 15
+# hip yaw 10 -> 15
+##### 0506 eetrack kds tuning #####
+# waist roll 15 -> 20
+# hip yaw  15 -> 20
+# hip roll, pitch 10 -> 15
+# knee 10 -> 15
+
+eetrack_kds: [
+    15, 15, 20, 15, 5, 5,           # left leg
+    15, 15, 20, 15, 5, 5,           # right leg
+    15, 20, 10,                    # waist
     10, 10, 10, 10, 10, 10, 10, # left arm
     10, 10, 10, 10, 10, 10, 10  # right arm
 ]
@@ -247,18 +280,18 @@ exp_name: "dao_stand"
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/epi_10_export.pt"
 # daop
 sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/sit_ver3.pt"
+# sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/daop_sit_exported.pt"
 # daop with large joint vel noise
 # policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/daop_sit_large_vel_noise.pt"
 
 
 # EETRACK
-# eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/dao_low_entropy_delay_curr_subgoal_metric_th_curr_min_step.pt"
-# sit maintain
-# eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/dao_abs_action_sitting_only_low_entropy.pt"
-# eetrack
-# eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/eetrack_0422.pt"
-# eetrack
-eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/dao_eetrack_right_hand_last_last.pt"
+# eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/dao_no_sg_right_thres_curr.pt"
+# eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/no_sg_no_hand_pose.pt"
+# eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/dao_right_no_sg_curr_no_hand_pose_randgoal_ver2.pt"
+eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/dao_update_coef_4.pt"
+
+
 
 policy_path: ""
 
@@ -272,5 +305,6 @@ kpkd_smoothing: 1.
 
 sit_obs_dim: 92 # for nominal obs
 # eetrack_obs_dim: 95 # for nominal obs
+eetrack_obs_dim: 83 # for no hand obs
 # eetrack_obs_dim: 124 # for last action obs
-eetrack_obs_dim: 153 # for last last action obs
+# eetrack_obs_dim: 153 # for last last action obs

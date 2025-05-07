@@ -390,8 +390,8 @@ class Controller:
         if curr_keymap:
             self.sitting = True
 
-        height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.04, sitting=self.sitting)
-        # height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.00, sitting=self.sitting)
+        # height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.04, sitting=self.sitting)
+        height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.00, sitting=self.sitting)
 
         # For stage 1 & 2.
         self.obs = self.sit_obsmap(self.low_state, height_command)

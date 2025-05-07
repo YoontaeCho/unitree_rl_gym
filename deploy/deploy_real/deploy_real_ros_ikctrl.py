@@ -3,10 +3,19 @@ from typing import Union
 import numpy as np
 import time
 import torch
+from pathlib import Path
+import math_utils
+from datetime import datetime
 
 import rclpy as rp
 from unitree_hg.msg import LowCmd as LowCmdHG, LowState as LowStateHG
 from unitree_go.msg import LowCmd as LowCmdGo, LowState as LowStateGo
+
+
+from tf2_ros import TransformException
+from tf2_ros.buffer import Buffer
+from tf2_ros.transform_listener import TransformListener
+from tf2_ros import TransformBroadcaster, TransformStamped
 from common.command_helper_ros import create_damping_cmd, create_zero_cmd, init_cmd_hg, init_cmd_go, MotorMode
 from common.rotation_helper import get_gravity_orientation, transform_imu_data
 from common.remote_controller import RemoteController, KeyMap
@@ -23,23 +32,73 @@ class Mode(Enum):
     default_pos = 2
     damping = 3
     policy = 4
-    null = 5
+    finish = 5
+    null = 6
+
+axis_angle_from_quat = math_utils.as_np(math_utils.axis_angle_from_quat)
+wrap_to_pi = math_utils.as_np(math_utils.wrap_to_pi)
+
+class GlobalClock:
+    def __init__(self, node):
+        self.node = node
+
+    def get_time(self):
+        return self.node.get_clock().now()
+
+clock = None
+
+
+def body_pose(
+        tf_buffer,
+        frame: str,
+        ref_frame: str = 'pelvis',
+        stamp=None,
+        rot_type: str = 'axa'):
+    """ --> tf does not exist """
+    if stamp is None:
+        stamp = rp.time.Time()
+        # stamp = clock.get_time()
+    try:
+        # t = "ref{=pelvis}_from_frame" transform
+        t = tf_buffer.lookup_transform(
+            ref_frame,  # to
+            frame,  # from
+            stamp)
+    except TransformException as ex:
+        print(f'Could not transform {frame} to {ref_frame}: {ex}')
+        raise
+
+    txn = t.transform.translation
+    rxn = t.transform.rotation
+
+    xyz = np.array([txn.x, txn.y, txn.z])
+    quat_wxyz = np.array([rxn.w, rxn.x, rxn.y, rxn.z])
+
+    xyz = np.array(xyz)
+    if rot_type == 'axa':
+        axa = axis_angle_from_quat(quat_wxyz)
+        axa = wrap_to_pi(axa)
+        return (xyz, axa)
+    elif rot_type == 'quat':
+        return (xyz, quat_wxyz)
+    raise ValueError(f"Unknown rot_type: {rot_type}")
 
 class Controller:
     def __init__(self, config: Config) -> None:
         self.config = config
         self.remote_controller = RemoteController()
 
-        act_joint = config.arm_joint
-        self.ikctrl = IKCtrl('../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf',
-                             act_joint)
+        act_joint = config.ik_joint
+        self.ikctrl = IKCtrl('../../resources/robots/g1_description/g1_29dof_rev_1_0_replace_with_welder.urdf',
+                             act_joint,
+                             frame='end_effector')
         self.lim_lo_pin = self.ikctrl.robot.model.lowerPositionLimit
         self.lim_hi_pin = self.ikctrl.robot.model.upperPositionLimit
 
         # == build index map ==
         self.pin_from_mot = np.zeros(29, dtype=np.int32) # FIXME(ycho): hardcoded
         self.mot_from_pin = np.zeros(43, dtype=np.int32) # FIXME(ycho): hardcoded
-        self.mot_from_act = np.zeros(7, dtype=np.int32) # FIXME(ycho): hardcoded
+        self.mot_from_act = np.zeros(len(act_joint), dtype=np.int32) # FIXME(ycho): hardcoded
         for i_mot, j in enumerate( self.config.motor_joint ):
             i_pin = (self.ikctrl.robot.index(j) - 1)
             self.pin_from_mot[i_mot] = i_pin
@@ -58,20 +117,53 @@ class Controller:
             quat_wxyz = xyzw2wxyz(pin.Quaternion(default_pose.rotation).coeffs())
             self.default_pose = np.concatenate([xyz, quat_wxyz])
             self.target_pose = np.copy(self.default_pose)
+            # self.target_pose[0] = 0.3
+            # self.target_pose[1] = -0.15
+            # self.target_pose[2] = 0.25
+            # self.target_pose[3:] = xyzw2wxyz(pin.exp3_quat(np.array([0., 0./180.*np.pi, 0.])))
 
+            self.target_pose[0] = 0.45
+            self.target_pose[1] = -0.05
+            self.target_pose[2] = 0.15
+            self.target_pose[3:] = xyzw2wxyz(pin.exp3_quat(np.array([0., 30./180.*np.pi, 0.])))
+
+            self.target_q = [0.0 for _ in range(8)]
         # Initialize the policy network
         self.policy = torch.jit.load(config.policy_path)
         # Initializing process variables
-        self.qj = np.zeros(43, dtype=np.float32)
-        self.dqj = np.zeros(43, dtype=np.float32)
+        self.qj = np.zeros(29, dtype=np.float32)
+        self.dqj = np.zeros(29, dtype=np.float32)
         self.action = np.zeros(7, dtype=np.float32)
         self.target_dof_pos = config.default_angles.copy()
         self.obs = np.zeros(config.num_obs, dtype=np.float32)
         self.cmd = np.array([0.0, 0, 0])
         self.counter = 0
+        
+        # log path
+        self.logpath = Path('/tmp/eetrack_ikctrl/')
+        self.logpath.mkdir(parents=True, exist_ok=True)
+        
+        # log trajectory
+        self.timestamp = []
+        self.q_traj = []
+        self.dq_traj = []
+        self.tau_traj = []
+        self.pelvis_pos_traj = []
+        self.pelvis_quat_traj = []
+        self.q_trg_traj = []
+        self.pose_trg_traj = []
+
+        self.move = False
 
         rp.init()
         self._node = rp.create_node("low_level_cmd_sender")
+
+        global clock
+        clock = GlobalClock(self._node)
+
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self._node)
+        self.tf_broadcaster = TransformBroadcaster(self._node)
 
         if config.msg_type == "hg":
             # g1 and h1_2 use the hg msg type
@@ -128,6 +220,32 @@ class Controller:
         self.mode_machine_ = self.low_state.mode_machine
         self.remote_controller.set(self.low_state.wireless_remote)
 
+        # log trajectory
+        # joint order = lab joint config order
+        timestamp = clock.get_time().nanoseconds / 1e9
+        curr_q = []
+        curr_dq = []
+        curr_tau = []
+        for i_mot in range(len(self.config.motor_joint)):
+            curr_q.append(self.low_state.motor_state[i_mot].q)
+            curr_dq.append(self.low_state.motor_state[i_mot].dq)
+            curr_tau.append(self.low_state.motor_state[i_mot].tau_est)
+        self.timestamp.append(timestamp)
+        self.q_traj.append(curr_q)
+        self.dq_traj.append(curr_dq)
+        self.tau_traj.append(curr_tau)
+
+        curr_pelvis_pose = body_pose(
+            self.tf_buffer,
+            'pelvis',
+            'world',
+            rot_type='quat'
+        )
+        self.pelvis_pos_traj.append(curr_pelvis_pose[0])
+        self.pelvis_quat_traj.append(curr_pelvis_pose[1])
+        self.q_trg_traj.append(self.target_q)
+        self.pose_trg_traj.append(self.target_pose.copy())
+
     def LowStateGoHandler(self, msg: LowStateGo):
         self.low_state = msg
         self.remote_controller.set(self.low_state.wireless_remote)
@@ -160,8 +278,8 @@ class Controller:
             self.send_cmd(self.low_cmd)
 
     def prepare_default_pos(self):
-        # move time 2s
-        total_time = 2
+        # move time 3s
+        total_time = 3
         self.counter = 0
         self._num_step = int(total_time / self.config.control_dt)
         
@@ -200,7 +318,7 @@ class Controller:
             self.counter += 1
         else:
             self._mode_change = True
-            self.mode = Mode.damping
+            self.mode = Mode.policy
 
     def default_pos_state(self):
         if self.remote_controller.button[KeyMap.A] != 1:
@@ -224,9 +342,9 @@ class Controller:
             self.mode = Mode.policy
 
     def run_policy(self):
-        if self.remote_controller.button[KeyMap.select] == 1:
+        if self.remote_controller.button[KeyMap.A] == 1:
             self._mode_change = True
-            self.mode = Mode.null
+            self.mode = Mode.finish
             return
         self.counter += 1
 
@@ -235,9 +353,14 @@ class Controller:
             i_pin = self.pin_from_mot[i_mot]
             self.qj[i_pin] = self.low_state.motor_state[i_mot].q
 
-        self.cmd[0] = self.remote_controller.ly
+        # self.cmd[0] = self.remote_controller.ly
         self.cmd[1] = self.remote_controller.lx * -1
-        self.cmd[2] = self.remote_controller.rx * -1
+        # self.cmd[2] = self.remote_controller.rx * -1
+        if self.remote_controller.button[KeyMap.B] == 1:
+            self.move = True
+        
+        if self.move:
+            self.target_pose[..., 1] -= 0.001
 
         if False:
             delta = np.concatenate([self.cmd,
@@ -245,28 +368,83 @@ class Controller:
             res_q = self.ikctrl(self.qj, delta, rel=True)
         else:
             # FIXME(ycho): 0.01 --> cmd_scale ?
-            self.target_pose[..., :3] += 0.01 * self.cmd
-            res_q = self.ikctrl(self.qj,
-                                self.target_pose,
-                                rel=False)
-
+            res_q, arm_nle = self.ikctrl(self.qj,
+                                         self.target_pose,
+                                         rel=False)
+            res_q = np.clip(res_q, -0.2, 0.2)
+            # print(self.target_pose)
+            # print(res_q)
+        self.target_q = []
         for i_act in range(len(res_q)):
             i_mot = self.mot_from_act[i_act]
             i_pin = self.pin_from_mot[i_mot]
-            target_q = (
+            target_q_i = (
                     self.low_state.motor_state[i_mot].q + res_q[i_act]
             )
-            target_q = np.clip(target_q,
+            target_q_i = np.clip(target_q_i,
                                self.lim_lo_pin[i_pin],
                                self.lim_hi_pin[i_pin])
-            self.low_cmd.motor_cmd[i_mot].q = target_q
+            self.low_cmd.motor_cmd[i_mot].q = target_q_i
             self.low_cmd.motor_cmd[i_mot].dq = 0.0
             # FIXME(ycho): arbitrary scaling
-            self.low_cmd.motor_cmd[i_mot].kp = 0.2*float(self.config.kps[i_mot])
-            self.low_cmd.motor_cmd[i_mot].kd = 0.2*float(self.config.kds[i_mot])
-            self.low_cmd.motor_cmd[i_mot].tau = 0.0
+            self.low_cmd.motor_cmd[i_mot].kp = 1.0*float(self.config.kps[i_mot])
+            self.low_cmd.motor_cmd[i_mot].kd = 1.0*float(self.config.kds[i_mot])
+            self.low_cmd.motor_cmd[i_mot].tau = 1.0*float(arm_nle[i_act]) # gravity compensation without considering base orientation.
+            self.target_q.append(target_q_i)
+
         # send the command
         self.send_cmd(self.low_cmd)
+
+    def log_metrics_and_trajectories(self):
+        timestamp = np.array(self.timestamp)
+        q_traj = np.array(self.q_traj)
+        dq_traj = np.array(self.dq_traj)
+        tau_traj = np.array(self.tau_traj)
+        pelvis_pos_traj = np.array(self.pelvis_pos_traj)
+        pelvis_quat_traj = np.array(self.pelvis_quat_traj)
+        q_trg_traj = np.array(self.q_trg_traj)
+        pose_trg_traj = np.array(self.pose_trg_traj)
+        # left_arm_pose_traj = self.ikctrl.fk(self.q_traj[:, self.config.arm_joint])
+        
+        # Calculate pos diff & torque diff metrics
+        pos_diff = np.average(np.abs(q_traj[1:] - q_traj[:-1]))
+        torque_diff = np.average(np.abs(tau_traj[1:] - tau_traj[:-1]))
+        print("\n--------------------------METRICS--------------------------")
+        print("total_time", self.counter * self.config.control_dt)
+        print("pos_diff", pos_diff)
+        print("torque_diff", torque_diff)
+        # DEBUG
+        print("pos shape", q_traj.shape)
+        print("torque shape", tau_traj.shape)
+        print("----------------------------------------------------------")
+        
+        # Save metrics and trajectories
+        metrics = {
+            "pos_diff": pos_diff,
+            "torque_diff": torque_diff
+        }
+        trajectories = {
+            "timestamp": timestamp,
+            "q_traj": q_traj,
+            "dq_traj": dq_traj,
+            "tau_traj": tau_traj,
+            "pelvis_pos_traj": pelvis_pos_traj,
+            "pelvis_quat_traj": pelvis_quat_traj,
+            "q_trg_traj": q_trg_traj,
+            "pose_trg_traj": pose_trg_traj
+        }
+        log_data = {
+            "metrics": metrics,
+            "trajectories": trajectories
+        }
+        # Save the log with experiment name
+        file_name = f'{self.logpath}/{datetime.now().strftime("%Y%m%d-%H%M%S")}.npy'
+        np.save(file_name, log_data)
+        print(f"Log saved at {file_name}")
+        
+        # totally terminate
+        self._mode_change = True
+        self.mode = Mode.null
 
     def run_wrapper(self):
         # print("hello", self.mode,
@@ -300,6 +478,11 @@ class Controller:
                 self._mode_change = False
                 self.counter = 0
             self.run_policy()
+        elif self.mode == Mode.finish:
+            if self._mode_change:
+                print("Finish.")
+                self._mode_change = False
+            self.log_metrics_and_trajectories()
         elif self.mode == Mode.null:
             self._terminate = True
 

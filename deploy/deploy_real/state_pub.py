@@ -41,15 +41,15 @@ class StatePublisher(Node):
             joint_state.velocity[i] = self.low_state.motor_state[i].dq
         self.joint_pub.publish(joint_state)
     
-    def run(self):
-        loop_rate = self.create_rate(30)
-        try:
-            # rclpy.spin()
-            while rclpy.ok():
-                rclpy.spin_once(self)
-                loop_rate.sleep()
-        except KeyboardInterrupt:
-            pass
+    # def run(self):
+    #     loop_rate = self.create_rate(30)
+    #     try:
+    #         # rclpy.spin()
+    #         while rclpy.ok():
+    #             rclpy.spin_once(self)
+    #             loop_rate.sleep()
+    #     except KeyboardInterrupt:
+    #         pass
 
 
 

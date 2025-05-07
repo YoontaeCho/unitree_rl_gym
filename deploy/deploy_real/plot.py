@@ -44,8 +44,8 @@ def plot_log(file_path, start_time, end_time):
     tau_traj = data['trajectories']['tau_traj']
     
     timestamp_low_freq = data['trajectories']['timestamp_low_freq']
-    observations = data['trajectories']['observations']
-    actions = data['trajectories']['actions']
+    # observations = data['trajectories']['observations']
+    # actions = data['trajectories']['actions']
     raw_joint_pos_targets = data['trajectories']['raw_joint_pos_targets']
     joint_pos_targets = data['trajectories']['joint_pos_targets']
 
@@ -60,16 +60,18 @@ def plot_log(file_path, start_time, end_time):
     fig, axs = plt.subplots(5, 6, figsize=(20, 15))
     axs = axs.flatten()
 
-    start_idx = -1000
+    start_idx = -9500
+    end_idx = -8000
     
     for idx in range(len(axs)):
         if idx >= num_joints:
             axs[idx].axis('off')
             continue
 
-        axs[idx].plot(timestamp[start_idx:], jitter[start_idx:, idx], color='r', label='jitter')
+        axs[idx].plot(timestamp[start_idx:end_idx], jitter[start_idx:end_idx, idx], color='r', label='jitter')
         axs[idx].set_title(f"{lab_joint[idx]}")
         axs[idx].set_ylim(-0.02, 0.02)
+        axs[idx].grid(True)
         
         # axs[idx].plot(timestamp_high_freq, dq_traj[:, idx], color='r', label='dq_traj')
         
@@ -102,7 +104,7 @@ def plot_log(file_path, start_time, end_time):
 
 def main():
     # NOTE: change the file_path
-    file_path = "/tmp/eetrack_stand/log_daop_sit_exported_init_0_8_later_1_0_kpkd_1_0_height_0_3_1743163059.npy"
+    file_path = "/tmp/e2e/log_sit_ver3_dao_no_sg_right_baseline_1745849238.npy"
     
     # NOTE: change the start_time and end_time
     start_time = -5

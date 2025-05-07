@@ -386,25 +386,25 @@ class Controller:
         if self.terminate_by_pelvis_condition(xyz, quat_wxyz):
             raise ValueError("Terminated by pelvis condition.")
 
-        # if self.task == "sit":
-            # Press down button to sit
-        curr_keymap = self.remote_controller.button[KeyMap.down] == 1
-        if curr_keymap:
-            self.sitting = True
-
-        height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.04, sitting=self.sitting)
-        # height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.00, sitting=self.sitting)
-
-        # For stage 1 & 2.
-        self.obs = self.sit_obsmap(self.low_state, height_command)
-
-        obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
-        obs_tensor = obs_tensor.detach().clone().float()
-        self.sit_action = self.sit_policy(obs_tensor).detach().numpy().squeeze()
-
-        # target_dof_pos : motor joint ordered
-        sit_target_dof_pos = self.sit_actmap(self.sit_action)
         if self.task == "sit":
+            # Press down button to sit
+            curr_keymap = self.remote_controller.button[KeyMap.down] == 1
+            if curr_keymap:
+                self.sitting = True
+
+            height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.04, sitting=self.sitting)
+            # height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.00, sitting=self.sitting)
+
+            # For stage 1 & 2.
+            self.obs = self.sit_obsmap(self.low_state, height_command)
+
+            obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
+            obs_tensor = obs_tensor.detach().clone().float()
+            self.sit_action = self.sit_policy(obs_tensor).detach().numpy().squeeze()
+
+            # target_dof_pos : motor joint ordered
+            sit_target_dof_pos = self.sit_actmap(self.sit_action)
+        # if self.task == "sit":
             target_dof_pos = sit_target_dof_pos
 
             # self.print_sit_status()

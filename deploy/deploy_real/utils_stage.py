@@ -7,6 +7,7 @@ import rclpy as rp
 import numpy as np
 import math_utils
 from tf2_ros import TransformException
+import time
 
 
 axis_angle_from_quat = math_utils.as_np(math_utils.axis_angle_from_quat)
@@ -18,12 +19,15 @@ wrap_to_pi = math_utils.as_np(math_utils.wrap_to_pi)
 combine_frame_transforms = math_utils.as_np(
     math_utils.combine_frame_transforms)
 
+last_timestamp = 0
+
 def body_pose(
         tf_buffer,
         frame: str,
         ref_frame: str = 'pelvis',
         stamp=None,
-        rot_type: str = 'axa'):
+        rot_type: str = 'axa',
+        x=False):
     """ --> tf does not exist """
     if stamp is None:
         stamp = rp.time.Time()
@@ -34,6 +38,12 @@ def body_pose(
             ref_frame,  # to
             frame,  # from
             stamp)
+
+        # if x:
+        #     global last_timestamp
+        #     print()
+        #     print(t.header.stamp.nanosec - last_timestamp)
+        #     last_timestamp = t.header.stamp.nanosec
     except TransformException as ex:
         print(f'Could not transform {frame} to {ref_frame}: {ex}')
         raise
@@ -127,8 +137,8 @@ class EETrackObservation:
             'pelvis',
             rp.time.Time()
         )
-        pelvis_height = [world_from_pelvis.transform.translation.z + 0.04]
-        # pelvis_height = [world_from_pelvis.transform.translation.z + 0.00]
+        # pelvis_height = [world_from_pelvis.transform.translation.z + 0.04]
+        pelvis_height = [world_from_pelvis.transform.translation.z + 0.00]
         # print(f'pelvis_height: {pelvis_height}')
         return pelvis_height
     
@@ -226,8 +236,8 @@ class EETrackObservationWithLastAction:
             'pelvis',
             rp.time.Time()
         )
-        pelvis_height = [world_from_pelvis.transform.translation.z + 0.04]
-        # pelvis_height = [world_from_pelvis.transform.translation.z + 0.00]
+        # pelvis_height = [world_from_pelvis.transform.translation.z + 0.04]
+        pelvis_height = [world_from_pelvis.transform.translation.z + 0.00]
         # print(f'pelvis_height: {pelvis_height}')
         return pelvis_height
     
@@ -243,6 +253,7 @@ class EETrackObservationWithLastAction:
                  hands_command: np.ndarray,
                  last_actions: np.ndarray,
                  last_last_actions: np.ndarray,
+                 clamp: bool = False
                  ):
 
         base_ang_vel = self._base_ang_vel(low_state)
@@ -253,18 +264,36 @@ class EETrackObservationWithLastAction:
         pelvis_height = self._pelvis_height()
 
         # hands_command = np.zeros(6)
+        if clamp:
+            xyz = hands_command[:3]
+            axa = hands_command[3:]
+            
+            # 1
+            # xyz = xyz.clip(min=-0.02, max=0.02)
+            # axa = axa.clip(min=-0.2, max=0.2)
+            # 2
+            # xyz = xyz.clip(min=-0.01, max=0.01)
+            # axa = axa.clip(min=-0.2, max=0.2)
+            # 3
+            # xyz = xyz.clip(min=-0.005, max=0.005)
+            # axa = axa.clip(min=-0.2, max=0.2)
+            # 4
+            xyz = xyz.clip(min=-0.005, max=0.005)
+            axa = axa.clip(min=-0.1, max=0.1)
+
+            hands_command = np.concatenate([xyz, axa], axis=0)
 
         obs = [
             base_ang_vel,       # 3
             projected_gravity,  # 3 6
             foot_pose,          # 12 18
-            hand_pose,          # 12 30
-            joint_pos,          # 29 59
+            # hand_pose,          # 12 30
+            joint_pos,          # 29 47
             joint_vel,          # 29 88
             hands_command,      # 6 94
             pelvis_height,      # 1 95
-            last_actions,
-            last_last_actions
+            # last_actions,
+            # last_last_actions
         ]
 
         return np.concatenate(obs, axis=-1)
@@ -508,3 +537,62 @@ class EETrackActionVer2(SitActionVer2):
                 self.lim_hi_pin[self.pin_from_mot]
             )
         return target_dof_pos
+
+# HC    
+class TF2Pose():
+    def __init__(self,
+                 tf_buffer: Buffer):
+        self.tf_buffer = tf_buffer
+    def __call__(self,
+                 ref_frame:str, 
+                 frame: str):
+        pose = body_pose(self.tf_buffer, ref_frame=ref_frame, frame=frame)
+        return np.concatenate([pose[0], pose[1]])
+    
+# HC
+import asyncio
+def set_transfrom(tf_buffer: Buffer, node, timeout:float = 10.0):
+    start_time = time.time()
+
+    while True:
+        try:
+            t = tf_buffer.lookup_transform(
+                'world',  
+                'camera_init',
+                rp.time.Time())
+            # print("########## Got it ########## ")
+            return
+        
+        except TransformException as ex:
+            print(f'Could not transform world to pelvis: {ex}')
+
+        # Check timeout
+        if time.time() - start_time > timeout:
+            print("########## ERROR ########## ")
+            return
+        
+        # Sleep a bit to avoid busy loop
+        time.sleep(0.1)
+    
+    
+
+    # tf_future = tf_buffer.wait_for_transform_async('world', 'camera_init', rp.time.Time())
+    # rp.spin_until_future_complete(node, tf_future, timeout_sec=10.0)
+
+    # if tf_future.done():
+    #     print("########## Got it! ########## ")
+    # else:
+    #     print("########## ERROR ########## ")
+
+    # return
+
+    # try:
+    #     # asyncio.wait_for will raise asyncio.TimeoutError if timeout exceeded
+    #     await asyncio.wait_for(
+    #         tf_buffer.lookup_transform_async('world', 'pelvis', rp.time.Time()),
+    #         timeout=timeout
+    #     )
+
+    # except asyncio.TimeoutError:
+    #     print("########## TIMEOUT ##########")
+    #     return

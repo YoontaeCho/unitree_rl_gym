@@ -146,7 +146,7 @@ class eetrack:
         self.clock = clock
         self.tf_buffer = tf_buffer
         
-        self.eetrack_line_length = 0.1
+        self.eetrack_line_length = 0.2
         self.eetrack_vel = 0.01
 
         self.step_dt = 0.02
@@ -169,6 +169,7 @@ class eetrack:
         self.eetrack_subgoal = self.create_subgoal()
 
         self.is_initial_goal = True
+        # self.start_eetrack = False
 
 
     def init_eetrack_sampler(self):
@@ -267,6 +268,8 @@ class eetrack:
             self.number_of_subgoals,
         )
 
+        # self.to_eeline_subgoals_len = len(to_eeline_subgoals)
+
         eetrack_subgoals = to_eeline_subgoals + on_eeline_subgoals
         
         eetrack_subgoals = [
@@ -308,7 +311,6 @@ class eetrack:
                 # subgoal is updated on every 0.02s
                 update_time = 0.02
                 self.sg_idx = int((time - 1) / update_time + 1)
-                # if self.sg_idx < 15
                 self.sg_idx = min(self.sg_idx , self.to_eetrack_sgs_num + self.number_of_subgoals + 1)
         # FIXME
         # self.sg_idx = 0
