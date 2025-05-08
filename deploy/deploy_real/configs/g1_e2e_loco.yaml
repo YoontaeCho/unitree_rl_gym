@@ -1,0 +1,278 @@
+# 
+control_dt: 0.02
+
+msg_type: "hg"     # "hg" or "go"
+imu_type: "pelvis"    # "torso" or "pelvis"
+
+motor_joint: [
+    'left_hip_pitch_joint',
+    'left_hip_roll_joint',
+    'left_hip_yaw_joint',
+    'left_knee_joint',
+    'left_ankle_pitch_joint',
+    'left_ankle_roll_joint',
+    'right_hip_pitch_joint',
+    'right_hip_roll_joint',
+    'right_hip_yaw_joint',
+    'right_knee_joint',
+    'right_ankle_pitch_joint',
+    'right_ankle_roll_joint',
+    'waist_yaw_joint',
+    'waist_roll_joint',
+    'waist_pitch_joint',
+    'left_shoulder_pitch_joint',
+    'left_shoulder_roll_joint',
+    'left_shoulder_yaw_joint',
+    'left_elbow_joint',
+    'left_wrist_roll_joint',
+    'left_wrist_pitch_joint',
+    'left_wrist_yaw_joint',
+    'right_shoulder_pitch_joint',
+    'right_shoulder_roll_joint',
+    'right_shoulder_yaw_joint',
+    'right_elbow_joint',
+    'right_wrist_roll_joint',
+    'right_wrist_pitch_joint',
+    'right_wrist_yaw_joint',
+]
+
+lab_joint: [
+    'left_hip_pitch_joint',
+    'right_hip_pitch_joint',
+    'waist_yaw_joint',
+    'left_hip_roll_joint',
+    'right_hip_roll_joint',
+    'waist_roll_joint',
+    'left_hip_yaw_joint',
+    'right_hip_yaw_joint',
+    'waist_pitch_joint',
+    'left_knee_joint',
+    'right_knee_joint',
+    'left_shoulder_pitch_joint',
+    'right_shoulder_pitch_joint',
+    'left_ankle_pitch_joint', 
+    'right_ankle_pitch_joint',
+    'left_shoulder_roll_joint',
+    'right_shoulder_roll_joint',
+    'left_ankle_roll_joint',
+    'right_ankle_roll_joint',
+    'left_shoulder_yaw_joint',
+    'right_shoulder_yaw_joint',
+    'left_elbow_joint',
+    'right_elbow_joint',
+    'left_wrist_roll_joint',
+    'right_wrist_roll_joint',
+    'left_wrist_pitch_joint',
+    'right_wrist_pitch_joint',
+    'left_wrist_yaw_joint',
+    'right_wrist_yaw_joint'
+]
+
+arm_joint: [
+    "left_shoulder_pitch_joint",
+    "left_shoulder_roll_joint",
+    "left_shoulder_yaw_joint",
+    "left_elbow_joint",
+    "left_wrist_roll_joint",
+    "left_wrist_pitch_joint",
+    "left_wrist_yaw_joint"
+]
+
+lab_joint_eetrack: [
+    'left_hip_pitch_joint', 
+    'right_hip_pitch_joint', 
+    'left_hip_roll_joint', 
+    'right_hip_roll_joint', 
+    'waist_roll_joint', 
+    'left_hip_yaw_joint', 
+    'right_hip_yaw_joint', 
+    'waist_pitch_joint', 
+    'left_knee_joint', 
+    'right_knee_joint', 
+    'right_shoulder_pitch_joint', 
+    'left_ankle_pitch_joint', 
+    'right_ankle_pitch_joint', 
+    'right_shoulder_roll_joint', 
+    'left_ankle_roll_joint', 
+    'right_ankle_roll_joint', 
+    'right_shoulder_yaw_joint', 
+    'right_elbow_joint', 
+    'right_wrist_roll_joint', 
+    'right_wrist_pitch_joint', 
+    'right_wrist_yaw_joint',
+    'waist_yaw_joint', 
+    'left_shoulder_pitch_joint', 
+    'left_shoulder_roll_joint', 
+    'left_shoulder_yaw_joint', 
+    'left_elbow_joint', 
+    'left_wrist_roll_joint', 
+    'left_wrist_pitch_joint', 
+    'left_wrist_yaw_joint'
+]
+
+# kps: [
+#     200, 150, 150, 200, 20, 20, # left leg
+#     200, 150, 150, 200, 20, 20, # right leg
+#     150, 150, 150,              # waist
+#     40, 40, 40, 40, 40, 40, 40, # left arm
+#     40, 40, 40, 40, 40, 40, 40  # right arm
+# ]
+
+kps: [
+    200, 150, 150, 200, 20, 20, # left leg
+    200, 150, 150, 200, 20, 20, # right leg
+    150, 150, 150,              # waist
+    20, 20, 20, 20, 20, 20, 20, # left arm
+    20, 20, 20, 20, 20, 20, 20  # right arm
+]
+
+kds: [
+    10, 10, 10, 10, 5, 5,           # left leg
+    10, 10, 10, 10, 5, 5,           # right leg
+    10, 10, 5,                    # waist
+    10, 10, 10, 10, 10, 10, 10, # left arm
+    10, 10, 10, 10, 10, 10, 10  # right arm
+]
+default_angles: [
+  -0.2000,  0.0000,  0.0000,  0.42000, -0.23000, 0.0000,      # left leg
+  -0.2000,  0.0000,  0.0000,  0.42000, -0.23000, 0.0000,      # right leg
+  0.0000, 0.0000, 0.0000,                                     # waist
+  -0.20000, 0.35000, 0.0000, 1.0000, 0.0000, 0.0000, 0.0000,  # left arm
+  -0.20000, -0.35000, 0.0000, 1.0000, 0.0000, 0.0000, 0.0000  # right arm
+]
+
+lab_joint_offsets: [
+  -0.2000, -0.2000,  0.0000,  0.0000,  0.0000,  0.0000,  0.0000,  0.0000,
+  0.0000,  0.4200,  0.4200, -0.2000, -0.2000, -0.2300, -0.2300,  0.3500,
+  -0.3500,  0.0000,  0.0000,  0.0000,  0.0000,  1.0000,  1.0000,  0.0000,
+  0.0000,  0.0000,  0.0000,  0.0000,  0.0000
+]
+
+eetrack_joint_offsets: [
+  -2.2970082759857178 ,
+  -2.358827590942383 ,
+  0.016872219741344452 ,
+  -0.04282378405332565 ,
+  -0.07632020860910416 ,
+  0.019974855706095695 ,
+  -0.028021663427352905 ,
+  0.05104896426200867 ,
+  -0.19512709975242615 ,
+  2.49377703666687 , #knee
+  2.423449754714966 , #knee
+  -0.20687894523143768 ,
+  -0.19804741442203522 ,
+  -0.8177987337112427 ,
+  -0.6853840947151184 ,
+  0.33240625262260437 ,
+  -0.3671506941318512 ,
+  -0.01331891305744648 ,
+  0.046385206282138824 ,
+  0.018548527732491493 ,
+  0.011444171890616417 ,
+  1.0157527923583984 ,
+  0.9948912262916565 ,
+  -0.03488636016845703 ,
+  -0.0022260774858295918 ,
+  -0.027005959302186966 ,
+  -0.00941220298409462 ,
+  -0.0013849367387592793 ,
+  0.023907296359539032
+]
+
+
+jpa_joint: [
+  'left_hip_pitch_joint',
+  'right_hip_pitch_joint',
+  'left_hip_roll_joint',
+  'right_hip_roll_joint',
+  'left_hip_yaw_joint',
+  'right_hip_yaw_joint',
+  'left_knee_joint',
+  'right_knee_joint',
+  'right_shoulder_pitch_joint',
+  'left_ankle_pitch_joint', 
+  'right_ankle_pitch_joint',
+  'right_shoulder_roll_joint',
+  'left_ankle_roll_joint',
+  'right_ankle_roll_joint',
+  'right_shoulder_yaw_joint',
+  'right_elbow_joint',
+  'right_wrist_roll_joint',
+  'right_wrist_pitch_joint',
+  'right_wrist_yaw_joint'
+]
+
+rjpa_joint: [
+  "waist_yaw_joint",
+  "waist_roll_joint",
+  "waist_pitch_joint",
+  "left_shoulder_pitch_joint",
+  "left_shoulder_roll_joint",
+  "left_shoulder_yaw_joint",
+  "left_elbow_joint",
+  "left_wrist_roll_joint",
+  "left_wrist_pitch_joint",
+  "left_wrist_yaw_joint"
+]
+lower_joint: [
+  'left_hip_pitch_joint',
+  'left_hip_roll_joint',
+  'left_hip_yaw_joint',
+  'left_knee_joint',
+  'left_ankle_pitch_joint',
+  'left_ankle_roll_joint',
+  'right_hip_pitch_joint',
+  'right_hip_roll_joint',
+  'right_hip_yaw_joint',
+  'right_knee_joint',
+  'right_ankle_pitch_joint',
+  'right_ankle_roll_joint',
+  'left_shoulder_pitch_joint',
+  'left_shoulder_roll_joint',
+  'left_shoulder_yaw_joint',
+  'left_elbow_joint',
+  'left_wrist_roll_joint',
+  'left_wrist_pitch_joint',
+  'left_wrist_yaw_joint',
+]
+
+exp_name: "dao_stand"
+
+# nominal
+# policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/epi_10_export.pt"
+# daop
+sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/sit_ver3.pt"
+# sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/daop_sit_exported.pt"
+# daop with large joint vel noise
+# policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/daop_sit_large_vel_noise.pt"
+
+
+# EETRACK
+# eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/dao_no_sg_right_thres_curr.pt"
+# eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/no_sg_no_hand_pose.pt"
+# eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/dao_right_no_sg_curr_no_hand_pose_randgoal_ver2.pt"
+eetrack_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/dao_update_coef_4.pt"
+
+# LOCOMOTION
+locomotion_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/dao_locomotion_2.pt"
+
+
+policy_path: ""
+
+slow_bound: 0.2
+max_velocity: 0.1
+target_height: 0.3
+
+initial_smoothing: 0.8
+later_smoothing: 1.0
+kpkd_smoothing: 1.
+
+sit_obs_dim: 92 # for nominal obs
+# eetrack_obs_dim: 95 # for nominal obs
+eetrack_obs_dim: 83 # for no hand obs
+# eetrack_obs_dim: 124 # for last action obs
+# eetrack_obs_dim: 153 # for last last action obs
+
+
+locomotion_obs_dim: 98

@@ -108,3 +108,7 @@ class Config:
             self.ik_joint = config.get("ik_joint", None)
             self.eetrack_right_arm_kps = config.get("eetrack_right_arm_kps", None)
             self.eetrack_right_arm_kds = config.get("eetrack_right_arm_kds", None)
+
+            self.locomotion_policy_path = config.get("locomotion_policy_path", None)
+            self.locomotion_obs_dim = config.get("locomotion_obs_dim", None)
+            self.locomotion_policy_path = self.locomotion_policy_path.replace("{LEGGED_GYM_ROOT_DIR}", LEGGED_GYM_ROOT_DIR)
