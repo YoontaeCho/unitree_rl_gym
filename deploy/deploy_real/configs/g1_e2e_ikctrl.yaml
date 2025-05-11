@@ -154,6 +154,13 @@ kps: [
 #     20, 20, 20, 20, 20, 20, 20  # right arm
 # ]
 
+eetrack_right_arm_kps: [
+  200, 200, 200, 200, 200, 200, 200
+]
+eetrack_right_arm_kds: [
+  2, 2, 2, 2, 2, 2, 2
+]
+
 # NOTE:
 # hip pitch 5 -> 10
 # waist yaw, roll 5 -> 10

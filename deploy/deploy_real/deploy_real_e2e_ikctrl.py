@@ -155,6 +155,11 @@ class Controller:
         self.eetrack_last_actions = np.zeros(self.num_joints)
         self.eetrack_last_last_actions = np.zeros(self.num_joints)
 
+        self.is_initial_goals = np.zeros((0,), dtype=bool)
+        self.target_poses_w = np.zeros((0, 7))
+        self.target_poses_b = np.zeros((0, 7))
+
+        self.is_sit = np.zeros((0,), dtype=bool)
 
         # counter
         self.counter = 0
@@ -390,6 +395,8 @@ class Controller:
         
         if self.remote_controller.button[KeyMap.B] == 1:
             self.task = "eetrack"
+            self.config.kps[-7:] = self.config.eetrack_right_arm_kps
+            self.config.kds[-7:] = self.config.eetrack_right_arm_kds
 
 
         self.counter += 1
@@ -444,15 +451,27 @@ class Controller:
                                    self.tf_buffer,
                                    clock,
                                    ue.Range(
-                                        # Initial pose of the end_effector in the base (pelvis) frame
-                                        # Currently, it is fixed.
-                                        init_x_b=(0.4877,0.4877),
-                                        init_y_b=(-0.3531, -0.3531),
+                                        # # Initial pose of the end_effector in the base (pelvis) frame
+                                        # # Currently, it is fixed.
+                                        # init_x_b=(0.4877,0.4877),
+                                        # init_y_b=(-0.3531, -0.3531),
+                                        # init_z_b=(0.0, 0.0),
+                                        # # in degree
+                                        # init_roll_b=(0.0, 0.0),
+                                        # init_pitch_b=(20.0, 20.0),
+                                        # init_yaw_b=(-20.0, - 20.0),
+                                        # # Direction of the end_effector path in the local (end_effector) frame
+                                        # dx_local=(0.0, 0.0),
+                                        # dy_local=(-1.0, -1.0),
+                                        # dz_local=(0.0, 0.0),
+                                        ############ EASY GOAL ################
+                                        init_x_b=(0.45, 0.45),
+                                        init_y_b=(-0.3, -0.3),
                                         init_z_b=(0.0, 0.0),
                                         # in degree
                                         init_roll_b=(0.0, 0.0),
                                         init_pitch_b=(20.0, 20.0),
-                                        init_yaw_b=(-20.0, - 20.0),
+                                        init_yaw_b=(-20.0, -20.0),
                                         # Direction of the end_effector path in the local (end_effector) frame
                                         dx_local=(0.0, 0.0),
                                         dy_local=(-1.0, -1.0),
@@ -531,13 +550,17 @@ class Controller:
         target_dof_pos_lab = np.zeros(29)
         target_dof_pos_lab[self.lab_from_mot] = target_dof_pos
         self.joint_pos_targets = np.vstack((self.joint_pos_targets, target_dof_pos_lab))
+
+        self.is_sit = np.hstack((self.is_sit, self.task=="sit"))
         
         # log observation
         if self.task == "sit":
             self.sit_observations = np.vstack((self.sit_observations, self.obs))
             self.sit_actions = np.vstack((self.sit_actions, self.sit_action))
         elif self.task == "eetrack":
-            pass
+            self.is_initial_goals = np.hstack((self.is_initial_goals, self.eetrack_command.is_initial_goal))
+            self.target_poses_w = np.vstack((self.target_poses_w, self.target_pose_w))
+            self.target_poses_b = np.vstack((self.target_poses_b, self.target_pose_b))
         else:
             raise ValueError("Invalid task")
         
@@ -572,7 +595,11 @@ class Controller:
             "sit_actions": self.sit_actions,
             "eetrack_actions": self.eetrack_actions,
             "raw_joint_pos_targets": self.raw_joint_pos_targets,
-            "joint_pos_targets" : self.joint_pos_targets
+            "is_sit": self.is_sit,
+            "joint_pos_targets" : self.joint_pos_targets,
+            "is_initial_goals": self.is_initial_goals,
+            "target_poses_w": self.target_poses_w,
+            "target_poses_b": self.target_poses_b,
         }
         log_data = {
             "metrics": metrics,
