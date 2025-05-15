@@ -671,6 +671,13 @@
     <parent link="head_link"/>
     <child link="d435_link"/>
   </joint>
+  
+  <link name="camera_link"/>
+  <joint name="camera_joint" type="fixed">
+    <origin xyz="0.018 0 -0.004" rpy="0 -1.5707963267948966 -1.5707963267948966"/>
+    <parent link="d435_link"/>
+    <child link="camera_link"/>
+  </joint>
 
   <!-- mid360 -->
   <link name="mid360_link">
