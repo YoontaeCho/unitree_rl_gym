@@ -8,4 +8,4 @@ setup(name='unitree_rl_gym',
       packages=find_packages(),
       author_email='support@unitree.com',
       description='Template RL environments for Unitree Robots',
-      install_requires=['rsl-rl', 'matplotlib','tensorboard', 'pyyaml'])
+      install_requires=['matplotlib','tensorboard', 'pyyaml'])

@@ -116,12 +116,15 @@ mapping_tensor = torch.zeros((len(raw_joint_order), len(isaaclab_joint_order)))
 for b_idx, b_joint in enumerate(raw_joint_order):
     if b_joint in isaaclab_joint_order:
         a_idx = isaaclab_joint_order.index(b_joint)
+        # if 'shoulder' in b_joint or 'elbow' in b_joint or 'wrist' in b_joint:
+        #     mapping_tensor[a_idx, b_idx] = 0.1
+        # else:
         mapping_tensor[a_idx, b_idx] = 1.0
 
-# mask = torch.ones(len(isaaclab_joint_order))
-# for b_idx, b_joint in enumerate(isaaclab_joint_order):
-#     if 'shoulder' in b_joint or 'elbow' in b_joint or 'wrist' in b_joint:
-#         mask[b_idx] = 0
+mask = torch.ones(len(isaaclab_joint_order))
+for b_idx, b_joint in enumerate(isaaclab_joint_order):
+    if 'shoulder' in b_joint or 'elbow' in b_joint or 'wrist' in b_joint:
+        mask[b_idx] = 0
 
 class Controller:
     def __init__(self, config: Config) -> None:
@@ -155,8 +158,6 @@ class Controller:
 
         self._time_mask = 0.0
         self._ema = 0.7
-
-        self._map_frame = config.map_frame
 
         urdf_path = '../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf'
         path = Path(urdf_path)
@@ -238,7 +239,6 @@ class Controller:
         self.low_state = msg
         self.mode_machine_ = self.low_state.mode_machine
         self.remote_controller.set(self.low_state.wireless_remote)
-
 
     def LowStateGoHandler(self, msg: LowStateGo):
         self.low_state = msg
@@ -325,7 +325,7 @@ class Controller:
         else:
             try:
                 current_left_tf = self.tf_buffer.lookup_transform( 
-                                self._map_frame,
+                                "world",
                                 "left_ankle_roll_link", 
                                 rp.time.Time())
                 self._mode_change = True
@@ -344,7 +344,7 @@ class Controller:
     def publish_step_command(self, next_ctarget_left, next_ctarget_right):
         left_tf = TransformStamped()
         left_tf.header.stamp = self._node.get_clock().now().to_msg()
-        left_tf.header.frame_id = self._map_frame
+        left_tf.header.frame_id = 'world'
         left_tf.child_frame_id = 'left_ctarget'
         left_tf.transform.translation.x = float(next_ctarget_left[0])
         left_tf.transform.translation.y = float(next_ctarget_left[1])
@@ -357,7 +357,7 @@ class Controller:
 
         right_tf = TransformStamped()
         right_tf.header.stamp = left_tf.header.stamp
-        right_tf.header.frame_id = self._map_frame
+        right_tf.header.frame_id = 'world'
         right_tf.child_frame_id = 'right_ctarget'
         right_tf.transform.translation.x = float(next_ctarget_right[0])
         right_tf.transform.translation.y = float(next_ctarget_right[1])
@@ -401,20 +401,20 @@ class Controller:
 
     def current_proj_foot_pose(self):
         current_left_tf = self.tf_buffer.lookup_transform( 
-                                    self._map_frame,
+                                    "world",
                                 "left_ankle_roll_link", 
                                 rp.time.Time(),
                                 rp.duration.Duration(seconds=0.1))
         current_left_pose = self.tf_to_pose(current_left_tf, 'wxyz')
-        # current_left_pose[2] = 0.0
+        current_left_pose[2] = 0.0
         current_left_pose[3:7] = yaw_quat(current_left_pose[3:7])
         current_right_tf = self.tf_buffer.lookup_transform(
-                                self._map_frame,
+                                "world",
                                 "right_ankle_roll_link", 
                                 rp.time.Time(),
                                 rp.duration.Duration(seconds=0.1))
         current_right_pose = self.tf_to_pose(current_right_tf, 'wxyz')
-        # current_right_pose[2] = 0.0
+        current_right_pose[2] = 0.0
         current_right_pose[3:7] = yaw_quat(current_right_pose[3:7])
         return current_left_pose, current_right_pose
 
@@ -480,68 +480,109 @@ class Controller:
         dqj_obs = dqj_obs * self.config.dof_vel_scale
         ang_vel = ang_vel * self.config.ang_vel_scale
        
-        
-        self.update_cfg()
-        left_foot_from_base = self.cfg.get_transform_frame_to_world('left_ankle_roll_link')
-        right_foot_from_base = self.cfg.get_transform_frame_to_world('right_ankle_roll_link')
+        if False:
+            # foot pose
+            left_foot_from_base_tf = self.tf_buffer.lookup_transform( 
+                                                    "pelvis",
+                                                    "left_ankle_roll_link",
+                                                    rp.time.Time())
+            right_foot_from_base_tf = self.tf_buffer.lookup_transform(
+                                                    "pelvis",
+                                                    "right_ankle_roll_link",
+                                                    rp.time.Time())
 
-        left_hand_from_base = self.cfg.get_transform_frame_to_world('left_rubber_hand')
-        right_hand_from_base = self.cfg.get_transform_frame_to_world('right_rubber_hand')
+            lf_b = self.tf_to_pose(left_foot_from_base_tf, 'wxyz')
+            rf_b = self.tf_to_pose(right_foot_from_base_tf, 'wxyz')
+            left_foot_axa = wrap_to_pi(axis_angle_from_quat(lf_b[3:7]))
+            right_foot_axa = wrap_to_pi(axis_angle_from_quat(rf_b[3:7]))
+            rel_foot = np.concatenate((lf_b[:3],
+                                        rf_b[:3], 
+                                        left_foot_axa,
+                                        right_foot_axa), axis=0)
+            # hand pose
+            left_hand_from_base_tf = self.tf_buffer.lookup_transform(
+                                                    "pelvis",
+                                                    "left_rubber_hand",
+                                                    rp.time.Time())
+            right_hand_from_base_tf = self.tf_buffer.lookup_transform(
+                                                    "pelvis",
+                                                    "right_rubber_hand",
+                                                    rp.time.Time())
+            lh_b = self.tf_to_pose(left_hand_from_base_tf, 'wxyz')
+            rh_b = self.tf_to_pose(right_hand_from_base_tf, 'wxyz')
+            left_hand_axa = wrap_to_pi(axis_angle_from_quat(lh_b[3:7]))
+            right_hand_axa = wrap_to_pi(axis_angle_from_quat(rh_b[3:7]))
+            rel_hand = np.concatenate((lh_b[:3],
+                                        rh_b[:3],
+                                        left_hand_axa,
+                                        right_hand_axa), axis=0)
 
-        #left foot
-        lf_b_pos = np.asarray(left_foot_from_base.translation, dtype=np.float32)
-        lf_b_quat_xyzw = pin.Quaternion(left_foot_from_base.rotation).coeffs()
-        lf_b_quat = np.roll(lf_b_quat_xyzw, 1, axis=-1)
-        lf_b = np.concatenate((lf_b_pos, lf_b_quat), axis=-1)
+            # foot command
+            base_pose_w = self.tf_to_pose(self.tf_buffer.lookup_transform(
+                "world", "pelvis",
+                                            rp.time.Time()), 'wxyz')
+        else:
+            self.update_cfg()
+            left_foot_from_base = self.cfg.get_transform_frame_to_world('left_ankle_roll_link')
+            right_foot_from_base = self.cfg.get_transform_frame_to_world('right_ankle_roll_link')
 
-        #rihgt foot
-        rf_b_pos = np.asarray(right_foot_from_base.translation, dtype=np.float32)
-        rf_b_quat_xyzw = pin.Quaternion(right_foot_from_base.rotation).coeffs()
-        rf_b_quat = np.roll(rf_b_quat_xyzw, 1, axis=-1)
-        rf_b = np.concatenate((rf_b_pos, rf_b_quat), axis=-1)
+            left_hand_from_base = self.cfg.get_transform_frame_to_world('left_rubber_hand')
+            right_hand_from_base = self.cfg.get_transform_frame_to_world('right_rubber_hand')
 
-        left_foot_axa = wrap_to_pi(axis_angle_from_quat(lf_b[3:7]))
-        right_foot_axa = wrap_to_pi(axis_angle_from_quat(rf_b[3:7]))
+            #left foot
+            lf_b_pos = np.asarray(left_foot_from_base.translation, dtype=np.float32)
+            lf_b_quat_xyzw = pin.Quaternion(left_foot_from_base.rotation).coeffs()
+            lf_b_quat = np.roll(lf_b_quat_xyzw, 1, axis=-1)
+            lf_b = np.concatenate((lf_b_pos, lf_b_quat), axis=-1)
 
-        rel_foot = np.concatenate((lf_b[:3],
-                                    rf_b[:3], 
-                                    left_foot_axa,
-                                    right_foot_axa), axis=-1)
+            #rihgt foot
+            rf_b_pos = np.asarray(right_foot_from_base.translation, dtype=np.float32)
+            rf_b_quat_xyzw = pin.Quaternion(right_foot_from_base.rotation).coeffs()
+            rf_b_quat = np.roll(rf_b_quat_xyzw, 1, axis=-1)
+            rf_b = np.concatenate((rf_b_pos, rf_b_quat), axis=-1)
 
-        #left hand
-        lh_b_pos = np.asarray(left_hand_from_base.translation, dtype=np.float32)
-        lh_b_quat_xyzw = pin.Quaternion(left_hand_from_base.rotation).coeffs()
-        lh_b_quat = np.roll(lh_b_quat_xyzw, 1, axis=-1)
-        lh_b = np.concatenate((lh_b_pos, lh_b_quat), axis=-1)
+            left_foot_axa = wrap_to_pi(axis_angle_from_quat(lf_b[3:7]))
+            right_foot_axa = wrap_to_pi(axis_angle_from_quat(rf_b[3:7]))
 
-        #right hand
-        rh_b_pos = np.asarray(right_hand_from_base.translation, dtype=np.float32)
-        rh_b_quat_xyzw = pin.Quaternion(right_hand_from_base.rotation).coeffs()
-        rh_b_quat = np.roll(rh_b_quat_xyzw, 1, axis=-1)
-        rh_b = np.concatenate((rh_b_pos, rh_b_quat), axis=-1)
+            rel_foot = np.concatenate((lf_b[:3],
+                                        rf_b[:3], 
+                                        left_foot_axa,
+                                        right_foot_axa), axis=-1)
 
-        left_hand_axa = wrap_to_pi(axis_angle_from_quat(lh_b[3:7]))
-        right_hand_axa = wrap_to_pi(axis_angle_from_quat(rh_b[3:7]))
+            #left hand
+            lh_b_pos = np.asarray(left_hand_from_base.translation, dtype=np.float32)
+            lh_b_quat_xyzw = pin.Quaternion(left_hand_from_base.rotation).coeffs()
+            lh_b_quat = np.roll(lh_b_quat_xyzw, 1, axis=-1)
+            lh_b = np.concatenate((lh_b_pos, lh_b_quat), axis=-1)
 
-        rel_hand = np.concatenate((lh_b[:3],
-                                    rh_b[:3],
-                                    left_hand_axa,
-                                    right_hand_axa), axis=-1)
+            #right hand
+            rh_b_pos = np.asarray(right_hand_from_base.translation, dtype=np.float32)
+            rh_b_quat_xyzw = pin.Quaternion(right_hand_from_base.rotation).coeffs()
+            rh_b_quat = np.roll(rh_b_quat_xyzw, 1, axis=-1)
+            rh_b = np.concatenate((rh_b_pos, rh_b_quat), axis=-1)
 
-        world_from_pelvis_quat = np.asarray(self.low_state.imu_state.quaternion,
-                                        dtype=np.float32)
+            left_hand_axa = wrap_to_pi(axis_angle_from_quat(lh_b[3:7]))
+            right_hand_axa = wrap_to_pi(axis_angle_from_quat(rh_b[3:7]))
 
-        z_lf = -quat_apply(world_from_pelvis_quat, lf_b_pos)[2:] + 0.028531
-        z_rf = -quat_apply(world_from_pelvis_quat, rf_b_pos)[2:] + 0.028531
+            rel_hand = np.concatenate((lh_b[:3],
+                                        rh_b[:3],
+                                        left_hand_axa,
+                                        right_hand_axa), axis=-1)
 
-        z = (z_lf + z_rf) / 2.0
-        base_pose_w = self.tf_to_pose(self.tf_buffer.lookup_transform(
-            self._map_frame, "pelvis",
-                                        rp.time.Time()), 'wxyz')
-        # ic(base_pose_w, z, world_from_pelvis_quat)
-        base_pose_w = np.concatenate((base_pose_w[:3], 
-        # z,
-            world_from_pelvis_quat), axis=-1)
+            world_from_pelvis_quat = np.asarray(self.low_state.imu_state.quaternion,
+                                            dtype=np.float32)
+
+            z_lf = -quat_apply(world_from_pelvis_quat, lf_b_pos)[2:] + 0.028531
+            z_rf = -quat_apply(world_from_pelvis_quat, rf_b_pos)[2:] + 0.028531
+
+            z = (z_lf + z_rf) / 2.0
+            base_pose_w = self.tf_to_pose(self.tf_buffer.lookup_transform(
+                "world", "pelvis",
+                                            rp.time.Time()), 'wxyz')
+            # ic(base_pose_w, z, world_from_pelvis_quat)
+            base_pose_w = np.concatenate((base_pose_w[:3], 
+            # z,
+             world_from_pelvis_quat), axis=-1)
 
       
         dt_left *= self._time_mask
@@ -588,7 +629,7 @@ class Controller:
         self.action = self.action @ mapping_tensor.detach().cpu().numpy()
 
         # transform action to target_dof_pos
-        target_dof_pos = self.config.default_angles + self.action * self.config.action_scale * 1.0
+        target_dof_pos = self.config.default_angles + self.action * self.config.action_scale *1.0
 
         target_dof_pos_with_ema = self._ema * target_dof_pos + (1-self._ema) * self.pos_target
         self.pos_target = target_dof_pos_with_ema
@@ -646,7 +687,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, help="config file name in the configs folder", default="g1.yaml")
+    parser.add_argument("config", type=str, help="config file name in the configs folder", default="g1.yaml")
     args = parser.parse_args()
 
     # Load config
