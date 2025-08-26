@@ -26,6 +26,7 @@ from common.utils import (to_array, normalize, yaw_quat,
                         )
 from config import Config
 
+import tf2_ros.Time as tf2_time
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 from tf2_ros import TransformBroadcaster, TransformStamped, StaticTransformBroadcaster
@@ -160,6 +161,11 @@ class Controller:
         self._ema = 0.7
 
         self._map_frame = config.map_frame
+
+        self._prev_left_ctarget = None
+        self._prev_right_ctarget = None
+        self._cur_left_ctarget = None
+        self._cur_right_ctarget = None
 
         urdf_path = '../../resources/robots/g1_description/g1_29dof_rev_1_0.urdf'
         path = Path(urdf_path)
@@ -406,19 +412,21 @@ class Controller:
         current_left_tf = self.tf_buffer.lookup_transform( 
                                     self._map_frame,
                                 "left_ankle_roll_link", 
-                                rp.time.Time(),
-                                rp.duration.Duration(seconds=0.1))
+                                tf2_time(0)) # get the latest transform
+                                # rp.time.Time(),
+                                # rp.duration.Duration(seconds=0.01))
         current_left_pose = self.tf_to_pose(current_left_tf, 'wxyz')
         # current_left_pose[2] = 0.0
         current_left_pose[3:7] = yaw_quat(current_left_pose[3:7])
         current_right_tf = self.tf_buffer.lookup_transform(
                                 self._map_frame,
                                 "right_ankle_roll_link", 
-                                rp.time.Time(),
-                                rp.duration.Duration(seconds=0.1))
+                                tf2_time(0)) # get the latest transform
+                                # rp.time.Time(),
+                                # rp.duration.Duration(seconds=0.01))
         current_right_pose = self.tf_to_pose(current_right_tf, 'wxyz')
         # current_right_pose[2] = 0.0
-        current_right_pose[3:7] = yaw_quat(current_right_pose[3:7])
+        current_right_pose[3:7] = yaw_quat(current_right_pose[3:7]) 
         return current_left_pose, current_right_pose
 
     def update_cfg(self):
@@ -443,6 +451,10 @@ class Controller:
             else:
                 self._step_command = StepCommand(current_left_pose, current_right_pose) 
         
+            self._prev_left_ctarget = current_left_pose.copy()
+            self._prev_right_ctarget = current_right_pose.copy()
+            self._cur_left_ctarget = current_left_pose.copy()
+            self._cur_right_ctarget = current_right_pose.copy()
 
         if  self.remote_controller.button[KeyMap.B] == 1:
             print("Start walking.")
@@ -467,7 +479,15 @@ class Controller:
                                                     self.remote_controller,
                                                     self.counter * self.config.control_dt)
         # print(next_ctarget)
-        next_ctarget_left, next_ctarget_right, dt_left, dt_right = next_ctarget
+        (next_ctarget_left, next_ctarget_right,
+            dt_left, dt_right,
+            is_updated_left, is_updated_right) = next_ctarget
+        if is_updated_left:
+            self._prev_left_ctarget = self._cur_left_ctarget.copy()
+            self._cur_left_ctarget = next_ctarget_left.copy()
+        if is_updated_right:
+            self._prev_right_ctarget = self._cur_right_ctarget.copy()
+            self._cur_right_ctarget = next_ctarget_right.copy()
         self.publish_step_command(next_ctarget_left, next_ctarget_right)
         
         for i in range(len(self.config.joint2motor_idx)):
@@ -549,8 +569,9 @@ class Controller:
 
         z = (z_lf + z_rf) / 2.0
         base_pose_w = self.tf_to_pose(self.tf_buffer.lookup_transform(
-            self._map_frame, "pelvis",
-                                        rp.time.Time()), 'wxyz')
+            self._map_frame, "pelvis", tf2_time(0)), # get the latest transform
+                                        # rp.time.Time()), 
+                                        'wxyz')
         # ic(base_pose_w, z, world_from_pelvis_quat)
         base_pose_w = np.concatenate((base_pose_w[:3], 
         # z,
@@ -617,6 +638,48 @@ class Controller:
                 self.low_cmd.motor_cmd[motor_idx].tau = 0.0
         # send the command
         self.send_cmd(self.low_cmd)
+        
+        # log the ctarget error
+        self.log_ctarget(dt_left, dt_right)
+
+    def log_ctarget(self, left_dt, right_dt):
+
+        # in here we assume some bound centered on dt target, 
+        # if the dt is less than 0.05 we have to compare the current ctarget with the current foot pose since foot is reaching the foot target
+        # if the dt is greater than 0.35 we have to compare the previous ctarget with the current foot pose since we know how the foot was reached the target
+        if left_dt < 0.05:
+            left_target_compare = self._cur_left_ctarget
+        else:
+            left_target_compare = self._prev_left_ctarget
+        
+        if left_dt <0.05 or left_dt > 0.35:
+            left_foot_tf = self.tf_buffer.lookup_transform( 
+                                self._map_frame,
+                                "left_ankle_roll_link", 
+                                tf2_time(0))
+            left_foot_pose = self.tf_to_pose(left_foot_tf, 'wxyz')
+
+            left_error = compute_pose_error(left_foot_pose[:3],
+                                            left_foot_pose[3:7],
+                                            left_target_compare[:3],
+                                            left_target_compare[3:7])
+            left_rot_error_angle = np.rad2deg(np.linalg.norm(left_error[1]))
+            print(f"left_pos error: {left_error[0]}, left_rot error: {left_rot_error_angle}")
+
+        
+        if right_dt < 0.05:
+            right_target_compare = self._cur_right_ctarget
+        else:
+            right_target_compare = self._prev_right_ctarget
+        
+        if right_dt < 0.05 or right_dt > 0.35:
+            right_foot_tf = self.tf_buffer.lookup_transform( 
+                                self._map_frame,
+                                "right_ankle_roll_link", 
+                                tf2_time(0))
+            right_foot_pose = self.tf_to_pose(right_foot_tf, 'wxyz')
+            
+
 
     def run_wrapper(self):
         # print("hello", self.mode,

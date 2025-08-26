@@ -147,6 +147,7 @@ class StepCommand:
             )
             self.next_ctarget_left[:3] = new_pos
             self.next_ctarget_left[3:7] = new_quat
+            is_updated_left = True
 
         # Update right foot target if its scheduled time has elapsed.
         if count > self.next_ctime_right:
@@ -159,11 +160,14 @@ class StepCommand:
             )
             self.next_ctarget_right[:3] = new_pos
             self.next_ctarget_right[3:7] = new_quat
+            is_updated_right = True
 
         # Return the concatenated target: left (7D) followed by right (7D).
         return (self.next_ctarget_left, self.next_ctarget_right,
                 (self.next_ctime_left - count), 
-                (self.next_ctime_right - count))
+                (self.next_ctime_right - count),
+                is_updated_left,
+                is_updated_right)
 
     def reset(self, current_left_pose, current_right_pose):
         """
