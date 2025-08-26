@@ -16,14 +16,16 @@ from tf2_ros.transform_listener import TransformListener
 from tf2_ros import TransformBroadcaster, TransformStamped
 from common.command_helper_ros import create_damping_cmd, create_zero_cmd, init_cmd_hg, init_cmd_go, MotorMode
 from common.remote_controller import RemoteController, KeyMap
-from config_e2e import E2EConfig as Config
+from config_0820 import Config
 from common.crc import CRC
 from enum import Enum
 from ikctrl import IKCtrl
 
 import utils_stage as us
-import utils_eetrack as ue
+import utils_eetrack_tag as ue
 import utils_robot as ur
+import utils_locomotion as ul
+
 
 class Mode(Enum):
     wait = 0
@@ -34,7 +36,8 @@ class Mode(Enum):
     finish = 5
     null = 6
 
-
+yaw_quat = math_utils.as_np(math_utils.yaw_quat)
+quat_apply = math_utils.as_np(math_utils.quat_apply)
 axis_angle_from_quat = math_utils.as_np(math_utils.axis_angle_from_quat)
 quat_conjugate = math_utils.as_np(math_utils.quat_conjugate)
 quat_mul = math_utils.as_np(math_utils.quat_mul)
@@ -105,6 +108,7 @@ def index_map(k_to, k_from):
     index_dict = {k: i for i, k in enumerate(k_to)}  # O(len(k_from))
     return [index_dict.get(k, -1) for k in k_from]  # O(len(k_to))
 
+from common.rotation_helper import get_gravity_orientation, transform_imu_data
 
 class Controller:
     def __init__(self, config: Config) -> None:
@@ -112,9 +116,6 @@ class Controller:
         self.remote_controller = RemoteController()
         
         # Load policy
-        print(config.policy_path)
-        self.sit_policy = th.jit.load(config.sit_policy_path) # FIXME sit_policy_path
-        self.sit_policy.eval()
 
         # smoothing
         self.prev_joint_pos_target = None
@@ -126,10 +127,6 @@ class Controller:
         # == build index map ==
         self.mot_from_lab = index_map(self.config.motor_joint, self.config.lab_joint)
         self.lab_from_mot = index_map(self.config.lab_joint, self.config.motor_joint)
-        self.mot_from_lower = index_map(self.config.motor_joint, self.config.lower_joint)
-        
-        self.mot_from_lab_eetrack = index_map(self.config.motor_joint, self.config.lab_joint_eetrack)
-        self.lab_from_mot_eetrack = index_map(self.config.lab_joint_eetrack, self.config.motor_joint)
         
         # num joints
         self.num_joints = len(self.config.motor_joint)
@@ -142,22 +139,19 @@ class Controller:
 
         # log trajectory (50Hz)
         self.timestamp_low_freq = np.array([])
-        self.sit_observations = np.zeros((0, self.config.sit_obs_dim))
-        self.eetrack_observations = np.zeros((0, self.config.eetrack_obs_dim))
+        self.locomotion_observations = np.zeros((0, self.config.locomotion_obs_dim)) # TODO
+        # self.eetrack_observations = np.zeros((0, self.config.eetrack_obs_dim))
+        self.locomotion_vel_traj = np.zeros((0, 3))
 
-        self.sit_actions = np.zeros((0, self.num_joints))
-        self.eetrack_actions = np.zeros((0, self.num_joints))
+        # self.locomotion_actions = np.zeros((0, 15))
+        self.locomotion_actions = np.zeros((0, 14))
         self.raw_joint_pos_targets = np.zeros((0, self.num_joints))
         self.joint_pos_targets = np.zeros((0, self.num_joints))
 
         self.current_joint_pos = np.zeros(self.num_joints)
-        self.eetrack_last_actions = np.zeros(self.num_joints)
-        self.eetrack_last_last_actions = np.zeros(self.num_joints)
-
 
         # counter
         self.counter = 0
-        self.eetrack_initial_counter = 0
 
         # ROS handles & helpers
         rp.init()
@@ -167,27 +161,92 @@ class Controller:
         clock = GlobalClock(self._node)
 
         self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self._node)
+        self.tf_listener = TransformListener(self.tf_buffer, self._node, spin_thread=True)
         self.tf_broadcaster = TransformBroadcaster(self._node)
 
-        ### Mapping helpers.
-        self.sit_obsmap = us.SitObservation(config, self.tf_buffer)
-        
-        self.sit_robot = ur.Robot(
+        # locomotion
+        self.locomotion_robot = ur.Robot(
             '../../resources/robots/g1_description/g1_29dof_rev_1_0_replace_with_welder.urdf')
-        self.sit_actmap = us.SitActionVer2(config, self.sit_robot)
-        self.vhcommand = us.VelocityHeightCommand(config)
-
-
-        # eetrack
-        self.eetrack_robot = ur.Robot(
-            '../../resources/robots/g1_description/g1_29dof_rev_1_0_replace_with_welder.urdf')
-        self.eetrack_actmap = us.EETrackActionVer2(config, self.eetrack_robot)
-        self.eetrack_command = None
-        self.eetrack_policy = th.jit.load(config.eetrack_policy_path)
-        self.eetrack_policy.eval()
-        self.eetrack_obsmap = us.EETrackObservationWithLastAction(config, self.tf_buffer
+        # self.locomotion_actmap = ul.LocomotionAction_0820(config, self.locomotion_robot)
+        self.locomotion_actmap = ul.LocomotionAction_14dof(config, self.locomotion_robot)
+        self.locomotion_policy = th.jit.load(config.locomotion_policy_path) # TODO
+        self.locomotion_policy.eval()
+        self.locomotion_obsmap = ul.LocomotionObservation_14dof(config, self.tf_buffer # TODO
         )
+        self.locomotion_velocity_command = None
+        self.locomotion_phase_command = None
+        # self.locomotion_last_action = np.zeros(15)
+        self.locomotion_last_action = np.zeros(14)
+
+        self.stop_locomotion = False
+
+        ########################## Navigation ##########################
+        self.navigation_pos_target = np.array([1.0, 0.0, 0.0])
+        self.navigation_heading_target = 0.0 # radians
+        self.pos_error_bs = np.zeros((1,1))
+        self.heading_error_bs = np.zeros((1,1))
+        self.pelvis_to_midsole_offset_after_locomotion = {
+            "x": -0.0069,
+            "y": -0.0194,
+            "yaw": 0.0061,
+        }
+        self.target_midsole_quat = yaw_quat(np.array([np.sin(self.navigation_heading_target/2), 0.0, 0.0, np.cos(self.navigation_heading_target/2)]).astype(np.float32)).astype(np.float32)
+
+        self.offset = quat_apply(self.target_midsole_quat, 
+                    np.array(
+                       [self.pelvis_to_midsole_offset_after_locomotion["x"], 
+                        self.pelvis_to_midsole_offset_after_locomotion["y"], 
+                        0.0]
+                        ).astype(np.float32)
+                    )
+        
+        self.navigation_command = None
+        self.pelvis_pos_target = self.navigation_pos_target + self.offset
+        self.pelvis_heading_target = self.navigation_heading_target + self.pelvis_to_midsole_offset_after_locomotion["yaw"]
+
+    
+        # HYPERPARAMETERS
+        self.locomotion_vel_command = np.array([0., 0., 0.])
+
+        self.SLOW_BOUND = 0.4
+        self.MAX_LIN_VEL =  0.15
+        self.MAX_ANG_VEL = 0.3
+        self.NAV_HZ = 5
+        self.ERROR_THRESHOLD = 0.02  # m
+        self.NUM_AVG = 30
+
+        ########################## Navigation ##########################
+
+
+        self.target_vec_bs = np.zeros((0, 4)) # 4 dim
+        self.navigation_obsmap = ul.NavigationObservation(config, self.tf_buffer)
+        self.navigation_actmap = ul.NavigationAction(config, self.locomotion_robot)
+        print(config.navigation_policy_path)
+        self.navigation_policy = th.jit.load(config.navigation_policy_path) # TODO
+        self.navigation_policy.eval()
+        self.naviation_last_action = np.zeros(3, dtype=np.float32)
+        self.locomotion_vel_commands = np.zeros((0, 3))
+
+        self.qj = np.zeros(self.config.num_actions, dtype=np.float32)
+        self.dqj = np.zeros(self.config.num_actions, dtype=np.float32)
+
+
+        act_joint = config.ik_joint
+        self.ikctrl = IKCtrl('../../resources/robots/g1_description/g1_29dof_rev_1_0_ver4_camera_mount_v2.urdf',
+                             config.ik_joint,
+                             frame='end_effector')
+        self.pin_from_mot = np.zeros(29, dtype=np.int32) # FIXME(ycho): hardcoded
+        self.mot_from_pin = np.zeros(43, dtype=np.int32) # FIXME(ycho): hardcoded
+        self.mot_from_act = np.zeros(len(act_joint), dtype=np.int32) # FIXME(ycho): hardcoded
+        for i_mot, j in enumerate( self.config.motor_joint ):
+            i_pin = (self.ikctrl.robot.index(j) - 1)
+            self.pin_from_mot[i_mot] = i_pin
+            self.mot_from_pin[i_pin] = i_mot
+            if j in act_joint:
+                i_act = act_joint.index(j)
+                self.mot_from_act[i_act] = i_mot
+        self.lim_lo_pin = self.ikctrl.robot.model.lowerPositionLimit
+        self.lim_hi_pin = self.ikctrl.robot.model.upperPositionLimit
 
         if config.msg_type == "hg":
             # g1 and h1_2 use the hg msg type
@@ -212,11 +271,13 @@ class Controller:
         elif config.msg_type == "go":
             init_cmd_go(self.low_cmd, weak_motor=self.config.weak_motor)
 
+        print("Waiting for the robot to be ready...")
         self.mode = Mode.wait
         
 
         self.is_eetrack_first_iter = True
-        self.task = "sit"
+        self.task = "locomotion"
+        self.zero_phase = False
 
         self.sitting = False
         self._mode_change = True
@@ -263,7 +324,7 @@ class Controller:
     def zero_torque_state(self):
         if self.remote_controller.button[KeyMap.start] == 1:
             self._mode_change = True
-            self.mode = Mode.policy
+            self.mode = Mode.damping
         else:
             create_zero_cmd(self.low_cmd)
             self.send_cmd(self.low_cmd)
@@ -299,40 +360,17 @@ class Controller:
             self.mode = Mode.policy
 
     def default_pos_state(self):
-        if self.remote_controller.button[KeyMap.A] != 1:
+        if self.remote_controller.button[KeyMap.Y] != 1:
             for motor_idx in range(self.num_joints):
-                self.low_cmd.motor_cmd[motor_idx].q = self.config.default_angles[motor_idx]
+                self.low_cmd.motor_cmd[motor_idx].q = self.config.locomotion_motor_joint_offsets[motor_idx]
                 self.low_cmd.motor_cmd[motor_idx].dq = 0.0
-                self.low_cmd.motor_cmd[motor_idx].kp = self.config.kps[motor_idx]
-                self.low_cmd.motor_cmd[motor_idx].kd = self.config.kds[motor_idx]
+                self.low_cmd.motor_cmd[motor_idx].kp = float(self.config.kps[motor_idx])
+                self.low_cmd.motor_cmd[motor_idx].kd = float(self.config.kds[motor_idx])
                 self.low_cmd.motor_cmd[motor_idx].tau = 0.0
             self.send_cmd(self.low_cmd)
         else:
             self._mode_change = True
             self.mode = Mode.policy
-
-    def publish_hand_target(self):
-        t = TransformStamped()
-
-        # Format header
-        t.header.stamp = self._node.get_clock().now().to_msg()
-        t.header.frame_id = 'world'
-        t.child_frame_id = 'target'
-
-        # Populate translation
-        t.transform.translation.x = float(self.target_pose[0])
-        t.transform.translation.y = float(self.target_pose[1])
-        t.transform.translation.z = float(self.target_pose[2])
-
-        # Set world_from_pelvis quaternion based on IMU state
-        qw, qx, qy, qz = [float(x) for x in self.target_pose[3:7]]
-        t.transform.rotation.x = qx
-        t.transform.rotation.y = qy
-        t.transform.rotation.z = qz
-        t.transform.rotation.w = qw
-
-        # Send the transformation
-        self.tf_broadcaster.sendTransform(t)
 
         
     def terminate_by_pelvis_condition(self, xyz, quat, limit_euler_angle=[0.9, 1.0]) -> bool:
@@ -351,22 +389,12 @@ class Controller:
             print(f"euler: {euler}")
         return out_of_limit.item()
     
-    def print_sit_status(self): 
-        height_error = self.vhcommand.pelvis_height_w - self.sit_obsmap._pelvis_height()[0]
-        print(f"Vel command : {self.vhcommand.pelvis_lin_vel_z_w}")
-        print(f"Height error : {height_error}")
-    
-
     def run_policy(self):
         # If the button A is pressed, then finish the policy.
         if self.remote_controller.button[KeyMap.A] == 1:
             self._mode_change = True
             self.mode = Mode.finish
             return
-        
-        if self.remote_controller.button[KeyMap.B] == 1:
-            self.task = "eetrack"
-
 
         self.counter += 1
 
@@ -380,114 +408,130 @@ class Controller:
         root_state_w = np.zeros(7)
         root_state_w[0:3] = xyz
         root_state_w[3:7] = quat_wxyz
+
         
         # Add termination condition.
         if self.terminate_by_pelvis_condition(xyz, quat_wxyz):
             raise ValueError("Terminated by pelvis condition.")
+        
 
-        if self.task == "sit":
-            # Press down button to sit
-            curr_keymap = self.remote_controller.button[KeyMap.down] == 1
-            if curr_keymap:
-                self.sitting = True
+        phase = (self.counter * 0.02) % 1.0 / 1.0
+        
+        # if self.remote_controller.button[KeyMap.down] == "X":
+        #     self.zero_phase == True
+        #     print("PHASE IS KEPT SAME")
 
-            height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.04, sitting=self.sitting)
-            # height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.00, sitting=self.sitting)
+        
+        ###################### Compute state ######################
+        forward_w = quat_apply(quat_wxyz.astype(np.float32), np.array([1., 0., 0.]).astype(np.float32))
+        heading_w = np.arctan2(forward_w[1], forward_w[0])
+        heading_error = wrap_to_pi(np.array([self.pelvis_heading_target]).astype(np.float32) - np.array([heading_w]).astype(np.float32))
 
-            # For stage 1 & 2.
-            self.obs = self.sit_obsmap(self.low_state, height_command)
+        target_vec = self.pelvis_pos_target - xyz
+        target_vec[2] = 0.0
+        pos_command_b = quat_rotate_inverse(yaw_quat(quat_wxyz).astype(np.float32), target_vec.astype(np.float32))
+        print(f"pos command b : {pos_command_b}")
+        print(f"heading_error : {heading_error}")
+        self.pos_error_bs = np.vstack((self.pos_error_bs, np.linalg.norm(pos_command_b[:2]).reshape((1,1))))
+        self.heading_error_bs = np.vstack((self.heading_error_bs, heading_error.reshape(1,1)))
 
-            obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
-            obs_tensor = obs_tensor.detach().clone().float()
-            self.sit_action = self.sit_policy(obs_tensor).detach().numpy().squeeze()
-
-            # target_dof_pos : motor joint ordered
-            sit_target_dof_pos = self.sit_actmap(self.sit_action)
-        # if self.task == "sit":
-            target_dof_pos = sit_target_dof_pos
-
-            # self.print_sit_status()
-            
-        if self.task == "eetrack":
-            if self.is_eetrack_first_iter:
-                print("\n[EETrack] EETrack has began.")
-                self.is_eetrack_first_iter = False
-                self.eetrack_initial_counter = self.counter
-
-            if self.eetrack_command is None:
-                self.eetrack_command = ue.eetrack(th.from_numpy(root_state_w)[None],
-                                   self.tf_buffer,
-                                   clock,
-                                   ue.Range(
-                                        # Initial pose of the end_effector in the base (pelvis) frame
-                                        # Currently, it is fixed.
-                                        init_x_b=(0.4877,0.4877),
-                                        init_y_b=(-0.3531, -0.3531),
-                                        init_z_b=(0.0, 0.0),
-                                        # in degree
-                                        init_roll_b=(0.0, 0.0),
-                                        init_pitch_b=(20.0, 20.0),
-                                        init_yaw_b=(-20.0, - 20.0),
-                                        # Direction of the end_effector path in the local (end_effector) frame
-                                        dx_local=(0.0, 0.0),
-                                        dy_local=(-1.0, -1.0),
-                                        dz_local=(0.0, 0.0),
-                                   ))
+        ###################### Hand design navigation ######################
+        if True:
+            if self.pos_error_bs.shape[0] > self.NUM_AVG:
+                # print("pos command mean : ", np.mean(self.pos_error_bs[-self.NUM_AVG:, :].reshape((self.NUM_AVG,))))
+                # print("heading error mean : ", np.mean(np.abs(self.heading_error_bs[-self.NUM_AVG:, :]).reshape((self.NUM_AVG,))))
+                if np.mean(self.pos_error_bs[-self.NUM_AVG:, :].reshape((self.NUM_AVG,))) < self.ERROR_THRESHOLD \
+                    and np.mean(np.abs(self.heading_error_bs[-self.NUM_AVG:, :]).reshape((self.NUM_AVG,))) < 0.05:
+                    self.stop_locomotion = True
+            # print("counter : ", self.counter)
+            # print("self.counter % 40 : ", self.counter % 40)
+            # print()
+            if self.counter < 200 * 2 :
+                self.locomotion_vel_command = np.array([0., 0., 0.])
+                phase = 0.0
+            elif self.counter % 10 == 0:
+                # self.locomotion_vel_command[:2] = np.clip(np.sign(pos_command_b[:2]) * MAX_LIN_VEL * np.sqrt(np.abs(pos_command_b[:2] / SLOW_BOUND)), -MAX_LIN_VEL, MAX_LIN_VEL)
+                # X >= 0
+                if pos_command_b[0] >= 0:
+                    self.locomotion_vel_command[0] = np.clip(self.MAX_LIN_VEL * np.sqrt(np.abs(pos_command_b[0] / self.SLOW_BOUND)), 0., self.MAX_LIN_VEL)
+                # X < 0
+                if pos_command_b[0] < 0:
+                    self.locomotion_vel_command[0] = np.clip(-0.3 * np.sqrt(np.abs(pos_command_b[0] / self.SLOW_BOUND)), -0.3, 0.)
+                # Y >= 0
+                if pos_command_b[1] >= 0:
+                    self.locomotion_vel_command[1] = np.clip(self.MAX_LIN_VEL * np.sqrt(np.abs(pos_command_b[1] / self.SLOW_BOUND)), 0., self.MAX_LIN_VEL)
+                # Y < 0
+                if pos_command_b[1] < 0:
+                    self.locomotion_vel_command[1] = np.clip(- self.MAX_LIN_VEL * np.sqrt(np.abs(pos_command_b[1] / self.SLOW_BOUND)), -self.MAX_LIN_VEL, 0.)
                 
-            # Keymap press -> changes is_initial_goal == False
-            if self.remote_controller.button[KeyMap.start] == 1:
-                print("\n[EETrack] Subgoal Sampling has begun.")
-                self.eetrack_command.is_initial_goal = False
+                self.locomotion_vel_command[2] = np.clip(np.sign(heading_error) * self.MAX_ANG_VEL * np.sqrt(np.abs(heading_error / self.SLOW_BOUND)), -self.MAX_ANG_VEL, self.MAX_ANG_VEL)
 
-            hands_command = self.eetrack_command.get_command(
-                th.from_numpy(root_state_w)[None]
-                )[0].detach().cpu().numpy()
-            self.target_pose = np.copy(
-                self.eetrack_command.next_command_s_left.squeeze().detach().cpu().numpy()
+            if self.stop_locomotion:
+                self.locomotion_vel_command = np.array([0., 0., 0.])
+                phase = 0.0
+        ###################### RL Trained navigation ######################
+        else:
+            mid_sole_pos_w, mid_sole_quat_w = body_pose(
+                self.tf_buffer,
+                'mid_sole_link',
+                'world',
+                rot_type='quat'
             )
-            self.publish_hand_target()
+            if self.navigation_command == None:
+                self.navigation_command = ul.NavigationCommand(
+                    x = 1.,
+                    y = 0.,
+                    heading = 0.,
+                )
+            if self.counter < 200 * 2 :
+                self.locomotion_vel_command = np.array([0., 0., 0.])
+                phase = 0.0
+            elif self.counter % 10 == 0:
+                if False:
+                    self.target_vec_b = self.navigation_command.command(mid_sole_pos_w, mid_sole_quat_w)
+                else:
+                    self.target_vec_b = self.navigation_command.command(xyz, quat_wxyz)
+                self.target_vec_bs = np.vstack([self.target_vec_bs, self.target_vec_b])
 
-            self.obs = self.eetrack_obsmap(self.low_state, hands_command, self.eetrack_last_actions, self.eetrack_last_last_actions)
 
-            obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
-            obs_tensor = obs_tensor.detach().clone().float()
-            self.eetrack_action = self.eetrack_policy(obs_tensor).detach().numpy().squeeze()
+                self.nav_obs = self.navigation_obsmap(
+                    self.low_state,
+                    self.target_vec_b, # 4 dim
+                    phase,
+                    last_action=self.naviation_last_action
+                )
+                obs_tensor = th.from_numpy(self.nav_obs).unsqueeze(0)
+                obs_tensor = obs_tensor.detach().clone().float()
+
+                self.navigation_action = self.navigation_policy(obs_tensor).detach().numpy().squeeze()
+                self.locomotion_vel_command = self.navigation_actmap(self.navigation_action)
+                self.naviation_last_action = self.locomotion_vel_command
+                self.locomotion_vel_commands = np.vstack([self.locomotion_vel_commands, self.locomotion_vel_command])
+
+            if self.counter > 200 * 2 and np.linalg.norm(self.locomotion_vel_command) < 0.05:
+                self.stop_locomotion = True
             
-            self.eetrack_last_last_actions = self.eetrack_last_actions
-            self.eetrack_last_actions = self.eetrack_action
+            if self.stop_locomotion:
+                self.locomotion_vel_command = np.array([0., 0., 0.])
+                phase = 0.0
 
-            # target_dof_pos : motor joint ordered
-            eetrack_target_dof_pos = self.eetrack_actmap(self.eetrack_action)
-            # target_dof_pos = eetrack_target_dof_pos
+        print(f"locomotion vel command : {self.locomotion_vel_command}")
+        print()
+        print()
+        
+        # phase = 0.0
 
-            # interpolate
-            eetrack_counter = self.counter - self.eetrack_initial_counter
-            total_count = 100
-            # if eetrack_counter < total_count:
-            if False:
-                # CLAMP
-                x = eetrack_counter / total_count
-                alpha = np.clip(0.1 * np.exp(2.5*x), 0, 0.5)
-                self.current_joint_pos[self.mot_from_lab] = self.eetrack_obsmap.curr_joint_pos
-                delta_joint_pos = eetrack_target_dof_pos - self.current_joint_pos
-                delta_joint_pos = np.clip(delta_joint_pos, -alpha, alpha)
-                target_dof_pos = self.current_joint_pos + delta_joint_pos
-            # if eetrack_counter < total_count:
-            if False:
-                # LERP
-                alpha = eetrack_counter / total_count
-                target_dof_pos = alpha * eetrack_target_dof_pos + (1-alpha) * sit_target_dof_pos
-            else:
-                target_dof_pos = eetrack_target_dof_pos
-            # if True:
-            #     for i in range(self.num_joints):
-                    # self.config.kps[i] *= 0.5
-                    # self.config.kds[i] = 0.0
+        self.obs = self.locomotion_obsmap(self.low_state, self.locomotion_vel_command, phase, last_action=self.locomotion_last_action)
+        obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
+        obs_tensor = obs_tensor.detach().clone().float()
+        self.locomotion_action = self.locomotion_policy(obs_tensor).detach().numpy().squeeze()
+        self.locomotion_last_action = self.locomotion_action
 
-        raw_target_dof_pos = target_dof_pos.copy()
+        # target_dof_pos : motor joint ordered
+        self.locomotion_target_dof_pos = self.locomotion_actmap(self.locomotion_action)
+        target_dof_pos = self.locomotion_target_dof_pos
 
-        # smoothing for all joints
-        if self.config.later_smoothing:
+        if True:
             if self.prev_joint_pos_target is not None:
                 if self.counter < 100:
                     target_dof_pos = self.config.initial_smoothing * target_dof_pos + \
@@ -495,47 +539,34 @@ class Controller:
                 else:
                     target_dof_pos = self.config.later_smoothing * target_dof_pos + \
                                     (1-self.config.later_smoothing) * self.prev_joint_pos_target
-            self.prev_joint_pos_target = target_dof_pos
-        
-        # observation dumping
-        self.dump_observations_and_joint_pos_target(raw_target_dof_pos, target_dof_pos)
 
-        # FIXME(hh) kpkd coefficient smoothing
-        # Build low cmd
+            self.prev_joint_pos_target = target_dof_pos
+
+        # self.print_locomotion_status()
         for mot_idx in range(self.num_joints):
-            self.low_cmd.motor_cmd[mot_idx].q = float(target_dof_pos[mot_idx])
+            self.low_cmd.motor_cmd[mot_idx].q =  float(target_dof_pos[mot_idx])
             self.low_cmd.motor_cmd[mot_idx].dq = 0.0
             self.low_cmd.motor_cmd[mot_idx].kp = self.config.kpkd_smoothing * float(self.config.kps[mot_idx])
             self.low_cmd.motor_cmd[mot_idx].kd = self.config.kpkd_smoothing * float(self.config.kds[mot_idx])
             self.low_cmd.motor_cmd[mot_idx].tau = 0.0
+
+        
+        # observation dumping
+        self.dump_observations_and_joint_pos_target(target_dof_pos)
+
          
         # send the command
         self.send_cmd(self.low_cmd)
 
-    def dump_observations_and_joint_pos_target(self, raw_target_dof_pos, target_dof_pos):
+    def dump_observations_and_joint_pos_target(self, target_dof_pos):
         # log timestamp
         timestamp_low_freq = clock.get_time().nanoseconds / 1e9
         self.timestamp_low_freq = np.append(self.timestamp_low_freq, timestamp_low_freq)
         
-        # log raw joint pos target (before smoothing)
-        raw_target_dof_pos_lab = np.zeros(29)
-        raw_target_dof_pos_lab[self.lab_from_mot] = raw_target_dof_pos
-        self.raw_joint_pos_targets = np.vstack((self.raw_joint_pos_targets, raw_target_dof_pos_lab))
-        
-        # log joint pos target
-        target_dof_pos_lab = np.zeros(29)
-        target_dof_pos_lab[self.lab_from_mot] = target_dof_pos
-        self.joint_pos_targets = np.vstack((self.joint_pos_targets, target_dof_pos_lab))
-        
-        # log observation
-        if self.task == "sit":
-            self.sit_observations = np.vstack((self.sit_observations, self.obs))
-            self.sit_actions = np.vstack((self.sit_actions, self.sit_action))
-        elif self.task == "eetrack":
-            self.eetrack_observations = np.vstack((self.eetrack_observations, self.obs))
-            self.eetrack_actions = np.vstack((self.eetrack_actions, self.eetrack_action))
-        else:
-            raise ValueError("Invalid task")
+        self.locomotion_observations = np.vstack((self.locomotion_observations, self.obs))
+        self.locomotion_actions = np.vstack((self.locomotion_actions, self.locomotion_action))
+        self.locomotion_vel_traj = np.vstack((self.locomotion_vel_traj, self.locomotion_vel_command))
+
         
             
     def log_metrics_and_trajectories(self):     
@@ -563,12 +594,16 @@ class Controller:
             "dq_traj": self.dq_traj,
             "tau_traj": self.tau_traj,
             "timestamp_low_freq": self.timestamp_low_freq,
-            "sit_observations": self.sit_observations,
-            "eetrack_observations": self.eetrack_observations,
-            "sit_actions": self.sit_actions,
-            "eetrack_actions": self.eetrack_actions,
-            "raw_joint_pos_targets": self.raw_joint_pos_targets,
-            "joint_pos_targets" : self.joint_pos_targets
+            # "sit_observations": self.sit_observations,
+            "locomotion_observations": self.locomotion_observations,
+            # "eetrack_observations": self.eetrack_observations,
+            # "sit_actions": self.sit_actions,
+            "locomotion_actions": self.locomotion_actions,
+            # "eetrack_actions": self.eetrack_actions,
+            "joint_pos_targets" : self.joint_pos_targets,
+            "locomotion_vel_traj" : self.locomotion_vel_traj,
+            "pos_errors" : self.pos_error_bs,
+            "heading_errors" : self.heading_error_bs,
         }
         log_data = {
             "metrics": metrics,
@@ -576,12 +611,12 @@ class Controller:
         }
 
         # Save the log with experiment name
-        sit_model = os.path.basename(self.config.sit_policy_path).split('.')[0]
-        eetrack_model = os.path.basename(self.config.eetrack_policy_path).split('.')[0]
-
+        # sit_model = os.path.basename(self.config.sit_policy_path).split('.')[0]
+        # eetrack_model = os.path.basename(self.config.locomotion_policy_path).split('.')[0]
+        locomotion_model = os.path.basename(self.config.locomotion_policy_path).split('.')[0]
         timestamp = clock.get_time().nanoseconds / 1e9
         
-        file_name = f"{self.logpath}/log_{sit_model}_{eetrack_model}_{str(timestamp).split('.')[0]}.npy"
+        file_name = f"{self.logpath}/log_{locomotion_model}_{str(timestamp).split('.')[0]}.npy"
         np.save(file_name, log_data)
         print(f"Log saved at {file_name}")
         
@@ -592,6 +627,7 @@ class Controller:
 
     def run_wrapper(self):
         if self.mode == Mode.wait:
+            print("Waiting for the robot to be ready...")
             if self.low_state.crc != 0:
                 self.mode = Mode.zero_torque
                 self.low_cmd.mode_machine = self.mode_machine_
@@ -611,16 +647,20 @@ class Controller:
         elif self.mode == Mode.damping:
             if self._mode_change:
                 print("Enter default pos state.")
-                print("Waiting for the Button A signal...")
+                print("Waiting for the Button Y signal...")
                 self._mode_change = False
             self.default_pos_state()
         elif self.mode == Mode.policy:
             if self._mode_change:
                 print("Run Policy.\n")
                 print("--------------[ Basic Guidelines ]---------------")
+                print("[Locomotion] Press Button {X} to Stand.")
+                print("-------------------------------------------------")
+                print("[Sit] Press Button {B} to change task to Sitting.")
+                print("-------------------------------------------------")
                 print("[Sit] Press Button {down} to move pelvis to target height 0.3m.")
                 print("-------------------------------------------------")
-                print("[EETrack] Press Button {B} to change task to EETrack.")
+                print("[EETrack] Press Button {X} to change task to EETrack.")
                 print("-------------------------------------------------")
                 print("[EETrack] Press down {start} to start subgoal sampling.")
                 print("-------------------------------------------------")

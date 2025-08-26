@@ -236,7 +236,31 @@ class LocomotionObservation(EETrackObservation):
 
         return np.concatenate(obs, axis=-1)
 
-    
+class LocomotionObservation_14dof(EETrackObservation):
+    def __call__(self,
+                 low_state: LowStateHG,
+                 velocity_command: np.ndarray,
+                 phase,
+                 last_action: np.ndarray,
+                 ):
+        base_ang_vel = self._base_ang_vel(low_state)
+        # NOTE(ycho): requires running `fake_world_tf_pub.py`.
+        projected_gravity = self._projected_gravity()
+        joint_pos, joint_vel = self._joint_pos_vel(low_state, self.config.lab_joint_offsets)
+
+        phase_command = np.array([np.sin(2 * np.pi * phase), np.cos(2 * np.pi * phase)])
+
+        obs = [
+            base_ang_vel,        
+            projected_gravity, 
+            joint_pos,          
+            joint_vel,         
+            velocity_command,  
+            phase_command,    
+            last_action, 
+        ]
+
+        return np.concatenate(obs, axis=-1)
     
 from utils_robot import Robot
 
@@ -311,6 +335,44 @@ class LocomotionAction(SitActionVer2):
         target_dof_pos = np.zeros(29)
         # checked
         target_dof_pos[self.mot_from_lab] = 0.5 * action + np.asarray(self.config.lab_joint_offsets)
+
+        target_dof_pos = np.clip(
+                target_dof_pos,
+                self.lim_lo_pin[self.pin_from_mot],
+                self.lim_hi_pin[self.pin_from_mot]
+            )
+        return target_dof_pos
+
+
+class LocomotionAction_14dof(SitActionVer2):
+    def __init__(self, config, robot_model: Robot):
+        super.__init__(config, robot_model)
+
+        lower_body_joints = [
+        'left_hip_pitch_joint',
+        'right_hip_pitch_joint',
+        'left_hip_roll_joint',
+        'right_hip_roll_joint',
+        'waist_roll_joint',
+        'left_hip_yaw_joint',
+        'right_hip_yaw_joint',
+        'waist_pitch_joint',
+        'left_knee_joint',
+        'right_knee_joint',
+        'left_ankle_pitch_joint', 
+        'right_ankle_pitch_joint',
+        'left_ankle_roll_joint',
+        'right_ankle_roll_joint',
+        ]
+
+        self.mot_from_lab_lower_joints = index_map(self.config.motor_joint, lower_body_joints)
+
+
+    def __call__(self, action):
+        # motor order
+        target_dof_pos = np.zeros(29)
+        # checked
+        target_dof_pos[self.mot_from_lab_lower_joints] = 0.5 * action
 
         target_dof_pos = np.clip(
                 target_dof_pos,

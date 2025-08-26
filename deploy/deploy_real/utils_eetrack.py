@@ -311,10 +311,6 @@ class eetrack:
                 # subgoal is updated on every 0.02s
                 update_time = 0.02
                 self.sg_idx = int((time - 1) / update_time + 1)
-<<<<<<< Updated upstream
-=======
-                # if self.sg_idx < 15
->>>>>>> Stashed changes
                 self.sg_idx = min(self.sg_idx , self.to_eetrack_sgs_num + self.number_of_subgoals + 1)
         # FIXME
         # self.sg_idx = 0
