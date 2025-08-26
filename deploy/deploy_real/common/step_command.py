@@ -249,6 +249,10 @@ class YAMLStepCommand:
         self._left_idx = 0
         self._right_idx = 0
 
+        # Earliest absolute times per foot (for clamping dt before first event)
+        self._left_first_t = self._left_seq[0].t 
+        self._right_first_t = self._right_seq[0].t
+
     # --- Public API matching StepCommand ---
 
     def get_next_ctarget(self, remote_controller, t_curr: float) -> Tuple[np.ndarray, np.ndarray, float, float, bool, bool]:
@@ -277,11 +281,22 @@ class YAMLStepCommand:
         left_next_t = self._left_seq[self._left_idx].t if self._left_idx < len(self._left_seq) else t_curr
         right_next_t = self._right_seq[self._right_idx].t if self._right_idx < len(self._right_seq) else t_curr
 
+        # If current time is before the earliest event for a foot, clamp dt to 0
+        if t_curr < self._left_first_t:
+            dt_left = 0.0
+        else:
+            dt_left = float(left_next_t - t_curr)
+
+        if t_curr < self._right_first_t:
+            dt_right = 0.0
+        else:
+            dt_right = float(right_next_t - t_curr)
+
         return (
             self.next_ctarget_left.copy(),
             self.next_ctarget_right.copy(),
-            float(left_next_t - t_curr),
-            float(right_next_t - t_curr),
+            dt_left,
+            dt_right,
             is_updated_left,
             is_updated_right,
         )

@@ -647,13 +647,13 @@ class Controller:
 
         # in here we assume some bound centered on dt target, 
         # if the dt is less than 0.05 we have to compare the current ctarget with the current foot pose since foot is reaching the foot target
-        # if the dt is greater than 0.35 we have to compare the previous ctarget with the current foot pose since we know how the foot was reached the target
+        # if the dt is greater than 0.45 we have to compare the previous ctarget with the current foot pose since we know how the foot was reached the target
         if left_dt < 0.05:
             left_target_compare = self._cur_left_ctarget
         else:
             left_target_compare = self._prev_left_ctarget
         
-        if left_dt <0.05 or left_dt > 0.35:
+        if left_dt <0.05 or left_dt > 0.45:
             left_foot_tf = self.tf_buffer.lookup_transform( 
                                 self._map_frame,
                                 "left_ankle_roll_link", 
@@ -673,7 +673,7 @@ class Controller:
         else:
             right_target_compare = self._prev_right_ctarget
         
-        if right_dt < 0.05 or right_dt > 0.35:
+        if right_dt < 0.05 or right_dt > 0.45:
             right_foot_tf = self.tf_buffer.lookup_transform( 
                                 self._map_frame,
                                 "right_ankle_roll_link", 
@@ -719,6 +719,7 @@ class Controller:
                 print("Run policy.")
                 self._mode_change = False
                 self.counter = 0
+                self.init_counter = 0
             self.run_policy()
         elif self.mode == Mode.null:
             self._terminate = True
