@@ -166,3 +166,10 @@ logs
 isaacgym/
 *.TXT
 deploy_log/
+
+
+*.pnm
+*.ps
+*.pt
+*.gv
+*.db3
