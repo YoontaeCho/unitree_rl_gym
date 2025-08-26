@@ -251,7 +251,7 @@ class YAMLStepCommand:
 
     # --- Public API matching StepCommand ---
 
-    def get_next_ctarget(self, remote_controller, t_curr: float) -> Tuple[np.ndarray, np.ndarray, float, float]:
+    def get_next_ctarget(self, remote_controller, t_curr: float) -> Tuple[np.ndarray, np.ndarray, float, float, bool, bool]:
         """
         Advance all events whose time <= count, then return current targets and time-to-next updates.
 
@@ -260,14 +260,18 @@ class YAMLStepCommand:
             where time_until_* is (next_event_time - count), or +inf if no further event exists.
         """
         # Apply all due LEFT events
+        is_updated_left = False
         while self._left_idx < len(self._left_seq) and self._left_seq[self._left_idx].t <= t_curr:
             self.next_ctarget_left[:] = self._left_seq[self._left_idx].pose
             self._left_idx += 1
+            is_updated_left = True
 
         # Apply all due RIGHT events
+        is_updated_right = False
         while self._right_idx < len(self._right_seq) and self._right_seq[self._right_idx].t <= t_curr:
             self.next_ctarget_right[:] = self._right_seq[self._right_idx].pose
             self._right_idx += 1
+            is_updated_right = True
 
         # Compute time to next updates
         left_next_t = self._left_seq[self._left_idx].t if self._left_idx < len(self._left_seq) else t_curr
@@ -278,6 +282,8 @@ class YAMLStepCommand:
             self.next_ctarget_right.copy(),
             float(left_next_t - t_curr),
             float(right_next_t - t_curr),
+            is_updated_left,
+            is_updated_right,
         )
 
     def reset(self, current_left_pose: np.ndarray, current_right_pose: np.ndarray):

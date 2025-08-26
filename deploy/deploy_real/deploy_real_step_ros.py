@@ -26,7 +26,6 @@ from common.utils import (to_array, normalize, yaw_quat,
                         )
 from config import Config
 
-import tf2_ros.Time as tf2_time
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 from tf2_ros import TransformBroadcaster, TransformStamped, StaticTransformBroadcaster
@@ -412,7 +411,7 @@ class Controller:
         current_left_tf = self.tf_buffer.lookup_transform( 
                                     self._map_frame,
                                 "left_ankle_roll_link", 
-                                tf2_time(0)) # get the latest transform
+                                rp.time.Time()) # get the latest transform
                                 # rp.time.Time(),
                                 # rp.duration.Duration(seconds=0.01))
         current_left_pose = self.tf_to_pose(current_left_tf, 'wxyz')
@@ -421,7 +420,7 @@ class Controller:
         current_right_tf = self.tf_buffer.lookup_transform(
                                 self._map_frame,
                                 "right_ankle_roll_link", 
-                                tf2_time(0)) # get the latest transform
+                                rp.time.Time()) # get the latest transform
                                 # rp.time.Time(),
                                 # rp.duration.Duration(seconds=0.01))
         current_right_pose = self.tf_to_pose(current_right_tf, 'wxyz')
@@ -482,6 +481,7 @@ class Controller:
         (next_ctarget_left, next_ctarget_right,
             dt_left, dt_right,
             is_updated_left, is_updated_right) = next_ctarget
+        print(f"dt_left: {dt_left}, dt_right: {dt_right}")
         if is_updated_left:
             self._prev_left_ctarget = self._cur_left_ctarget.copy()
             self._cur_left_ctarget = next_ctarget_left.copy()
@@ -569,7 +569,7 @@ class Controller:
 
         z = (z_lf + z_rf) / 2.0
         base_pose_w = self.tf_to_pose(self.tf_buffer.lookup_transform(
-            self._map_frame, "pelvis", tf2_time(0)), # get the latest transform
+            self._map_frame, "pelvis", rp.time.Time()), # get the latest transform
                                         # rp.time.Time()), 
                                         'wxyz')
         # ic(base_pose_w, z, world_from_pelvis_quat)
@@ -637,7 +637,8 @@ class Controller:
                 self.low_cmd.motor_cmd[motor_idx].kd = float(self.config.kds[i])
                 self.low_cmd.motor_cmd[motor_idx].tau = 0.0
         # send the command
-        self.send_cmd(self.low_cmd)
+
+        # self.send_cmd(self.low_cmd)
         
         # log the ctarget error
         self.log_ctarget(dt_left, dt_right)
@@ -656,7 +657,7 @@ class Controller:
             left_foot_tf = self.tf_buffer.lookup_transform( 
                                 self._map_frame,
                                 "left_ankle_roll_link", 
-                                tf2_time(0))
+                                rp.time.Time())
             left_foot_pose = self.tf_to_pose(left_foot_tf, 'wxyz')
 
             left_error = compute_pose_error(left_foot_pose[:3],
@@ -664,7 +665,7 @@ class Controller:
                                             left_target_compare[:3],
                                             left_target_compare[3:7])
             left_rot_error_angle = np.rad2deg(np.linalg.norm(left_error[1]))
-            print(f"left_pos error: {left_error[0]}, left_rot error: {left_rot_error_angle}")
+            print(f"left_pos error: {left_error[0]}, left_rot error: {left_rot_error_angle} at dt: {left_dt}")
 
         
         if right_dt < 0.05:
@@ -676,9 +677,15 @@ class Controller:
             right_foot_tf = self.tf_buffer.lookup_transform( 
                                 self._map_frame,
                                 "right_ankle_roll_link", 
-                                tf2_time(0))
+                                rp.time.Time())
             right_foot_pose = self.tf_to_pose(right_foot_tf, 'wxyz')
-            
+
+            right_error = compute_pose_error(right_foot_pose[:3],
+                                            right_foot_pose[3:7],
+                                            right_target_compare[:3],
+                                            right_target_compare[3:7])
+            right_rot_error_angle = np.rad2deg(np.linalg.norm(right_error[1]))
+            print(f"right_pos error: {right_error[0]}, right_rot error: {right_rot_error_angle} at dt: {right_dt}") 
 
 
     def run_wrapper(self):
@@ -730,7 +737,7 @@ if __name__ == "__main__":
     # Load config
     config_path = f"{LEGGED_GYM_ROOT_DIR}/deploy/deploy_real/configs/{args.config}"
     config = Config(config_path)
-    if args.step_yaml is not None:
+    if args.step_yaml_path is not None:
         setattr(config, "step_yaml_path", args.step_yaml_path)
 
     controller = Controller(config)

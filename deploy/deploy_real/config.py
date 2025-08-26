@@ -54,3 +54,4 @@ class Config:
             self.obs_prev_action_scale = config["obs_prev_action_scale"]
 
             self.map_frame = config["map_frame"]
+            self.step_yaml_path = config["step_yaml_path"]

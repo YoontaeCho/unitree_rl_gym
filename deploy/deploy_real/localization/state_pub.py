@@ -11,7 +11,7 @@ from tf2_ros.transform_listener import TransformListener
 from tf2_ros import TransformBroadcaster, TransformStamped
 from unitree_hg.msg import LowCmd as LowCmdHG, LowState as LowStateHG
 from rcl_interfaces.msg import ParameterDescriptor, ParameterType
-import tf2_ros.Time as tf2_time
+from tf2_ros import Time as tf2_time
 
 class StatePublisher(Node):
 
@@ -79,7 +79,9 @@ class StatePublisher(Node):
         try:
             imu_to_pelvis = self.tf_buffer.lookup_transform('mid360_link', 
                     'pelvis',
-                    tf2_time(0))
+                    rclpy.time.Time())
+                    # self.get_clock().now())
+                    # tf2_time(0))
             t = TransformStamped()
             t.header.stamp = imu_to_pelvis.header.stamp
             t.header.frame_id = 'body'
