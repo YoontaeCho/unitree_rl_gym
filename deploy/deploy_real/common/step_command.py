@@ -1,3 +1,9 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import List, Tuple, Optional
+import yaml
+
 import time
 import math
 import numpy as np
@@ -167,6 +173,117 @@ class StepCommand:
         self.next_ctarget_right = current_right_pose.copy()
         self.next_ctime_left = 0.4
         self.next_ctime_right = 0.4
+
+@dataclass(frozen=True)
+class _ContactEvent:
+    t: float
+    body: str        # "LF" or "RF"
+    pose: np.ndarray  # [x, y, z, qw, qx, qy, qz] (float32)
+
+
+class YAMLStepCommand:
+    """
+    Step scheduler driven by a predefined YAML 'events' list.
+    The YAML must have entries like:
+      - t: <float seconds>
+        body: LF | RF
+        pos: [x, y, z]
+        quat: [qw, qx, qy, qz]
+    """
+
+    def __init__(self, yaml_path: str,
+                 current_left_pose: np.ndarray,
+                 current_right_pose: np.ndarray):
+        """
+        Args:
+            yaml_path: path to YAML file with 'events'
+            current_left_pose: np.ndarray shape (7,) [x,y,z,qw,qx,qy,qz]
+            current_right_pose: np.ndarray shape (7,) [x,y,z,qw,qx,qy,qz]
+        """
+        # Validate initial poses
+        self.next_ctarget_left = np.asarray(current_left_pose, dtype=np.float32).copy()
+        self.next_ctarget_right = np.asarray(current_right_pose, dtype=np.float32).copy()
+
+        # Parse YAML
+        with open(yaml_path, "r") as f:
+            data = yaml.safe_load(f)
+
+        if "events" not in data or not isinstance(data["events"], list):
+            raise ValueError("YAML must contain a top-level 'events' list.")
+
+        all_events: List[_ContactEvent] = []
+        for ev in data["events"]:
+            try:
+                t = float(ev["t"])
+                body = str(ev["body"]).strip().upper()
+                pos = np.asarray(ev["pos"], dtype=np.float32)
+                quat = np.asarray(ev["quat"], dtype=np.float32)
+            except Exception as e:
+                raise ValueError(f"Bad event entry {ev}: {e}")
+
+            if pos.shape != (3,):
+                raise ValueError(f"pos must be length-3, got {pos.shape}")
+            if quat.shape != (4,):
+                raise ValueError(f"quat must be length-4 [qw,qx,qy,qz], got {quat.shape}")
+            if body not in {"LF", "RF"}:
+                # Ignore unknown bodies silently, or raise if you prefer:
+                # raise ValueError(f"Unsupported body '{body}'. Use 'LF' or 'RF'.")
+                continue
+
+            pose = np.concatenate([pos, quat], dtype=np.float32)
+            all_events.append(_ContactEvent(t=t, body=body, pose=pose))
+
+        # Split and sort per foot
+        self._left_seq: List[_ContactEvent] = sorted(
+            (e for e in all_events if e.body == "LF"), key=lambda e: e.t
+        )
+        self._right_seq: List[_ContactEvent] = sorted(
+            (e for e in all_events if e.body == "RF"), key=lambda e: e.t
+        )
+
+        # Indices to the NEXT event to apply (events[ idx ] is next, if t <= count we apply & advance)
+        self._left_idx = 0
+        self._right_idx = 0
+
+    # --- Public API matching StepCommand ---
+
+    def get_next_ctarget(self, remote_controller, t_curr: float) -> Tuple[np.ndarray, np.ndarray, float, float]:
+        """
+        Advance all events whose time <= count, then return current targets and time-to-next updates.
+
+        Returns:
+            (left_pose, right_pose, time_until_left_update, time_until_right_update)
+            where time_until_* is (next_event_time - count), or +inf if no further event exists.
+        """
+        # Apply all due LEFT events
+        while self._left_idx < len(self._left_seq) and self._left_seq[self._left_idx].t <= t_curr:
+            self.next_ctarget_left[:] = self._left_seq[self._left_idx].pose
+            self._left_idx += 1
+
+        # Apply all due RIGHT events
+        while self._right_idx < len(self._right_seq) and self._right_seq[self._right_idx].t <= t_curr:
+            self.next_ctarget_right[:] = self._right_seq[self._right_idx].pose
+            self._right_idx += 1
+
+        # Compute time to next updates
+        left_next_t = self._left_seq[self._left_idx].t if self._left_idx < len(self._left_seq) else t_curr
+        right_next_t = self._right_seq[self._right_idx].t if self._right_idx < len(self._right_seq) else t_curr
+
+        return (
+            self.next_ctarget_left.copy(),
+            self.next_ctarget_right.copy(),
+            float(left_next_t - t_curr),
+            float(right_next_t - t_curr),
+        )
+
+    def reset(self, current_left_pose: np.ndarray, current_right_pose: np.ndarray):
+        """
+        Reset internal state to initial poses and rewind the event pointers.
+        """
+        self.next_ctarget_left = np.asarray(current_left_pose, dtype=np.float32).copy()
+        self.next_ctarget_right = np.asarray(current_right_pose, dtype=np.float32).copy()
+        self._left_idx = 0
+        self._right_idx = 0
 
 
 

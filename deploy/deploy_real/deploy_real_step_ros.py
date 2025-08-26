@@ -15,7 +15,8 @@ from common.crc import CRC
 
 from enum import Enum
 
-from common.step_command import StepCommand
+from common.step_command import StepCommand, YAMLStepCommand
+
 from common.utils import (to_array, normalize, yaw_quat,
                         axis_angle_from_quat,
                         subtract_frame_transforms,
@@ -147,6 +148,8 @@ class Controller:
         self.tf_broadcaster = TransformBroadcaster(self._node)
 
         self._step_command = None
+        self._yaml_path = getattr(self.config, "step_yaml_path", None)
+
         self._saved = False
 
         self._cur_time = None
@@ -427,9 +430,19 @@ class Controller:
         
 
     def run_policy(self):
+        # if self._step_command is None:
+        #     current_left_pose, current_right_pose = self.current_proj_foot_pose()
+        #     self._step_command = StepCommand(current_left_pose, current_right_pose)
         if self._step_command is None:
             current_left_pose, current_right_pose = self.current_proj_foot_pose()
-            self._step_command = StepCommand(current_left_pose, current_right_pose) 
+            if self._yaml_path:
+                self._step_command = YAMLStepCommand(self._yaml_path,
+                                                     current_left_pose,
+                                                     current_right_pose)
+                print(f"[YAMLStepCommand] Using contact sequence: {self._yaml_path}")
+            else:
+                self._step_command = StepCommand(current_left_pose, current_right_pose) 
+        
 
         if  self.remote_controller.button[KeyMap.B] == 1:
             print("Start walking.")
@@ -647,10 +660,14 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, help="config file name in the configs folder", default="g1.yaml")
+    parser.add_argument("--step_yaml_path", type=str, default=None,
+                        help="Path to YAML contact sequence; if set, YAMLStepCommand is used.")
     args = parser.parse_args()
 
     # Load config
     config_path = f"{LEGGED_GYM_ROOT_DIR}/deploy/deploy_real/configs/{args.config}"
     config = Config(config_path)
+    if args.step_yaml is not None:
+        setattr(config, "step_yaml_path", args.step_yaml_path)
 
     controller = Controller(config)
