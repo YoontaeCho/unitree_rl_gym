@@ -21,8 +21,6 @@ from common.crc import CRC
 from enum import Enum
 from ikctrl import IKCtrl
 
-import utils_stage as us
-import utils_eetrack_tag as ue
 import utils_robot as ur
 import utils_locomotion as ul
 
@@ -217,7 +215,7 @@ class Controller:
 
         ########################## Navigation ##########################
 
-
+        self.target_vec_b_log = np.zeros((0, 4))
         self.target_vec_bs = np.zeros((0, 4)) # 4 dim
         self.navigation_obsmap = ul.NavigationObservation(config, self.tf_buffer)
         self.navigation_actmap = ul.NavigationAction(config, self.locomotion_robot)
@@ -409,6 +407,17 @@ class Controller:
         root_state_w[0:3] = xyz
         root_state_w[3:7] = quat_wxyz
 
+
+        nav_target_pos , nav_target_quat_qxyz = body_pose(
+            self.tf_buffer,
+            'tag_target',
+            'world',
+            rot_type='axa'
+        )
+
+        self.pelvis_pos_target = nav_target_pos
+        self.pelvis_heading_target = nav_target_quat_qxyz[-1]
+
         
         # Add termination condition.
         if self.terminate_by_pelvis_condition(xyz, quat_wxyz):
@@ -436,7 +445,7 @@ class Controller:
         self.heading_error_bs = np.vstack((self.heading_error_bs, heading_error.reshape(1,1)))
 
         ###################### Hand design navigation ######################
-        if True:
+        if False:
             if self.pos_error_bs.shape[0] > self.NUM_AVG:
                 # print("pos command mean : ", np.mean(self.pos_error_bs[-self.NUM_AVG:, :].reshape((self.NUM_AVG,))))
                 # print("heading error mean : ", np.mean(np.abs(self.heading_error_bs[-self.NUM_AVG:, :]).reshape((self.NUM_AVG,))))
@@ -479,17 +488,17 @@ class Controller:
             )
             if self.navigation_command == None:
                 self.navigation_command = ul.NavigationCommand(
-                    x = 1.,
-                    y = 0.,
-                    heading = 0.,
+                    x = self.pelvis_pos_target[0],
+                    y = self.pelvis_pos_target[1],
+                    heading = self.pelvis_heading_target,
                 )
             if self.counter < 200 * 2 :
                 self.locomotion_vel_command = np.array([0., 0., 0.])
                 phase = 0.0
             elif self.counter % 10 == 0:
-                if False:
+                if True: # Mid sole target
                     self.target_vec_b = self.navigation_command.command(mid_sole_pos_w, mid_sole_quat_w)
-                else:
+                else: # Plvis Target
                     self.target_vec_b = self.navigation_command.command(xyz, quat_wxyz)
                 self.target_vec_bs = np.vstack([self.target_vec_bs, self.target_vec_b])
 

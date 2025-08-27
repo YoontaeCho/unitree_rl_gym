@@ -96,18 +96,27 @@ class EETrackObservation:
         base_ang_vel = ang_vel.squeeze(0)
         return base_ang_vel
     
-    def _projected_gravity(self):
+    def _projected_gravity(self, low_state: LowStateHG):
         # TODO(ycho): check if the convention "q_base^{-1} @ g" holds.
-        world_from_pelvis = self.tf_buffer.lookup_transform(
-            'world',
-            'pelvis',
-            rp.time.Time()
-            # clock.get_time()
-        )
-        rxn = world_from_pelvis.transform.rotation
-        quat = np.array([rxn.w, rxn.x, rxn.y, rxn.z])
+        # world_from_pelvis = self.tf_buffer.lookup_transform(
+        #     'world',
+        #     'pelvis',
+        #     rp.time.Time()
+        #     # clock.get_time()
+        # )
+        # rxn = world_from_pelvis.transform.rotation
+        # quat = np.array([rxn.w, rxn.x, rxn.y, rxn.z])
+        # projected_gravity = get_gravity_orientation(quat)
+        # return projected_gravity
+
+        qw, qx, qy, qz = [
+            float(x) for x in 
+            low_state.imu_state.quaternion
+        ]
+        quat = np.array([qw, qx, qy, qz])
         projected_gravity = get_gravity_orientation(quat)
         return projected_gravity
+
     
     def _foot_pose(self):
         fp_l = body_pose(self.tf_buffer, 'left_ankle_roll_link')
@@ -245,8 +254,10 @@ class LocomotionObservation_14dof(EETrackObservation):
                  ):
         base_ang_vel = self._base_ang_vel(low_state)
         # NOTE(ycho): requires running `fake_world_tf_pub.py`.
-        projected_gravity = self._projected_gravity()
-        joint_pos, joint_vel = self._joint_pos_vel(low_state, self.config.lab_joint_offsets)
+        offset = np.zeros(29)
+        offset[self.lab_from_mot] = self.config.locomotion_motor_joint_offsets
+        projected_gravity = self._projected_gravity(low_state)
+        joint_pos, joint_vel = self._joint_pos_vel(low_state, offset)
 
         phase_command = np.array([np.sin(2 * np.pi * phase), np.cos(2 * np.pi * phase)])
 
@@ -346,7 +357,7 @@ class LocomotionAction(SitActionVer2):
 
 class LocomotionAction_14dof(SitActionVer2):
     def __init__(self, config, robot_model: Robot):
-        super.__init__(config, robot_model)
+        super().__init__(config, robot_model)
 
         lower_body_joints = [
         'left_hip_pitch_joint',
@@ -380,3 +391,88 @@ class LocomotionAction_14dof(SitActionVer2):
                 self.lim_hi_pin[self.pin_from_mot]
             )
         return target_dof_pos
+
+
+class NavigationAction(SitActionVer2):
+    """
+    Returns velocity command (linvel x, linvel y, angvel z)
+    """
+    def __call__(self, action):
+        x, y, z = action
+
+        x = np.clip(x, -0.1, 0.2)
+        y = np.clip(y, -0.1, 0.1)
+        z = np.clip(z, -0.4, 0.4)
+
+        action = np.array([x, y, z])
+        
+        return action
+
+import math_utils
+yaw_quat = math_utils.as_np(math_utils.yaw_quat)
+quat_apply = math_utils.as_np(math_utils.quat_apply)
+
+class NavigationCommand:
+    def __init__(self, 
+                 x: float = 0.0,
+                 y: float = 0.0,
+                 heading: float = 0.0):
+        self.pos_command_w = np.array([x, y, 0.0], dtype=np.float32)
+        self.heading_command_w = np.array([heading], dtype=np.float32)
+        self.pos_command_b = np.zeros_like(self.pos_command_w)
+        self.heading_command_b = np.zeros(1, dtype=np.float32)
+        self.FORWARD_VEC_B = np.array([1.0, 0.0, 0.0], dtype=np.double)
+        # current pose
+        self.current_xyz_w = np.zeros(3, dtype=np.float32)
+        self.current_quat_w = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+
+    def heading_w(self, current_quat_w):
+        forward_w = quat_apply(current_quat_w, self.FORWARD_VEC_B)
+        return np.arctan2(forward_w[1], forward_w[0])
+    
+    def update(self):
+
+        target_vec = self.pos_command_w - self.current_xyz_w
+        self.pos_command_b[:] = quat_rotate_inverse(yaw_quat(self.current_quat_w), target_vec)
+        # breakpoint()
+        self.heading_command_b[:] = wrap_to_pi(
+            self.heading_command_w - 
+            np.array([self.heading_w(self.current_quat_w)])
+            )
+
+    def command(self, current_xyz_w, current_quat_w):
+        
+        # update the current pose
+        self.current_quat_w = current_quat_w
+        self.current_xyz_w = current_xyz_w
+        self.update()
+
+        """The desired 2D-pose in base frame. Shape is ( 4)."""
+        return np.concatenate([self.pos_command_b, self.heading_command_b], axis=0)
+
+
+class NavigationObservation(EETrackObservation):
+    def __call__(self,
+                 low_state: LowStateHG,
+                 pose_command: np.ndarray,
+                 phase : np.ndarray,
+                 last_action: np.ndarray,
+                 ):
+        base_ang_vel = self._base_ang_vel(low_state)
+        # NOTE(ycho): requires running `fake_world_tf_pub.py`.
+        offset = np.zeros(29)
+        offset[self.lab_from_mot] = self.config.locomotion_motor_joint_offsets
+        projected_gravity = self._projected_gravity(low_state)
+        joint_pos, joint_vel = self._joint_pos_vel(low_state, offset)
+        phase_command = np.array([np.sin(2 * np.pi * phase), np.cos(2 * np.pi * phase)])
+        obs = [
+            base_ang_vel,       # 3 
+            projected_gravity,  # 3 6
+            pose_command,       # 4 10
+            joint_pos,          # 29 39
+            joint_vel,          # 29 68
+            last_action,        # 29 97
+            phase_command,      # 2 99
+        ]
+
+        return np.concatenate(obs, axis=-1)

@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <robot name="g1_29dof_rev_1_0">
   <mujoco>
-    <compiler meshdir="meshes" discardvisual="false"/>
+    <compiler meshdir="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes" discardvisual="false"/>
   </mujoco>
 
   <!-- [CAUTION] uncomment when convert to mujoco -->
@@ -463,6 +464,7 @@
     <parent link="right_ankle_roll_link"/>
     <child link="right_sole_link"/>
   </joint>
+
   <!-- Torso -->
   <link name="waist_yaw_link">
     <inertial>
@@ -615,11 +617,71 @@
   </joint>
 
   <!-- d435 -->
-  <!-- <link name="d435_link"></link> -->
-  <link name="camera_link"></link>
+  <joint name="head_d435_mount_1" type="fixed">
+    <origin xyz="0.012078 0 0.367040" rpy="0 0 3.14159"/>
+    <parent link="head_link"/>
+    <child link="d435_mount_1_link"/>
+  </joint>
+  <link name="d435_mount_1_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/Mount_thick.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="white">
+        <color rgba="0.7 0.7 0.7 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/Mount_thick.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="d435_mount_1_2" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="d435_mount_1_link"/>
+    <child link="d435_mount_2_link"/>
+  </joint>
+  <link name="d435_mount_2_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/Lower_mount_45_20.stl"/>
+      </geometry>
+      <material name="white">
+        <color rgba="0.7 0.7 0.7 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/Lower_mount_45_20.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="camera_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/d435.dae"/>
+      </geometry>
+      <material name="white">
+        <color rgba="0.7 0.7 0.7 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/d435.dae"/>
+      </geometry>
+    </collision>
+  </link>
   <joint name="d435_joint" type="fixed">
-    <origin xyz="0.0576235 0.01753 0.42987" rpy="0 0.8307767239493009 0"/>
-    <parent link="torso_link"/>
+    <!-- <origin xyz="-0.106862 0.016666 0.080266" rpy="1.05217 1.56895 1.460666"/> -->
+    <origin xyz="0.10819156 -0.01456595 0.4446821" rpy="1.8341307 0.1491638 0.805189"/>
+    <parent link="head_link"/>
     <child link="camera_link"/>
   </joint>
 
@@ -899,7 +961,7 @@
 
 
 
-  
+
   <link name="right_shoulder_pitch_link">
     <inertial>
       <origin xyz="0 -0.035892 -0.011628" rpy="0 0 0"/>
@@ -1111,7 +1173,7 @@
   <link name="welder">
     <inertial>
       <origin xyz="0.05361310808 -0.00295905240 0.00215413091" rpy="0 0 0"/>
-      <mass value="0.68"/>
+      <mass value="0.5"/>
       <inertia ixx="0.00010099485234748" ixy="-0.00003618590790516" ixz="-0.00000074301518642" iyy="0.00028135871571621" iyz="-0.00000330189743286" izz="0.00021894770413514"/>
     </inertial>
     <visual>
