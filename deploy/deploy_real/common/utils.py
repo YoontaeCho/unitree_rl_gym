@@ -1,6 +1,9 @@
 import numpy as np
 from geometry_msgs.msg import Vector3, Quaternion
 from typing import Optional, Tuple
+import rospy
+from tf2_ros import TransformBroadcaster, TransformStamped
+
 def to_array(v):
     if isinstance(v, Vector3):
         return np.array([v.x, v.y, v.z], dtype=np.float32)
@@ -41,6 +44,18 @@ def yaw_quat(quat: np.ndarray) -> np.ndarray:
     quat_yaw[:, 0] = np.cos(yaw / 2)
     quat_yaw = normalize(quat_yaw)
     return quat_yaw.reshape(shape)
+
+def fuse_yaw(lio_quat: np.ndarray, imu_quat: np.ndarray) -> np.ndarray:
+    """Fuse yaw from LIO with roll/pitch from IMU.
+
+    All quaternions are in (w, x, y, z).
+    """
+    lio_yaw = yaw_quat(lio_quat)
+    imu_yaw = yaw_quat(imu_quat)
+    # remove yaw from IMU to get roll/pitch-only component
+    imu_roll_pitch = quat_mul(quat_inv(imu_yaw), imu_quat)
+    fused = quat_mul(lio_yaw, imu_roll_pitch)
+    return normalize(fused)
 
 def quat_conjugate(q: np.ndarray) -> np.ndarray:
     """Computes the conjugate of a quaternion.
@@ -224,3 +239,21 @@ def wrap_to_pi(angles: np.ndarray) -> np.ndarray:
     # map to [-pi, pi]
     # we check for zero in wrapped angle to make it go to pi when input angle is odd multiple of pi
     return np.where((wrapped_angle == 0) & (angles > 0), np.pi, wrapped_angle - np.pi)
+
+def publish_tf(tf_broadcaster: TransformBroadcaster,
+               parent:str,
+               child:str,
+               pose: np.ndarray,
+               time: rospy.Time = rospy.Time.now()):
+    t = TransformStamped()
+    t.header.stamp = time.to_msg()
+    t.header.frame_id = parent
+    t.child_frame_id = child
+    t.transform.translation.x = float(pose[0])  
+    t.transform.translation.y = float(pose[1])
+    t.transform.translation.z = float(pose[2])
+    t.transform.rotation.x = float(pose[4])
+    t.transform.rotation.y = float(pose[5])
+    t.transform.rotation.z = float(pose[6])
+    t.transform.rotation.w = float(pose[3])
+    tf_broadcaster.sendTransform(t)

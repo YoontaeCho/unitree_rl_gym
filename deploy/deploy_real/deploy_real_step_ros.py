@@ -22,7 +22,9 @@ from common.utils import (to_array, normalize, yaw_quat,
                         subtract_frame_transforms,
                         wrap_to_pi,
                         compute_pose_error,
-                        quat_apply
+                        quat_apply,
+                        fuse_yaw,
+                        publish_tf
                         )
 from config import Config
 
@@ -340,7 +342,22 @@ class Controller:
                 self.mode = Mode.policy
             except Exception as ex:
                 print(ex)
-           
+
+            # we want to publish the current pose in
+            base_pose_w = self.tf_to_pose(self.tf_buffer.lookup_transform(
+                self._map_frame, "pelvis", rp.time.Time()),
+                                        'wxyz')
+            time = self._node.get_clock().now()
+            # 1. quat from imu
+            imu_quat = np.asarray(self.low_state.imu_state.quaternion, dtype=np.float32)
+            pose_with_imu = np.concatenate((base_pose_w[:3], imu_quat), axis=-1)
+            publish_tf(self.tf_broadcaster, self._map_frame, "pelvis_pose_with_imu", pose_with_imu, time)
+            # 2. quat from lio
+            publish_tf(self.tf_broadcaster, self._map_frame, "pelvis_pose_with_lio", base_pose_w, time)
+            # 3. fused quat
+            fused_quat = fuse_yaw(base_pose_w[3:7], imu_quat)
+            publish_tf(self.tf_broadcaster, self._map_frame, "pelvis_pose_with_fused", fused_quat, time)
+          
 
     def tf_to_pose(self, tf, order='xyzw'):
         pos = to_array(tf.transform.translation)
@@ -378,6 +395,8 @@ class Controller:
 
         self.tf_broadcaster.sendTransform(left_tf)
         self.tf_broadcaster.sendTransform(right_tf)
+
+    
 
     def get_command(self, pelvis_w,
                         foot_left_b,
@@ -561,20 +580,24 @@ class Controller:
                                     left_hand_axa,
                                     right_hand_axa), axis=-1)
 
-        world_from_pelvis_quat = np.asarray(self.low_state.imu_state.quaternion,
-                                        dtype=np.float32)
+        # Pose of pelvis in map frame (contains LIO yaw)
+        base_pose_w = self.tf_to_pose(self.tf_buffer.lookup_transform(
+            self._map_frame, "pelvis", rp.time.Time()),
+                                        'wxyz')
+
+        # Fuse yaw from LIO with roll/pitch from IMU
+        imu_quat = np.asarray(self.low_state.imu_state.quaternion, dtype=np.float32)
+        lio_quat = base_pose_w[3:7]
+        world_from_pelvis_quat = fuse_yaw(lio_quat, imu_quat)
+        # world_from_pelvis_quat = np.asarray(self.low_state.imu_state.quaternion,
+        #                                 dtype=np.float32)
+
 
         z_lf = -quat_apply(world_from_pelvis_quat, lf_b_pos)[2:] + 0.028531
         z_rf = -quat_apply(world_from_pelvis_quat, rf_b_pos)[2:] + 0.028531
 
         z = (z_lf + z_rf) / 2.0
-        base_pose_w = self.tf_to_pose(self.tf_buffer.lookup_transform(
-            self._map_frame, "pelvis", rp.time.Time()), # get the latest transform
-                                        # rp.time.Time()), 
-                                        'wxyz')
-        # ic(base_pose_w, z, world_from_pelvis_quat)
-        base_pose_w = np.concatenate((base_pose_w[:3], 
-        # z,
+        base_pose_w = np.concatenate((base_pose_w[:3],
             world_from_pelvis_quat), axis=-1)
 
       
@@ -638,7 +661,7 @@ class Controller:
                 self.low_cmd.motor_cmd[motor_idx].tau = 0.0
         # send the command
 
-        # self.send_cmd(self.low_cmd)
+        self.send_cmd(self.low_cmd)
         
         # log the ctarget error
         self.log_ctarget(dt_left, dt_right)
@@ -647,13 +670,13 @@ class Controller:
 
         # in here we assume some bound centered on dt target, 
         # if the dt is less than 0.05 we have to compare the current ctarget with the current foot pose since foot is reaching the foot target
-        # if the dt is greater than 0.45 we have to compare the previous ctarget with the current foot pose since we know how the foot was reached the target
+        # if the dt is greater than 0.45 we have to compare the previous ctarget with the current foot pose since we want toknow how the foot closely reached the target
         if left_dt < 0.05:
             left_target_compare = self._cur_left_ctarget
         else:
             left_target_compare = self._prev_left_ctarget
         
-        if left_dt <0.05 or left_dt > 0.45:
+        if (left_dt >0.0 and left_dt <0.05) or (left_dt > 0.45):
             left_foot_tf = self.tf_buffer.lookup_transform( 
                                 self._map_frame,
                                 "left_ankle_roll_link", 
@@ -673,7 +696,7 @@ class Controller:
         else:
             right_target_compare = self._prev_right_ctarget
         
-        if right_dt < 0.05 or right_dt > 0.45:
+        if (right_dt > 0.0 and right_dt <0.05) or (right_dt > 0.45):
             right_foot_tf = self.tf_buffer.lookup_transform( 
                                 self._map_frame,
                                 "right_ankle_roll_link", 
