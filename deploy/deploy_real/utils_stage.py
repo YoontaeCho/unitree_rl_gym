@@ -109,6 +109,27 @@ class EETrackObservation:
         projected_gravity = get_gravity_orientation(quat)
         return projected_gravity
     
+    def _projected_gravity_from_lowstate(self, low_state: LowStateHG):
+        # TODO(ycho): check if the convention "q_base^{-1} @ g" holds.
+        # world_from_pelvis = self.tf_buffer.lookup_transform(
+        #     'world',
+        #     'pelvis',
+        #     rp.time.Time()
+        #     # clock.get_time()
+        # )
+        # rxn = world_from_pelvis.transform.rotation
+        # quat = np.array([rxn.w, rxn.x, rxn.y, rxn.z])
+        # projected_gravity = get_gravity_orientation(quat)
+        # return projected_gravity
+
+        qw, qx, qy, qz = [
+            float(x) for x in 
+            low_state.imu_state.quaternion
+        ]
+        quat = np.array([qw, qx, qy, qz])
+        projected_gravity = get_gravity_orientation(quat)
+        return projected_gravity
+    
     def _foot_pose(self):
         fp_l = body_pose(self.tf_buffer, 'left_ankle_roll_link')
         fp_r = body_pose(self.tf_buffer, 'right_ankle_roll_link')
@@ -208,6 +229,8 @@ class EETrackObservationWithLastAction:
         projected_gravity = get_gravity_orientation(quat)
         return projected_gravity
     
+
+    
     def _foot_pose(self):
         fp_l = body_pose(self.tf_buffer, 'left_ankle_roll_link')
         fp_r = body_pose(self.tf_buffer, 'right_ankle_roll_link')
@@ -306,18 +329,30 @@ class SitObservation(EETrackObservation):
         hand_pose = np.concatenate([hp_l[0], hp_r[0], hp_l[1], hp_r[1]])
         return hand_pose
     
+    def _pelvis_height(self, xyz):
+        pelvis_height = xyz[2:3]
+        return pelvis_height
+    
+    def _pelvis_height_prev(self, xyz):
+        if self.prev_pelvis_height is None:
+            prev_pelvis_height = self._pelvis_height(xyz)
+        else:
+            prev_pelvis_height = self.prev_pelvis_height
+        return prev_pelvis_height
+    
     def __call__(self,
                  low_state: LowStateHG,
-                 height_command: np.ndarray
+                 height_command: np.ndarray,
+                 xyz
                  ):
         base_ang_vel = self._base_ang_vel(low_state)
         # NOTE(ycho): requires running `fake_world_tf_pub.py`.
-        projected_gravity = self._projected_gravity()
+        projected_gravity = self._projected_gravity_from_lowstate(low_state)
         foot_pose = self._foot_pose()
         hand_pose = self._hand_pose()
         joint_pos, joint_vel = self._joint_pos_vel(low_state, self.config.lab_joint_offsets)
-        pelvis_height = self._pelvis_height()
-        prev_pelvis_height = self._pelvis_height_prev()
+        pelvis_height = self._pelvis_height(xyz)
+        prev_pelvis_height = self._pelvis_height_prev(xyz)
 
         obs = [
             base_ang_vel,       # 3 
@@ -476,12 +511,16 @@ class VelocityHeightCommand:
         self.pelvis_height_w = self.config.target_height
         self.max_velocity = self.config.max_velocity
         self.slow_bound = self.config.slow_bound
+
+        self.initial_pelvis_height = None
     
     def __call__(self, current_pelvis_height_w :float, sitting :bool = False):
         if sitting:
             target_height = self.pelvis_height_w
         else:
-            target_height = 0.7
+            # if self.initial_pelvis_height is None:
+            #     self.initial_pelvis_height = current_pelvis_height_w
+            target_height = 0.60
             
         pelvis_height_diff = target_height - current_pelvis_height_w
         pelvis_lin_vel_z_w = np.clip( np.sign(pelvis_height_diff) 

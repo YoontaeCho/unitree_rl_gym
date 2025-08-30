@@ -83,3 +83,11 @@ class Config:
             self.navigation_policy_path = config.get("navigation_policy_path", None)
             if self.navigation_policy_path:
                 self.navigation_policy_path = self.navigation_policy_path.replace("{LEGGED_GYM_ROOT_DIR}", LEGGED_GYM_ROOT_DIR)
+            
+            self.sit_policy_path = config.get("sit_policy_path", None)
+            if self.sit_policy_path:
+                self.sit_policy_path = self.sit_policy_path.replace("{LEGGED_GYM_ROOT_DIR}", LEGGED_GYM_ROOT_DIR)
+            
+            self.target_height = config.get("target_height", 0.3)
+            self.max_velocity = config.get("max_velocity", 0.1)
+            self.slow_bound = config.get("slow_bound", 0.2)

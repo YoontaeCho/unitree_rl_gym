@@ -99,7 +99,21 @@ kds: [
     10, 10, 10, 10, 10, 10, 10, # left arm
     10, 10, 10, 10, 10, 10, 10  # right arm
 ]
-
+          #  ".*_hip_pitch_joint": -0.20,
+          #   ".*_knee_joint": 0.42,
+          #   ".*_ankle_pitch_joint": -0.23,
+          #   # ".*_elbow_joint": 0.87,
+          #   ".*_elbow_joint": 1.0,
+          #   # "left_shoulder_roll_joint": 0.16,
+          #   "left_shoulder_roll_joint": 0.35,
+          #   # "left_shoulder_pitch_joint": 0.35,
+          #   "left_shoulder_pitch_joint": -0.20,
+          #   # "right_shoulder_roll_joint": -0.16,
+          #   "right_shoulder_roll_joint": -0.35,
+          #   # "right_shoulder_pitch_joint": 0.35,
+          #   "right_shoulder_pitch_joint": -0.20,
+          #   "waist_.*": 0.0,
+          #   ".*_wrist_.*": 0.0,
 
 lab_joint_offsets: [
   -0.2000, -0.2000,  0.0000,  0.0000,  0.0000,  0.0000,  0.0000,  0.0000,
@@ -150,6 +164,14 @@ lower_joint: [
 locomotion_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0820_f9_policy.pt"
 # locomotion_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/motion_yt.pt"
 navigation_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0820_nav_f9.pt"
+
+
+# SIT
+sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/sit_ver4.pt"
+slow_bound: 0.2
+max_velocity: 0.1
+target_height: 0.3
+
 
 policy_path: ""
 
