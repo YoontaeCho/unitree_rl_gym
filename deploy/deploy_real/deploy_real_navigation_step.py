@@ -183,17 +183,17 @@ class Controller:
         self.navigation_heading_target = 0.0 # radians
         self.pos_error_bs = np.zeros((1,1))
         self.heading_error_bs = np.zeros((1,1))
-        self.pelvis_to_midsole_offset_after_locomotion = {
-            "x": -0.0069,
-            "y": -0.0194,
-            "yaw": 0.0061,
-        }
-
         # self.pelvis_to_midsole_offset_after_locomotion = {
-        #     "x":0.0,
-        #     "y": -0.0094,
+        #     "x": -0.0069,
+        #     "y": -0.0194,
         #     "yaw": 0.0061,
         # }
+
+        self.pelvis_to_midsole_offset_after_locomotion = {
+            "x":0.0,
+            "y": -0.0094,
+            "yaw": 0.0061,
+        }
         # self.target_midsole_quat = yaw_quat(np.array([np.sin(self.navigation_heading_target/2), 0.0, 0.0, np.cos(self.navigation_heading_target/2)]).astype(np.float32)).astype(np.float32)
 
         # self.offset = quat_apply(self.target_midsole_quat, 
@@ -203,14 +203,10 @@ class Controller:
         #                 0.0]
         #                 ).astype(np.float32)
         #             )
-
-        # self.pelvis_pos_target = self.navigation_pos_target + self.offset
-        # self.pelvis_heading_target = self.navigation_heading_target + self.pelvis_to_midsole_offset_after_locomotion["yaw"]
         
         self.navigation_command = None
         self.pelvis_pos_target = None
         self.pelvis_heading_target = None
-        
 
     
         # HYPERPARAMETERS
@@ -222,6 +218,11 @@ class Controller:
         self.NAV_HZ = 5
         self.ERROR_THRESHOLD = 0.04  # m
         self.NUM_AVG = 30
+
+
+        self.single_step_stage = False
+        self.left_foot_moment = True
+        self.right_foot_moment = False
 
         ########################## Navigation ##########################
 
@@ -425,29 +426,20 @@ class Controller:
             rot_type='axa'
         )
 
-        _ , nav_target_quat = body_pose(
-            self.tf_buffer,
-            'tag_target',
-            'world',
-            rot_type='quat'
-        )
-
         self.pelvis_pos_target = nav_target_pos
         self.pelvis_heading_target = nav_target_axa[-1]
 
+        # self.target_midsole_quat = yaw_quat(np.array([np.sin(self.pelvis_heading_target/2), 0.0, 0.0, np.cos(self.pelvis_heading_target/2)]).astype(np.float32)).astype(np.float32)
 
 
-        # # # ADD offset between pelvis <> midsole after locomotion.
-        # self.offset = quat_apply(
-        #             yaw_quat(nav_target_quat).astype(np.float32), 
+        # # ADD offset between pelvis <> midsole after locomotion.
+        # self.offset = quat_apply(self.target_midsole_quat, 
         #             np.array(
         #                [self.pelvis_to_midsole_offset_after_locomotion["x"], 
         #                 self.pelvis_to_midsole_offset_after_locomotion["y"], 
         #                 0.0]
         #                 ).astype(np.float32)
         #             )
-        
-        # # print(self.offset)
         
         # self.pelvis_pos_target += self.offset
         # self.pelvis_heading_target += self.pelvis_to_midsole_offset_after_locomotion["yaw"]
@@ -567,8 +559,41 @@ class Controller:
         print(f"locomotion vel command : {self.locomotion_vel_command}")
         print()
         print()
+
+        if self.single_step_stage:
+            self.single_step_iter += 1
+
+        if np.linalg.norm(pos_command_b[:2]) < 0.4 and self.single_step_stage == False:
+            self.single_step_stage = True
+            print("===== Single step phase start =====")
+            self.single_step_iter = 0
+
         
-        # phase = 0.0
+        if self.single_step_stage == True:
+            phase = 0.0
+            self.locomotion_vel_command = np.zeros(3)
+
+            if self.left_foot_moment:
+                step_start_iter = 40 # 0.8
+            elif self.right_foot_moment:
+                step_start_iter = 15 # 0.3
+
+            if self.single_step_iter >= step_start_iter:
+                if self.left_foot_moment:
+                    print("Left step")
+                elif self.right_foot_moment:
+                    print("Right step")
+                # print(self.single_step_iter)
+                phase = ((self.single_step_iter * 0.02) % 1.0) / 1.0
+                self.locomotion_vel_command[:2] = np.clip(np.sign(pos_command_b[:2]) * 0.2 * np.sqrt(np.abs(pos_command_b[:2] / self.SLOW_BOUND)), -0.2, 0.2)
+                self.locomotion_vel_command[2] = np.clip(np.sign(heading_error) * self.MAX_ANG_VEL * np.sqrt(np.abs(heading_error / self.SLOW_BOUND)), -self.MAX_ANG_VEL, self.MAX_ANG_VEL)
+
+            if self.single_step_iter == step_start_iter + 74:
+                print("===== Single step phase end =====")
+                self.left_foot_moment = not self.left_foot_moment
+                self.right_foot_moment = not self.right_foot_moment
+                
+                self.single_step_iter = step_start_iter - 100
 
         self.obs = self.locomotion_obsmap(self.low_state, self.locomotion_vel_command, phase, last_action=self.locomotion_last_action)
         obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
