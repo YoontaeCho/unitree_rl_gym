@@ -13,9 +13,12 @@ import pinocchio as pin
 import pink
 import yaml
 from common.np_math import (index_map, with_dir)
-from math_utils import (as_np, quat_rotate)
+from math_utils import (as_np, quat_rotate, yaw_quat, quat_mul, quat_inv)
 
 quat_rotate = as_np(quat_rotate)
+yaw_quat = as_np(yaw_quat)
+quat_inv = as_np(quat_inv)
+quat_mul = as_np(quat_mul)
 
 
 class FakeWorldPublisher(Node):
@@ -61,7 +64,7 @@ class FakeWorldPublisher(Node):
         # Read message content and assign it to
         # corresponding tf variables
         t.header.stamp = self.get_clock().now().to_msg()
-        t.header.frame_id = 'world'
+        t.header.frame_id = 'fake_world'
         t.child_frame_id = 'pelvis'
 
         # 
@@ -74,10 +77,33 @@ class FakeWorldPublisher(Node):
             float(x) for x in 
             self.low_state.imu_state.quaternion
         ]
-        t.transform.rotation.x = qx
-        t.transform.rotation.y = qy
-        t.transform.rotation.z = qz
-        t.transform.rotation.w = qw
+        imu_quat = np.array([qw, qx, qy, qz])
+        imu_quat = quat_mul(quat_inv(yaw_quat(imu_quat)), imu_quat)
+        t.transform.rotation.x = imu_quat[1]
+        t.transform.rotation.y = imu_quat[2]
+        t.transform.rotation.z = imu_quat[3]
+        t.transform.rotation.w = imu_quat[0]
+
+        # Send the transformation
+        self.tf_broadcaster.sendTransform(t)
+
+        t = TransformStamped()
+
+        # Read message content and assign it to
+        # corresponding tf variables
+        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.frame_id = 'world'
+        t.child_frame_id = 'fake_world'
+
+        # 
+        t.transform.translation.x = 0.5
+        t.transform.translation.y = 0.5
+        t.transform.translation.z = 0.0
+
+        t.transform.rotation.x = 0.0
+        t.transform.rotation.y = 0.0
+        t.transform.rotation.z = 0.0
+        t.transform.rotation.w = 1.0
 
         # Send the transformation
         self.tf_broadcaster.sendTransform(t)

@@ -90,4 +90,9 @@ class Config:
             
             self.target_height = config.get("target_height", 0.3)
             self.max_velocity = config.get("max_velocity", 0.1)
+
+
+            self.mot_joint_offsets = config.get("mot_joint_offsets", None)
             self.slow_bound = config.get("slow_bound", 0.2)
+
+            self.sit_kds = config.get("sit_kds", None)

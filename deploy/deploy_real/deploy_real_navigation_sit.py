@@ -456,22 +456,21 @@ class Controller:
         root_state_w[3:7] = quat_wxyz
 
 
-        nav_target_pos , nav_target_axa = body_pose(
-            self.tf_buffer,
-            'tag_target',
-            'world',
-            rot_type='axa'
-        )
 
-        _ , nav_target_quat = body_pose(
-            self.tf_buffer,
-            'tag_target',
-            'world',
-            rot_type='quat'
-        )
+        if False:
+            nav_target_pos , nav_target_axa = body_pose(
+                self.tf_buffer,
+                'tag_target',
+                'world',
+                rot_type='axa',
+                stamp=rp.time.Time()
+            )
 
-        self.pelvis_pos_target = nav_target_pos
-        self.pelvis_heading_target = nav_target_axa[-1]
+            self.pelvis_pos_target = nav_target_pos
+            self.pelvis_heading_target = nav_target_axa[-1]
+        else:
+            self.pelvis_pos_target = np.array([1., 0., 0.])
+            self.pelvis_heading_target = 0.
 
 
 
@@ -602,6 +601,8 @@ class Controller:
             print("============== Sitting mode activated ==============")
             if self.remote_controller.button[KeyMap.down] == 1:
                 self.sitting = True
+            
+            print(xyz[2])
             height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.00, sitting=self.sitting)
 
             # For stage 1 & 2.

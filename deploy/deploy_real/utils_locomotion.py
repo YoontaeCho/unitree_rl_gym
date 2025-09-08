@@ -186,7 +186,7 @@ class EETrackObservation:
         return np.concatenate(obs, axis=-1)
     
 
-class SitObservation(EETrackObservation):
+class SitObservationV2(EETrackObservation):
     def _hand_pose(self):   
         hp_l = body_pose(self.tf_buffer, 'left_rubber_hand')
         hp_r = body_pose(self.tf_buffer,  'end_effector')
@@ -205,6 +205,54 @@ class SitObservation(EETrackObservation):
         joint_pos, joint_vel = self._joint_pos_vel(low_state, self.config.lab_joint_offsets)
         pelvis_height = self._pelvis_height()
         prev_pelvis_height = self._pelvis_height_prev()
+
+        obs = [
+            base_ang_vel,       # 3 
+            projected_gravity,  # 3 6
+            foot_pose,          # 12 18
+            hand_pose,          # 12 30
+            joint_pos,          # 29 59
+            joint_vel,          # 29 88
+            height_command,     # 2 90
+            pelvis_height,      # 1 91
+            prev_pelvis_height  # 1 92
+        ]
+
+        self.prev_pelvis_height = pelvis_height
+        return np.concatenate(obs, axis=-1)
+    
+
+class SitObservation(EETrackObservation):
+    def _hand_pose(self):   
+        hp_l = body_pose(self.tf_buffer, 'left_rubber_hand')
+        hp_r = body_pose(self.tf_buffer,  'end_effector')
+        hand_pose = np.concatenate([hp_l[0], hp_r[0], hp_l[1], hp_r[1]])
+        return hand_pose
+    
+    def _pelvis_height(self, xyz):
+        pelvis_height = xyz[2:3]
+        return pelvis_height
+    
+    def _pelvis_height_prev(self, xyz):
+        if self.prev_pelvis_height is None:
+            prev_pelvis_height = self._pelvis_height(xyz)
+        else:
+            prev_pelvis_height = self.prev_pelvis_height
+        return prev_pelvis_height
+    
+    def __call__(self,
+                 low_state: LowStateHG,
+                 height_command: np.ndarray,
+                 xyz
+                 ):
+        base_ang_vel = self._base_ang_vel(low_state)
+        # NOTE(ycho): requires running `fake_world_tf_pub.py`.
+        projected_gravity = self._projected_gravity_from_lowstate(low_state)
+        foot_pose = self._foot_pose()
+        hand_pose = self._hand_pose()
+        joint_pos, joint_vel = self._joint_pos_vel(low_state, self.config.lab_joint_offsets)
+        pelvis_height = self._pelvis_height(xyz)
+        prev_pelvis_height = self._pelvis_height_prev(xyz)
 
         obs = [
             base_ang_vel,       # 3 
@@ -354,7 +402,6 @@ class LocomotionAction(SitActionVer2):
             )
         return target_dof_pos
 
-
 class LocomotionAction_14dof(SitActionVer2):
     def __init__(self, config, robot_model: Robot):
         super().__init__(config, robot_model)
@@ -376,14 +423,41 @@ class LocomotionAction_14dof(SitActionVer2):
         'right_ankle_roll_joint',
         ]
 
+        upper_body_joints = [
+        'left_shoulder_pitch_joint',
+        'right_shoulder_pitch_joint',
+        'left_shoulder_roll_joint',
+        'right_shoulder_roll_joint',
+        'left_shoulder_yaw_joint',
+        'right_shoulder_yaw_joint',
+        'left_elbow_joint',
+        'right_elbow_joint',
+        'left_wrist_roll_joint',
+        'right_wrist_roll_joint',
+        'left_wrist_pitch_joint',
+        'right_wrist_pitch_joint',
+        'left_wrist_yaw_joint',
+        'right_wrist_yaw_joint'
+        ]
+
         self.mot_from_lab_lower_joints = index_map(self.config.motor_joint, lower_body_joints)
 
+        self.mot_from_lab_upper_joints = index_map(self.config.motor_joint, upper_body_joints)
+        self.lab_arm_offset = [
+        -0.2000, -0.2000, 0.3500, -0.3500, 0.0000, 0.0000,
+          1.0000, 1.0000, 0.0000,
+        0.0000, 0.0000, 0.0000, 0.0000, 0.0000
+        ]
 
-    def __call__(self, action):
+
+    def __call__(self, action, arm_action=False):
         # motor order
         target_dof_pos = np.zeros(29)
         # checked
         target_dof_pos[self.mot_from_lab_lower_joints] = 0.5 * action
+        if arm_action:
+            target_dof_pos[self.mot_from_lab_upper_joints] = self.lab_arm_offset
+
 
         target_dof_pos = np.clip(
                 target_dof_pos,

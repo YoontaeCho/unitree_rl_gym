@@ -83,6 +83,7 @@ class PelvistoTrack(Node):
         # self.timer = self.create_timer(0.01, self.on_timer)
         # # One-shot timer to check & publish the static transform after a short delay
         self.static_tf_timer = self.create_timer(1.0, self.publish_static_tf)
+        # self.static_tf_timer_for_cam = self.create_timer(1.0, self.publish_static_tf_for_cam)
 
         self._pos_lpf_filter = ActionFilterButter(lowcut=np.zeros(1*3)*2,
                                     highcut=np.ones(1*3) * 6.0, 
@@ -96,31 +97,32 @@ class PelvistoTrack(Node):
                      msg: LowStateHG):
         self.low_state = msg
         try:
-            imu_from_pelvis_tf = self.tf_buffer.lookup_transform(
-                    'mid360_link_IMU', 
+            frame_from_pelvis_tf = self.tf_buffer.lookup_transform(
+                    'zed2i_base_link', 
                     'pelvis',
-                    # 'zed2_camera_center',
                     rclpy.time.Time(),
-                    # rclpy.duration.Duration(seconds=0.05)
                 )
         except Exception as ex:
-            print(f'Could not transform mid360_link_IMU to pelvis as world to camera_init is yet published: {ex}')
+            print(f'Could not transform zed2_camera_center to pelvis as world to camera_init is yet published: {ex}')
             return
+
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
-        t.header.frame_id = 'body'
+        t.header.frame_id = 'base_link_z_fk'
         t.child_frame_id = 'pelvis'
 
         # Turtle only exists in 2D, thus we get x and y translation
         # coordinates from the message and set the z coordinate to 0
-        t.transform.translation.x = imu_from_pelvis_tf.transform.translation.x
-        t.transform.translation.y = imu_from_pelvis_tf.transform.translation.y
-        t.transform.translation.z = imu_from_pelvis_tf.transform.translation.z
+        t.transform.translation.x = frame_from_pelvis_tf.transform.translation.x
+        t.transform.translation.y = frame_from_pelvis_tf.transform.translation.y
+        t.transform.translation.z = frame_from_pelvis_tf.transform.translation.z
 
-        t.transform.rotation.x = imu_from_pelvis_tf.transform.rotation.x
-        t.transform.rotation.y = imu_from_pelvis_tf.transform.rotation.y
-        t.transform.rotation.z = imu_from_pelvis_tf.transform.rotation.z
-        t.transform.rotation.w = imu_from_pelvis_tf.transform.rotation.w
+        t.transform.rotation.x = frame_from_pelvis_tf.transform.rotation.x
+        t.transform.rotation.y = frame_from_pelvis_tf.transform.rotation.y
+        t.transform.rotation.z = frame_from_pelvis_tf.transform.rotation.z
+        t.transform.rotation.w = frame_from_pelvis_tf.transform.rotation.w
+
+
 
         self.tf_broadcaster.sendTransform(t)
 
@@ -139,10 +141,10 @@ class PelvistoTrack(Node):
             # Try to look up an existing transform from "world" to "camera_init".
             # Here, rclpy.time.Time() (i.e. time=0) means "the latest available".
             self.tf_buffer.lookup_transform(
-                "world", "camera_init", rclpy.time.Time()
+                "world", "map", rclpy.time.Time()
             )
             self.get_logger().info(
-                "Static transform from 'world' to 'camera_init' already exists. Not publishing a new one."
+                "Static transform from 'world' to 'odom' already exists. Not publishing a new one."
             )
         except Exception as ex:
             # If the transform isn't found, declare (or get) the parameter for z and publish the static transform.
@@ -150,7 +152,7 @@ class PelvistoTrack(Node):
             static_tf = TransformStamped()
             static_tf.header.stamp = self.get_clock().now().to_msg()
             static_tf.header.frame_id = "world"
-            static_tf.child_frame_id = "camera_init"
+            static_tf.child_frame_id = "map"
             # static_tf.child_frame_id = "pelvis"
 
             static_tf.transform.translation.x = 0.0
@@ -163,8 +165,9 @@ class PelvistoTrack(Node):
 
             self.static_tf_broadcaster.sendTransform(static_tf)
             self.get_logger().info(
-                f"Published static transform from 'world' to 'camera_init' with z = {z_value} quat = {rot}"
+                f"Published static transform from 'world' to 'odom' with z = {z_value} quat = {rot}"
             )
+
 
     def lidar_height_rot(self, low_state: LowStateHG):
         print(self.tf_buffer.lookup_transform('pelvis',
@@ -195,12 +198,13 @@ class PelvistoTrack(Node):
             world_from_pelvis_quat_noYaw, xyz_lf)[2] + 0.028531
         # print(xyz_lf)
         pelvis_from_lidar = self.tf_buffer.lookup_transform('pelvis',
-                    'mid360_link_frame', rclpy.time.Time())
+                    'zed2i_base_link', rclpy.time.Time())
         
         lidar_z_pevlis = quat_rotate(world_from_pelvis_quat_noYaw,
             to_array(pelvis_from_lidar.transform.translation))[2]
         lidar_rot = (R.from_quat(np.roll(world_from_pelvis_quat_noYaw, -1)) *
                     R.from_quat(to_array(pelvis_from_lidar.transform.rotation)))
+        
         
         # print(pelvis_from_lidar.transform.translation,
         # 0.5 * pelvis_z_lf + 0.5 * pelvis_z_rf,

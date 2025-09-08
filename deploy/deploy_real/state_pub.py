@@ -7,9 +7,7 @@ from sensor_msgs.msg import JointState
 # from tf2_ros import TransformBroadcaster, TransformStamped
 from unitree_hg.msg import LowCmd as LowCmdHG, LowState as LowStateHG
 import yaml
-
 class StatePublisher(Node):
-
     def __init__(self):
         super().__init__('state_publisher')
         qos_profile = QoSProfile(depth=10)
@@ -41,6 +39,7 @@ class StatePublisher(Node):
             joint_state.velocity[i] = self.low_state.motor_state[i].dq
         self.joint_pub.publish(joint_state)
     
+
     # def run(self):
     #     loop_rate = self.create_rate(30)
     #     try:

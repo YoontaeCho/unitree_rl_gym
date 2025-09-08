@@ -7,29 +7,25 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile
 from unitree_hg.msg import LowState as LowStateHG
 from tf2_ros import TransformBroadcaster, TransformStamped
+from tf2_ros.buffer import Buffer
+from tf2_ros.transform_listener import TransformListener
 
 import numpy as np
 import pinocchio as pin
 import pink
 import yaml
 from common.np_math import (index_map, with_dir)
-from math_utils import (as_np, quat_rotate)
+from math_utils import (as_np, quat_rotate, yaw_quat, quat_mul, quat_inv)
 
 quat_rotate = as_np(quat_rotate)
+yaw_quat = as_np(yaw_quat)
+quat_inv = as_np(quat_inv)
+quat_mul = as_np(quat_mul)
 
 
 class FakeWorldPublisher(Node):
     def __init__(self):
         super().__init__('fake_world_publisher')
-        
-
-        urdf_path = '../../resources/robots/g1_description/g1_29dof_rev_1_0_ver4.urdf'
-        path = Path(urdf_path)
-        with with_dir(path.parent):
-            robot = pin.RobotWrapper.BuildFromURDF(filename=path.name,
-                                                   package_dirs=["."],
-                                                   root_joint=None)
-            self.robot = robot
 
         self.low_state = LowStateHG()
         self.low_state_subscriber = self.create_subscription(
@@ -38,6 +34,19 @@ class FakeWorldPublisher(Node):
             self.on_low_state,
             10)
         self.tf_broadcaster = TransformBroadcaster(self)
+
+
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+
+
+        urdf_path = '../../resources/robots/g1_description/g1_29dof_rev_1_0_ver4.urdf'
+        path = Path(urdf_path)
+        with with_dir(path.parent):
+            robot = pin.RobotWrapper.BuildFromURDF(filename=path.name,
+                                                   package_dirs=["."],
+                                                   root_joint=None)
+            self.robot = robot
 
         pin_joint = self.robot.model.names[1:]
         with open('./configs/ik.yaml', 'r') as fp:
@@ -61,26 +70,44 @@ class FakeWorldPublisher(Node):
         # Read message content and assign it to
         # corresponding tf variables
         t.header.stamp = self.get_clock().now().to_msg()
-        t.header.frame_id = 'world'
-        t.child_frame_id = 'pelvis'
+        t.header.frame_id = 'pelvis'
+        t.child_frame_id = 'fake_world'
+
+        try:
+            pelvis_tf = self.tf_buffer.lookup_transform(
+                'world',
+                'pelvis',
+                rclpy.time.Time(),
+            )
+        except:
+            return
+        pelvis_height = pelvis_tf.transform.translation.z
 
         # 
         t.transform.translation.x = 0.0
         t.transform.translation.y = 0.0
-        t.transform.translation.z = self.pelvis_height(self.low_state)
+        t.transform.translation.z = -self.pelvis_height(self.low_state)
 
         # Set world_from_pelvis quaternion based on IMU state
         qw, qx, qy, qz = [
             float(x) for x in 
             self.low_state.imu_state.quaternion
         ]
-        t.transform.rotation.x = qx
-        t.transform.rotation.y = qy
-        t.transform.rotation.z = qz
-        t.transform.rotation.w = qw
+        pelvis_quat = np.array([
+            pelvis_tf.transform.rotation.w,
+            pelvis_tf.transform.rotation.x,
+            pelvis_tf.transform.rotation.y,
+            pelvis_tf.transform.rotation.z,
+        ])
+        fake_world_quat = yaw_quat(pelvis_quat)
+        t.transform.rotation.w = fake_world_quat[0]
+        t.transform.rotation.x = fake_world_quat[1]
+        t.transform.rotation.y = fake_world_quat[2]
+        t.transform.rotation.z = fake_world_quat[3]
 
         # Send the transformation
         self.tf_broadcaster.sendTransform(t)
+
 
     def pelvis_height(self, low_state: LowStateHG):
         robot = self.robot

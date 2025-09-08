@@ -7,6 +7,7 @@ from sensor_msgs.msg import JointState
 # from tf2_ros import TransformBroadcaster, TransformStamped
 from unitree_hg.msg import LowCmd as LowCmdHG, LowState as LowStateHG
 import yaml
+from rclpy.executors import MultiThreadedExecutor
 
 class StatePublisher(Node):
 
@@ -40,7 +41,7 @@ class StatePublisher(Node):
             joint_state.position[i] = self.low_state.motor_state[i].q
             joint_state.velocity[i] = self.low_state.motor_state[i].dq
         self.joint_pub.publish(joint_state)
-    
+
     def run(self):
         # loop_rate = self.create_rate(10)
         # try:
@@ -57,7 +58,12 @@ class StatePublisher(Node):
 def main():
     rclpy.init()
     node = StatePublisher()
-    rclpy.spin(node)
+    executor = MultiThreadedExecutor(num_threads=8)
+    executor.add_node(node)
+    try:
+        executor.spin()
+    except KeyboardInterrupt:
+        pass
     node.destroy_node()
     rclpy.shutdown()
 

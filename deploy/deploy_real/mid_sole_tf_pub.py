@@ -9,6 +9,7 @@ from unitree_hg.msg import LowState as LowStateHG
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 from tf2_ros import TransformBroadcaster, TransformStamped, TransformException
+from rclpy.executors import MultiThreadedExecutor
 
 import numpy as np
 import pinocchio as pin
@@ -105,7 +106,7 @@ class MidSoleTFPublisher(Node):
 
         mid_sole_pos = (left_sole_pos + right_sole_pos) / 2.0
         mid_sole_quat = np.roll(Slerp([0,1], R.from_quat([np.roll(left_sole_quat,-1), np.roll(right_sole_quat,-1)]))(0.5).as_quat(),1)
-        mid_sole_quat = yaw_quat(mid_sole_quat)
+        # mid_sole_quat = yaw_quat(mid_sole_quat)
 
         # Turtle only exists in 2D, thus we get x and y translation
         # coordinates from the message and set the z coordinate to 0
@@ -121,6 +122,50 @@ class MidSoleTFPublisher(Node):
         # Send the transformation
         self.tf_broadcaster.sendTransform(t)
 
+
+        if True:
+
+            t = TransformStamped()
+
+            # Read message content and assign it to
+            # corresponding tf variables
+            t.header.stamp = self.get_clock().now().to_msg()
+            t.header.frame_id = 'world'
+            t.child_frame_id = 'fake_world'
+
+            try:
+                pelvis_tf = self.tf_buffer.lookup_transform(
+                    'world', 
+                    'pelvis',
+                    rclpy.time.Time(),
+                )
+            except:
+                return
+
+            # 
+            t.transform.translation.x = pelvis_tf.transform.translation.x
+            t.transform.translation.y = pelvis_tf.transform.translation.y
+            t.transform.translation.z = 0.
+
+            qx = pelvis_tf.transform.rotation.x
+            qy = pelvis_tf.transform.rotation.y
+            qz = pelvis_tf.transform.rotation.z
+            qw = pelvis_tf.transform.rotation.w
+
+            # # Normalize (defensive) then invert
+            # r_pelvis = R.from_quat([qx, qy, qz, qw])
+            # r_fake = r_pelvis.inv()                # exact inverse (no yaw removal)
+
+            # qx, qy, qz, qw = r_fake.as_quat()
+
+            qw, qx, qy, qz = yaw_quat(np.array([qw, qx, qy, qz]))
+            t.transform.rotation.x = qx
+            t.transform.rotation.y = qy
+            t.transform.rotation.z = qz
+            t.transform.rotation.w = qw
+
+            # Send the transformation
+            self.tf_broadcaster.sendTransform(t)
 
 def main():
     rclpy.init()

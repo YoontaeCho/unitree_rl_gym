@@ -99,7 +99,8 @@ class IKCtrl:
                  q0: np.ndarray,
                  target_pose: np.ndarray,
                  rel: bool = False,
-                 v0: np.ndarray = None
+                 v0: np.ndarray = None,
+                 gravity_vec = None,
                  ):
         """
         Arg:
@@ -140,6 +141,10 @@ class IKCtrl:
         # optionally also compute gravity related terms ?
         if v0 is None:
             v0 = np.zeros_like(q0)
+        if gravity_vec is None:
+            self.robot.model.gravity.linear = np.array([0.0, 0.0, -9.81])
+        else:
+            self.robot.model.gravity.linear = gravity_vec
         h = pin.nonLinearEffects(robot.model,
                                  robot.data,
                                  q0,
@@ -148,6 +153,23 @@ class IKCtrl:
         tau_arm = h[self.pin_from_act]
 
         return dq, tau_arm
+    
+
+    def get_gravity_compensation(self, q0, v0=None, gravity_vec = None):
+        if v0 is None:
+            v0 = np.zeros_like(q0)
+        if gravity_vec is None:
+            self.robot.model.gravity.linear = np.array([0.0, 0.0, -9.81])
+        else:
+            self.robot.model.gravity.linear = gravity_vec
+        h = pin.nonLinearEffects(self.robot.model,
+                                 self.robot.data,
+                                 q0,
+                                 # FIXME(ycho): use true velocity here.
+                                 v0)
+        tau_arm = h[self.pin_from_act]
+
+        return tau_arm
 
 
 def main():
