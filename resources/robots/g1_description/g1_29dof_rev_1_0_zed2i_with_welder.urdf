@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <robot name="g1_29dof_rev_1_0">
-  <mujoco>
+  <!-- <mujoco>
     <compiler meshdir="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes" discardvisual="false"/>
-  </mujoco>
+  </mujoco> -->
 
   <!-- [CAUTION] uncomment when convert to mujoco -->
   <!-- <link name="world"></link>
@@ -216,6 +216,12 @@
       </material>
     </visual>
     <collision>
+      <origin xyz="0.03826199 0.0 -0.02540915" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.20820672 0.07558269 0.02"/>
+      </geometry>
+    </collision>
+    <!-- <collision>
       <origin xyz="-0.05 0.025 -0.03" rpy="0 0 0"/>
       <geometry>
         <sphere radius="0.005"/>
@@ -238,7 +244,7 @@
       <geometry>
         <sphere radius="0.005"/>
       </geometry>
-    </collision>
+    </collision> -->
   </link>
   <joint name="left_ankle_roll_joint" type="revolute">
     <origin xyz="0 0 -0.017558" rpy="0 0 0"/>
@@ -246,6 +252,12 @@
     <child link="left_ankle_roll_link"/>
     <axis xyz="1 0 0"/>
     <limit lower="-0.2618" upper="0.2618" effort="50" velocity="37"/>
+  </joint>
+  <link name="left_sole_link"/>
+  <joint name="left_sole_joint" type="fixed">
+    <origin xyz="0 0 -0.035" rpy="0 0 0"/>
+    <parent link="left_ankle_roll_link"/>
+    <child link="left_sole_link"/>
   </joint>
   <link name="right_hip_pitch_link">
     <inertial>
@@ -399,7 +411,7 @@
       <inertia ixx="0.0002231" ixy="-2E-07" ixz="8.91E-05" iyy="0.0016161" iyz="1E-07" izz="0.0016667"/>
     </inertial>
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <origin xyz="0.0 0 0.0" rpy="0 0 0"/>
       <geometry>
         <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_ankle_roll_link.STL"/>
       </geometry>
@@ -408,6 +420,12 @@
       </material>
     </visual>
     <collision>
+      <origin xyz="0.03826199 0.0 -0.02540915" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.20820672 0.07558269 0.02"/>
+      </geometry>
+    </collision>
+    <!-- <collision>
       <origin xyz="-0.05 0.025 -0.03" rpy="0 0 0"/>
       <geometry>
         <sphere radius="0.005"/>
@@ -430,7 +448,7 @@
       <geometry>
         <sphere radius="0.005"/>
       </geometry>
-    </collision>
+    </collision> -->
   </link>
   <joint name="right_ankle_roll_joint" type="revolute">
     <origin xyz="0 0 -0.017558" rpy="0 0 0"/>
@@ -438,6 +456,12 @@
     <child link="right_ankle_roll_link"/>
     <axis xyz="1 0 0"/>
     <limit lower="-0.2618" upper="0.2618" effort="50" velocity="37"/>
+  </joint>
+  <link name="right_sole_link"/>
+  <joint name="right_sole_joint" type="fixed">
+    <origin xyz="0 0 -0.035" rpy="0 0 0"/>
+    <parent link="right_ankle_roll_link"/>
+    <child link="right_sole_link"/>
   </joint>
 
   <!-- Torso -->
@@ -577,8 +601,7 @@
 
 
   <!-- IMU -->
-  <link name="imu_in_torso">
-  </link>
+  <link name="imu_in_torso"></link>
   <joint name="imu_in_torso_joint" type="fixed">
     <origin xyz="-0.03959 -0.00224 0.14792" rpy="0 0 0"/>
     <parent link="torso_link"/>
@@ -592,112 +615,110 @@
     <child link="imu_in_pelvis"/>
   </joint>
 
-  <!-- d435 -->
-  <link name="d435_link"></link>
-  <joint name="d435_joint" type="fixed">
-    <origin xyz="0.0576235 0.01753 0.42987" rpy="0 0.8307767239493009 0"/>
-    <parent link="torso_link"/>
-    <child link="d435_link"/>
-  </joint>
-  
-  <!-- zed -->
-  <material name="zed2_mat">
-    <color rgba="0.25 0.25 0.25 1.0"/>
-  </material>
-  <link name="zed_mount">
-  <visual>
-      <origin xyz="0 0 0" rpy="0 0 3.14159"/>
-      <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/zed_mount.stl"/>
-      </geometry>
-    </visual>
-  </link>
-  <joint name="zed_mount_joint" type="fixed">
-    <origin xyz="0.0027 0.0 0.3667" rpy="0 -0.04014257279586953 0"/>
-    <parent link="head_link"/>
-    <child link="zed_mount"/>
-  </joint>
-  <joint name="zed_camera_joint" type="fixed">
-    <origin xyz="0.06920661025 0.0 0.08033553926" rpy="0 0.8234498317 0"/>
-    <parent link="zed_mount"/>
-    <child link="zed2_camera_link"/>
-  </joint>
-  <link name="zed2_camera_link"/>
-  <!-- Camera Center -->
-  <link name="zed2_camera_center">
+   <!-- ======================= ZED2i MOUNT (REPLACES D435 BLOCK) ======================= -->
+
+  <!-- 마운트: head_link 기준, 기존 d435 첫 마운트(head_d435_mount_1) 포즈를 그대로 사용 -->
+  <link name="mount_link">
+    <inertial>
+      <!-- 대략값: 0.25 kg, 관성 근사 -->
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.25"/>
+      <inertia ixx="0.00020" ixy="0.0" ixz="0.0"
+               iyy="0.00018" iyz="0.0" izz="0.00015"/>
+    </inertial>
     <visual>
-      <origin rpy="0 0 0" xyz="0.0 0 0.0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/zed2.obj"/>
+        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/mount.STL" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="zed2_mat"/>
+      <material name="mount_gray"><color rgba="0.6 0.6 0.6 1"/></material>
     </visual>
     <collision>
-      <origin rpy="0 0 0" xyz="0.0 0 0.0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/zed2.obj"/>
+        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/mount.STL" scale="0.001 0.001 0.001"/>
       </geometry>
     </collision>
   </link>
-  <joint name="zed2_camera_center_joint" type="fixed">
-    <parent link="zed2_camera_link"/>
-    <child link="zed2_camera_center"/>
-    <origin rpy="0 0.05 0" xyz="0 0 0.015"/>
-  </joint>
-  <!-- Left Camera -->
-  <link name="zed2_left_camera_frame">
-  </link>
-  <joint name="zed2_left_camera_joint" type="fixed">
-    <parent link="zed2_camera_center"/>
-    <child link="zed2_left_camera_frame"/>
-    <origin rpy="0 0 0" xyz="-0.01 0.06 0"/>
-  </joint>
-  <link name="zed2_left_camera_optical_frame"/>
-  <joint name="zed2_left_camera_optical_joint" type="fixed">
-    <origin rpy="-1.5707963267948966 0.0 -1.5707963267948966" xyz="0 0 0"/>
-    <parent link="zed2_left_camera_frame"/>
-    <child link="zed2_left_camera_optical_frame"/>
-  </joint>
-  <!-- Right Camera -->
-  <link name="zed2_right_camera_frame">
-  </link>
-  <joint name="zed2_right_camera_joint" type="fixed">
-    <parent link="zed2_camera_center"/>
-    <child link="zed2_right_camera_frame"/>
-    <origin rpy="0 0 0" xyz="-0.01 -0.06 0"/>
-  </joint>
-  <link name="zed2_right_camera_optical_frame"/>
-  <joint name="zed2_right_camera_optical_joint" type="fixed">
-    <origin rpy="-1.5707963267948966 0.0 -1.5707963267948966" xyz="0 0 0"/>
-    <parent link="zed2_right_camera_frame"/>
-    <child link="zed2_right_camera_optical_frame"/>
-  </joint>
-  <link name="zed2_mag_link"/>
-  <joint name="zed2_mag_joint" type="fixed">
-    <parent link="zed2_camera_center"/>
-    <child link="zed2_mag_link"/>
-    <origin rpy="0 0 0" xyz="0 0 0"/>
-  </joint>
-  <link name="zed2_baro_link"/>
-  <joint name="zed2_baro_joint" type="fixed">
-    <parent link="zed2_camera_center"/>
-    <child link="zed2_baro_link"/>
-    <origin rpy="0 0 0" xyz="0 0 0"/>
-  </joint>
-  <link name="zed2_temp_left_link"/>
-  <joint name="zed2_temp_left_joint" type="fixed">
-    <parent link="zed2_left_camera_frame"/>
-    <child link="zed2_temp_left_link"/>
-    <origin rpy="0 0 0" xyz="0 0 0"/>
-  </joint>
-  <link name="zed2_temp_right_link"/>
-  <joint name="zed2_temp_right_joint" type="fixed">
-    <parent link="zed2_right_camera_frame"/>
-    <child link="zed2_temp_right_link"/>
-    <origin rpy="0 0 0" xyz="0 0 0"/>
+
+  <joint name="head_to_mount_joint" type="fixed">
+    <!-- 기존 head_d435_mount_1 과 동일: head 앞면에 뒤집어(180deg yaw) 장착 -->
+    <!-- <origin xyz="0.11 -0.16 0.352" rpy="0 0 1.0466 "/> -->
+    <origin xyz="0.11 -0.16 0.352" rpy="0 0 1.0466 "/>
+    <parent link="head_link"/>
+    <child link="mount_link"/>
   </joint>
 
-  <!-- mid360 -->
+  <!--############################### OFFICIAL ################################## -->
+  <!-- Mounting point on your robot -->
+  <link name="zed2i_base_link"/>
+  <joint name="mount_to_zed2i_joint" type="fixed">
+    <parent link="mount_link"/>
+    <!-- Set your real mount pose here -->
+    <child link="zed2i_base_link"/>
+    <origin xyz="0.116 0.09 0.01" rpy="0 0 -1.5708"/>
+  </joint>
+
+  <!-- zed2i body (camera center) -->
+  <material name="zed2i_mat">
+    <color rgba="0.25 0.25 0.25 1.0"/>
+  </material>
+  <link name="zed2i_camera_center">
+    <!-- <visual>
+      <origin xyz="-0.116 -0.09 -0.01" rpy="0 0 1.5708"/>
+      <geometry>
+        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/zed2i.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="zed2i_mat"/>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/zed2i.STL" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision> -->
+  </link>
+  <joint name="zed2i_camera_center_joint" type="fixed">
+    <parent link="zed2i_base_link"/>
+    <child link="zed2i_camera_center"/>
+    <!-- height=0.03, bottom_slope=0.0 -->
+    <origin xyz="0 0 0.015" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Left camera -->
+  <link name="zed2i_left_camera_frame"/>
+  <joint name="zed2i_left_camera_joint" type="fixed">
+    <parent link="zed2i_camera_center"/>
+    <child link="zed2i_left_camera_frame"/>
+    <!-- baseline=0.12 => +0.06 on Y -->
+    <origin xyz="0 0.06 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="zed2i_left_camera_optical_frame"/>
+  <joint name="zed2i_left_camera_optical_joint" type="fixed">
+    <!-- optical_offset_x=-0.01 -->
+    <origin xyz="-0.01 0 0" rpy="-1.5707963267948966 0 -1.5707963267948966"/>
+    <parent link="zed2i_left_camera_frame"/>
+    <child link="zed2i_left_camera_optical_frame"/>
+  </joint>
+
+  <!-- Right camera -->
+  <link name="zed2i_right_camera_frame"/>
+  <joint name="zed2i_right_camera_joint" type="fixed">
+    <parent link="zed2i_camera_center"/>
+    <child link="zed2i_right_camera_frame"/>
+    <!-- baseline=0.12 => -0.06 on Y -->
+    <origin xyz="0 -0.06 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="zed2i_right_camera_optical_frame"/>
+  <joint name="zed2i_right_camera_optical_joint" type="fixed">
+    <!-- optical_offset_x=-0.01 -->
+    <origin xyz="-0.01 0 0" rpy="-1.5707963267948966 0 -1.5707963267948966"/>
+    <parent link="zed2i_right_camera_frame"/>
+    <child link="zed2i_right_camera_optical_frame"/>
+  </joint>
+
+
   <!-- mid360 -->
   <link name="mid360_link">
   <visual>
@@ -738,6 +759,7 @@
     <parent link="mid360_link_frame"/>
     <child link="mid360_link_IMU"/>
   </joint>
+
 
   <!-- Arm -->
   <link name="left_shoulder_pitch_link">
@@ -963,7 +985,17 @@
         <color rgba="0.7 0.7 0.7 1"/>
       </material>
     </visual>
+    <collision>
+      <origin xyz="0.07 -0.01 0" rpy="0 0 -0.3"/>
+      <geometry>
+        <box size="0.12 0.03 0.08"/>
+      </geometry>
+    </collision>
   </link>
+
+
+
+  
   <link name="right_shoulder_pitch_link">
     <inertial>
       <origin xyz="0 -0.035892 -0.011628" rpy="0 0 0"/>
@@ -1170,21 +1202,65 @@
   <joint name="right_hand_palm_joint" type="fixed">
     <origin xyz="0.0415 -0.003 0" rpy="0 0 0"/>
     <parent link="right_wrist_yaw_link"/>
-    <child link="right_rubber_hand"/>
+    <child link="welder"/>
   </joint>
-  <link name="right_rubber_hand">
+  <link name="welder">
     <inertial>
-      <origin xyz="0.05361310808 0.00295905240 0.00215413091" rpy="0 0 0"/>
-      <mass value="0.170"/>
+      <origin xyz="0.05361310808 -0.00295905240 0.00215413091" rpy="0 0 0"/>
+      <mass value="0.68"/>
       <inertia ixx="0.00010099485234748" ixy="-0.00003618590790516" ixz="-0.00000074301518642" iyy="0.00028135871571621" iyz="-0.00000330189743286" izz="0.00021894770413514"/>
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/right_rubber_hand.STL"/>
+        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/welder_HG200_submesh1.STL"/>
       </geometry>
       <material name="white">
         <color rgba="0.7 0.7 0.7 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/welder_HG200_submesh1.STL"/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="welder2">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/welder_HG200_submesh2.STL"/>
+      </geometry>
+      <material name="white">
+        <color rgba="0.7 0.7 0.7 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file:///root/unitree_rl_gym/resources/robots/g1_description/meshes/welder_HG200_submesh2.STL"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="welder2_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="welder"/>
+    <child link="welder2"/>
+  </joint>
+  <joint name="end_effector_joint" type="fixed">
+    <origin xyz="0.0985 0 0.176675" rpy="0 -0.603712724 0"/>
+    <parent link="welder"/>
+    <child link="end_effector"/>
+  </joint>
+  <link name="end_effector">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius= "0.004"/>
+      </geometry>
+      <material name="red">
+        <color rgba="1 0 0 1"/>
       </material>
     </visual>
   </link>
