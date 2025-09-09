@@ -27,6 +27,7 @@ import utils_robot as ur
 import utils_locomotion as ul
 import utils_stage as us
 import utils_eetrack_tag as ue
+from scipy.spatial.transform import Rotation as R
 
 from std_msgs.msg import MultiArrayLayout
 
@@ -244,6 +245,7 @@ class Controller:
         self.sit_policy.eval()
 
         ########################## Navigation ##########################
+        # NOTE (bk) is this where we set the position target for the navigation?
         self.navigation_pos_target = np.array([1.0, 0.0, 0.0])
         self.navigation_heading_target = 0.0 # radians
         self.pos_error_bs = np.zeros((1,1))
@@ -288,14 +290,14 @@ class Controller:
         self.bending_counter = 0
 
         # Subscribe to /eetrack_vision topic (MultiArrayLayout)
+        # TODO
         self.eetrack_vision_subscriber = self._node.create_subscription(
             MultiArrayLayout,
             '/eetrack_vision/weldpoints',
             self.eetrack_vision_callback,
             10
         )
-        self.eetrack_vision_points = None
-
+        self.welding_points_from_vision = None
 
 
         self.bending_offset = 0.
@@ -416,12 +418,59 @@ class Controller:
             rp.shutdown()
             print("Exit")
 
-    def eetrack_vision_callback(self, msg: 'MultiArrayLayout'):
-    # TODO: Implement handling of the received MultiArrayLayout message
-        self.eetrack_vision_points = msg
-        print("CALLBACK!!")
-        print(msg)
+    def eetrack_vision_callback(self, msg: 'Float64MultiArray'):
+        # TODO: run the following code on real robot
+
+		# -------- parse incoming [N,3] points from Float64MultiArray ----------
+		data = np.asarray(msg.data, dtype=np.float64)
+		if data.size == 0:
+			return
+
+		# Prefer using the provided layout when present
+		N = None
+		if msg.layout and msg.layout.dim and len(msg.layout.dim) >= 2:
+			# Expect row-major: [rows, columns] with columns==3
+			rows = msg.layout.dim[0].size
+			cols = msg.layout.dim[1].size
+			if cols == 3:
+				N = rows
+		if N is None:
+			if data.size % 3 != 0:
+				self.get_logger().warn(
+					f"Received {data.size} values (not divisible by 3). Dropping.")
+				return
+			N = data.size // 3
+
+		pts_zed = data.reshape(N, 3) # originally the points are in zed frame
+
+        # Get the camera to world frame
+		try:
+			tf = self.tf_buffer.lookup_transform("world", "zed2i_base_link", rclpy.time.Time())
+		except Exception as ex:
+			self.get_logger().warn_throttle(2000, f"TF world<-zed2i_base_link not ready: {ex}")
+			return
+
+		t = np.array([
+			tf.transform.translation.x,
+			tf.transform.translation.y,
+			tf.transform.translation.z
+		], dtype=np.float64)
+
+		q = np.array([
+			tf.transform.rotation.x,
+			tf.transform.rotation.y,
+			tf.transform.rotation.z,
+			tf.transform.rotation.w
+		], dtype=np.float64)
+		R_wc = R.from_quat(q).as_matrix()  # SciPy expects [x, y, z, w]
+
+        # apply it to points expressed in Zed frame
+		pts_world = (R_wc @ pts_zed.T).T + t[None, :]
+
+		# set the welding points so that EETrack can use it
+        self.welding_points_from_vision = pts_world
     
+
     def LowStateHgHandler(self, msg: LowStateHG):
         self.low_state = msg
         self.mode_machine_ = self.low_state.mode_machine
@@ -636,13 +685,14 @@ class Controller:
                 rot_type='quat'   
             )
 
+            # TODO We should have an assertion to prevent self.welding_points_from_vision being None
             self.eetrack_command = ue.eetrack(
                 th.from_numpy(root_state_w)[None],
                 self.tf_buffer,
                 clock, to_start=False, 
                 start_ee_pos=start_ee_pos,
-                  start_ee_quat=start_ee_quat,
-                  eetrack_vision_points = self.eetrack_vision_points)
+                start_ee_quat=start_ee_quat,
+                welding_points_from_vision = self.welding_points_from_vision)
             
             # start_T = matrix_from_quat(yaw_quat(self.eetrack_command.eetrack_start_quat_w))
             # end_T = matrix_from_quat(yaw_quat(self.eetrack_command.eetrack_end_quat_w))
