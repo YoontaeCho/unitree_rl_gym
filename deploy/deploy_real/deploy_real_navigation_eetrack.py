@@ -29,7 +29,7 @@ import utils_stage as us
 import utils_eetrack_tag as ue
 from scipy.spatial.transform import Rotation as R
 
-from std_msgs.msg import MultiArrayLayout
+from std_msgs.msg import Float64MultiArray
 
 class Mode(Enum):
     wait = 0
@@ -290,15 +290,13 @@ class Controller:
         self.bending_counter = 0
 
         # Subscribe to /eetrack_vision topic (MultiArrayLayout)
-        # TODO
         self.eetrack_vision_subscriber = self._node.create_subscription(
-            MultiArrayLayout,
+            Float64MultiArray,
             '/eetrack_vision/weldpoints',
             self.eetrack_vision_callback,
             10
         )
         self.welding_points_from_vision = None
-
 
         self.bending_offset = 0.
         self.bending_target_dof = None
@@ -340,9 +338,7 @@ class Controller:
         self.weld_dyaw = 0.0
 
         self.act_joint = config.ik_joint
-        self.ikctrl = IKCtrl('../../resources/robots/g1_description/g1_29dof_rev_1_0_ver4_camera_mount_v4.urdf',
-                             self.act_joint,
-                             frame='end_effector')
+        self.ikctrl = IKCtrl('../../resources/robots/g1_description/g1_29dof_rev_1_0_ver4_camera_mount_v4.urdf', self.act_joint, frame='end_effector')
         self.lim_lo_pin = self.ikctrl.robot.model.lowerPositionLimit
         self.lim_hi_pin = self.ikctrl.robot.model.upperPositionLimit
         
@@ -418,56 +414,65 @@ class Controller:
             rp.shutdown()
             print("Exit")
 
-    def eetrack_vision_callback(self, msg: 'Float64MultiArray'):
-        # TODO: run the following code on real robot
 
-		# -------- parse incoming [N,3] points from Float64MultiArray ----------
-		data = np.asarray(msg.data, dtype=np.float64)
-		if data.size == 0:
-			return
+    def process_msg_from_eetrack_vision(self, msg):
+        N = None
+        if msg.layout and msg.layout.dim and len(msg.layout.dim) >= 2:
+            # Expect row-major: [rows, columns] with columns==3
+            rows = msg.layout.dim[0].size
+            cols = msg.layout.dim[1].size
+            if cols == 3:
+                N = rows
 
-		# Prefer using the provided layout when present
-		N = None
-		if msg.layout and msg.layout.dim and len(msg.layout.dim) >= 2:
-			# Expect row-major: [rows, columns] with columns==3
-			rows = msg.layout.dim[0].size
-			cols = msg.layout.dim[1].size
-			if cols == 3:
-				N = rows
-		if N is None:
-			if data.size % 3 != 0:
-				self.get_logger().warn(
-					f"Received {data.size} values (not divisible by 3). Dropping.")
-				return
-			N = data.size // 3
+        data = np.asarray(msg.data, dtype=np.float64)
+        if N is None:
+            if data.size % 3 != 0:
+                print(f"Received {data.size} values (not divisible by 3). Dropping.")
+                return
+            N = data.size // 3
 
-		pts_zed = data.reshape(N, 3) # originally the points are in zed frame
+        pts_zed = data.reshape(N, 3) # originally the points are in zed frame
+        return pts_zed
 
+    def get_zed_pose_wrt_world(self):
         # Get the camera to world frame
-		try:
-			tf = self.tf_buffer.lookup_transform("world", "zed2i_base_link", rclpy.time.Time())
-		except Exception as ex:
-			self.get_logger().warn_throttle(2000, f"TF world<-zed2i_base_link not ready: {ex}")
-			return
+        try:
+            tf = self.tf_buffer.lookup_transform("world", "zed2i_base_link", rp.time.Time())
+        except Exception as ex:
+            print("No zed tf wrt world exists")
+            return
 
-		t = np.array([
-			tf.transform.translation.x,
-			tf.transform.translation.y,
-			tf.transform.translation.z
-		], dtype=np.float64)
+        t = np.array([
+            tf.transform.translation.x,
+            tf.transform.translation.y,
+            tf.transform.translation.z
+        ], dtype=np.float64)
 
-		q = np.array([
-			tf.transform.rotation.x,
-			tf.transform.rotation.y,
-			tf.transform.rotation.z,
-			tf.transform.rotation.w
-		], dtype=np.float64)
-		R_wc = R.from_quat(q).as_matrix()  # SciPy expects [x, y, z, w]
+        q = np.array([
+            tf.transform.rotation.x,
+            tf.transform.rotation.y,
+            tf.transform.rotation.z,
+            tf.transform.rotation.w
+        ], dtype=np.float64)
+        return t,q
 
-        # apply it to points expressed in Zed frame
-		pts_world = (R_wc @ pts_zed.T).T + t[None, :]
+    def apply_transform_to_points(self, points, t, q):
+        # t=translation, q=quternion
+        R_wc = R.from_quat(q).as_matrix()  # SciPy expects [x, y, z, w]
+        pts_world = (R_wc @ points.T).T + t[None, :]
+        return pts_world
 
-		# set the welding points so that EETrack can use it
+    def eetrack_vision_callback(self, msg: 'Float64MultiArray'):
+        # -------- parse incoming [N,3] points from Float64MultiArray ----------
+        data = np.asarray(msg.data, dtype=np.float64)
+        if data.size == 0:
+            return
+
+        # points format: (2,3), where each point indicates the start and
+        # end points on the welding line
+        pts_zed = self.process_msg_from_eetrack_vision(msg)
+        t,q = self.get_zed_pose_wrt_world()
+        pts_world = self.apply_transform_to_points(pts_zed, t,q)
         self.welding_points_from_vision = pts_world
     
 
