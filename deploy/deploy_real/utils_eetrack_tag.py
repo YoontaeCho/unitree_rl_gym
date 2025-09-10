@@ -144,7 +144,7 @@ class Range:
         self.dz_local = dz_local
 
 class eetrack:
-    def __init__(self, root_state_w, tf_buffer, clock, to_start=False, start_ee_pos=None, start_ee_quat=None, eetrack_vision_points=None):
+    def __init__(self, root_state_w, tf_buffer, clock, to_start=False, start_ee_pos=None, start_ee_quat=None, welding_points_from_vision=None):
         self.clock = clock
         self.tf_buffer = tf_buffer
         
@@ -194,7 +194,7 @@ class eetrack:
             self.eetrack_start_w, self.eetrack_start_quat_w = eetrack_start_w, eetrack_start_quat_w
             self.eetrack_end_w, self.eetrack_end_quat_w = eetrack_end_w, eetrack_end_quat_w
         elif True:
-            if eetrack_vision_points is None:
+            if welding_points_from_vision is None:
                 fake_world_pos, fake_world_quat = body_pose(
                         self.tf_buffer,
                         frame="fake_world",
@@ -211,21 +211,12 @@ class eetrack:
                 self.eetrack_start_w, self.eetrack_start_quat_w = eetrack_start_w, eetrack_start_quat_w
                 self.eetrack_end_w, self.eetrack_end_quat_w = eetrack_end_w, eetrack_end_quat_w
             else:
-                # PARSE eetrack_vision_points
-                # ee_pos_start_from_cam_frame = ...
-                # ee_quat_start_from_cam_frame = ...
-                zed_cam_pos, zed_cam_quat = body_pose(
-                        self.tf_buffer,
-                        frame="zed2i_left_camera_optical_frame",
-                        ref_frame="world",
-                        rot_type='quat'
-                )
-                eetrack_start_w = quat_rotate(zed_cam_quat.astype(np.float32), data["pos"][0].astype(np.float32)) + zed_cam_pos
-                eetrack_start_quat_w = quat_mul(zed_cam_quat.astype(np.float32), data["wxyz"][0].astype(np.float32))
+                eetrack_start_pos_w = welding_points_from_vision[0, :]
+                eetrack_end_pos_w = welding_points_from_vision[-1, :]
 
-                eetrack_end_w = quat_rotate(zed_cam_quat.astype(np.float32), data["pos"][-1].astype(np.float32)) + zed_cam_pos
-                eetrack_end_quat_w = quat_mul(zed_cam_quat.astype(np.float32), data["wxyz"][-1].astype(np.float32))
-
+                # hard coded: 45 deg from the horizontal plate
+                eetrack_start_quat_w = np.array([0.8763992 ,  0.12110863,  0.3630175 , -0.29237816])
+                eetrack_end_quat_w = np.array([0.8763992 ,  0.12110863,  0.3630175 , -0.29237816])
 
                 self.eetrack_start_w, self.eetrack_start_quat_w = eetrack_start_w, eetrack_start_quat_w
                 self.eetrack_end_w, self.eetrack_end_quat_w = eetrack_end_w, eetrack_end_quat_w

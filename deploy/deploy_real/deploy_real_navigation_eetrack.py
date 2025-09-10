@@ -27,8 +27,9 @@ import utils_robot as ur
 import utils_locomotion as ul
 import utils_stage as us
 import utils_eetrack_tag as ue
+from scipy.spatial.transform import Rotation as R
 
-from std_msgs.msg import MultiArrayLayout
+from std_msgs.msg import Float64MultiArray
 
 class Mode(Enum):
     wait = 0
@@ -244,6 +245,7 @@ class Controller:
         self.sit_policy.eval()
 
         ########################## Navigation ##########################
+        # NOTE (bk) is this where we set the position target for the navigation?
         self.navigation_pos_target = np.array([1.0, 0.0, 0.0])
         self.navigation_heading_target = 0.0 # radians
         self.pos_error_bs = np.zeros((1,1))
@@ -289,14 +291,12 @@ class Controller:
 
         # Subscribe to /eetrack_vision topic (MultiArrayLayout)
         self.eetrack_vision_subscriber = self._node.create_subscription(
-            MultiArrayLayout,
+            Float64MultiArray,
             '/eetrack_vision/weldpoints',
             self.eetrack_vision_callback,
             10
         )
-        self.eetrack_vision_points = None
-
-
+        self.welding_points_from_vision = None
 
         self.bending_offset = 0.
         self.bending_target_dof = None
@@ -338,9 +338,7 @@ class Controller:
         self.weld_dyaw = 0.0
 
         self.act_joint = config.ik_joint
-        self.ikctrl = IKCtrl('../../resources/robots/g1_description/g1_29dof_rev_1_0_ver4_camera_mount_v4.urdf',
-                             self.act_joint,
-                             frame='end_effector')
+        self.ikctrl = IKCtrl('../../resources/robots/g1_description/g1_29dof_rev_1_0_ver4_camera_mount_v4.urdf', self.act_joint, frame='end_effector')
         self.lim_lo_pin = self.ikctrl.robot.model.lowerPositionLimit
         self.lim_hi_pin = self.ikctrl.robot.model.upperPositionLimit
         
@@ -416,12 +414,68 @@ class Controller:
             rp.shutdown()
             print("Exit")
 
-    def eetrack_vision_callback(self, msg: 'MultiArrayLayout'):
-    # TODO: Implement handling of the received MultiArrayLayout message
-        self.eetrack_vision_points = msg
-        print("CALLBACK!!")
-        print(msg)
+
+    def process_msg_from_eetrack_vision(self, msg):
+        N = None
+        if msg.layout and msg.layout.dim and len(msg.layout.dim) >= 2:
+            # Expect row-major: [rows, columns] with columns==3
+            rows = msg.layout.dim[0].size
+            cols = msg.layout.dim[1].size
+            if cols == 3:
+                N = rows
+
+        data = np.asarray(msg.data, dtype=np.float64)
+        if N is None:
+            if data.size % 3 != 0:
+                print(f"Received {data.size} values (not divisible by 3). Dropping.")
+                return
+            N = data.size // 3
+
+        pts_zed = data.reshape(N, 3) # originally the points are in zed frame
+        return pts_zed
+
+    def get_zed_pose_wrt_world(self):
+        # Get the camera to world frame
+        try:
+            tf = self.tf_buffer.lookup_transform("world", "zed2i_base_link", rp.time.Time())
+        except Exception as ex:
+            print("No zed tf wrt world exists")
+            return
+
+        t = np.array([
+            tf.transform.translation.x,
+            tf.transform.translation.y,
+            tf.transform.translation.z
+        ], dtype=np.float64)
+
+        q = np.array([
+            tf.transform.rotation.x,
+            tf.transform.rotation.y,
+            tf.transform.rotation.z,
+            tf.transform.rotation.w
+        ], dtype=np.float64)
+        return t,q
+
+    def apply_transform_to_points(self, points, t, q):
+        # t=translation, q=quternion
+        R_wc = R.from_quat(q).as_matrix()  # SciPy expects [x, y, z, w]
+        pts_world = (R_wc @ points.T).T + t[None, :]
+        return pts_world
+
+    def eetrack_vision_callback(self, msg: 'Float64MultiArray'):
+        # -------- parse incoming [N,3] points from Float64MultiArray ----------
+        data = np.asarray(msg.data, dtype=np.float64)
+        if data.size == 0:
+            return
+
+        # points format: (2,3), where each point indicates the start and
+        # end points on the welding line
+        pts_zed = self.process_msg_from_eetrack_vision(msg)
+        t,q = self.get_zed_pose_wrt_world()
+        pts_world = self.apply_transform_to_points(pts_zed, t,q)
+        self.welding_points_from_vision = pts_world
     
+
     def LowStateHgHandler(self, msg: LowStateHG):
         self.low_state = msg
         self.mode_machine_ = self.low_state.mode_machine
@@ -636,13 +690,14 @@ class Controller:
                 rot_type='quat'   
             )
 
+            # TODO We should have an assertion to prevent self.welding_points_from_vision being None
             self.eetrack_command = ue.eetrack(
                 th.from_numpy(root_state_w)[None],
                 self.tf_buffer,
                 clock, to_start=False, 
                 start_ee_pos=start_ee_pos,
-                  start_ee_quat=start_ee_quat,
-                  eetrack_vision_points = self.eetrack_vision_points)
+                start_ee_quat=start_ee_quat,
+                welding_points_from_vision = self.welding_points_from_vision)
             
             # start_T = matrix_from_quat(yaw_quat(self.eetrack_command.eetrack_start_quat_w))
             # end_T = matrix_from_quat(yaw_quat(self.eetrack_command.eetrack_end_quat_w))
