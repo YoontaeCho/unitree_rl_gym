@@ -52,15 +52,15 @@ lab_joint: [
     'waist_pitch_joint',
     'left_knee_joint',
     'right_knee_joint',
-    'left_shoulder_pitch_joint',
-    'right_shoulder_pitch_joint',
-    'left_ankle_pitch_joint', 
-    'right_ankle_pitch_joint',
-    'left_shoulder_roll_joint',
-    'right_shoulder_roll_joint',
+    'left_shoulder_pitch_joint', #11
+    'right_shoulder_pitch_joint', #12
+    'left_ankle_pitch_joint', #13
+    'right_ankle_pitch_joint', #14
+    'left_shoulder_roll_joint', #15
+    'right_shoulder_roll_joint', #16
     'left_ankle_roll_joint',
     'right_ankle_roll_joint',
-    'left_shoulder_yaw_joint',
+    'left_shoulder_yaw_joint', #19
     'right_shoulder_yaw_joint',
     'left_elbow_joint',
     'right_elbow_joint',
@@ -196,7 +196,8 @@ navigation_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0820_nav_f9.p
 
 
 # SIT
-sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/sit_ver4.pt"
+# sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/sit_ver3.pt"
+sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0909_s1.pt"
 slow_bound: 0.2
 max_velocity: 0.1
 # sit target height when we press [down] button
