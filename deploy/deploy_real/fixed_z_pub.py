@@ -62,6 +62,13 @@ def to_array(v):
     elif isinstance(v, Quaternion):
         return np.array([v.x, v.y, v.z, v.w], dtype=np.float32)
 
+
+def rpy_from_wxyz_quat(q_wxyz):
+    """IMU gives (w,x,y,z). Convert to (x,y,z,w) and return RPY (xyz order)."""
+    q_xyzw = np.roll(np.asarray(q_wxyz, dtype=np.float64), -1)
+    return R.from_quat(q_xyzw).as_euler('xyz', degrees=False)  # roll, pitch, yaw
+
+
 class PelvistoTrack(Node):
     def __init__(self):
         super().__init__('pelvis_track_publisher')
@@ -117,7 +124,7 @@ class PelvistoTrack(Node):
 
         try:
             to_zed_from_midsole = self.tf_buffer.lookup_transform(
-                    'mid_sole_link', 
+                    'fake_world', 
                     'zed2i_base_link',
                     rclpy.time.Time(),
                 )
@@ -132,7 +139,7 @@ class PelvistoTrack(Node):
         t.transform.translation.z = z_value
 
         if True:
-            ####################### Use rotation from cam #######################
+            ####################### Use rotation from zed #######################
             t.transform.rotation.x = map_from_world.transform.rotation.x
             t.transform.rotation.y = map_from_world.transform.rotation.y
             t.transform.rotation.z = map_from_world.transform.rotation.z

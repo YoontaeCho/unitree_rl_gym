@@ -10,6 +10,7 @@ from tf2_ros import TransformException
 
 import math_utils
 import random as rd
+from scipy.spatial.transform import Rotation as R
 
 
 axis_angle_from_quat = math_utils.as_np(math_utils.axis_angle_from_quat)
@@ -23,6 +24,7 @@ combine_frame_transforms = math_utils.as_np(
 yaw_quat = math_utils.as_np(math_utils.yaw_quat)
 matrix_from_quat = math_utils.as_np(math_utils.matrix_from_quat)
 subtract_frame_transforms = math_utils.as_np(math_utils.subtract_frame_transforms)
+quat_from_euler_xyz = math_utils.as_np(math_utils.quat_from_euler_xyz)
 
 def body_pose(
         tf_buffer,
@@ -151,6 +153,9 @@ class eetrack:
         self.eetrack_line_length = 0.10
         self.eetrack_vel = 0.007
 
+        # Welding offset from the line
+        self.offset_len = 0.01
+
         self.step_dt = 0.02
         self.dt_segment_length = self.eetrack_vel * self.step_dt # 0.0002
         self.non_first_subgoal_sampling_time = self.dt_segment_length / self.eetrack_vel
@@ -195,31 +200,73 @@ class eetrack:
             self.eetrack_end_w, self.eetrack_end_quat_w = eetrack_end_w, eetrack_end_quat_w
         elif True:
             if welding_points_from_vision is None:
-                fake_world_pos, fake_world_quat = body_pose(
-                        self.tf_buffer,
-                        frame="fake_world",
-                        ref_frame="world",
-                        rot_type='quat'
-                )
-                eetrack_start_w = quat_rotate(fake_world_quat.astype(np.float32), data["pos"][0].astype(np.float32)) + fake_world_pos
-                eetrack_start_quat_w = quat_mul(fake_world_quat.astype(np.float32), data["wxyz"][0].astype(np.float32))
+                if False:
+                    fake_world_pos, fake_world_quat = body_pose(
+                            self.tf_buffer,
+                            frame="fake_world",
+                            ref_frame="world",
+                            rot_type='quat'
+                    )
+                    eetrack_start_w = quat_rotate(fake_world_quat.astype(np.float32), data["pos"][0].astype(np.float32)) + fake_world_pos
+                    eetrack_start_quat_w = quat_mul(fake_world_quat.astype(np.float32), data["wxyz"][0].astype(np.float32))
+                    eetrack_start_quat_w = quat_mul(eetrack_start_quat_w, quat_from_euler_xyz(np.array(30/180*np.pi), np.array(0), np.array(0)))
 
-                eetrack_end_w = quat_rotate(fake_world_quat.astype(np.float32), data["pos"][-1].astype(np.float32)) + fake_world_pos
-                eetrack_end_quat_w = quat_mul(fake_world_quat.astype(np.float32), data["wxyz"][-1].astype(np.float32))
+                    eetrack_end_w = quat_rotate(fake_world_quat.astype(np.float32), data["pos"][-1].astype(np.float32)) + fake_world_pos
+                    eetrack_end_quat_w = quat_mul(fake_world_quat.astype(np.float32), data["wxyz"][-1].astype(np.float32))
+                    eetrack_end_quat_w = quat_mul(eetrack_end_quat_w, quat_from_euler_xyz(np.array(30/180*np.pi), np.array(0), np.array(0)))
 
 
-                self.eetrack_start_w, self.eetrack_start_quat_w = eetrack_start_w, eetrack_start_quat_w
-                self.eetrack_end_w, self.eetrack_end_quat_w = eetrack_end_w, eetrack_end_quat_w
+                    self.eetrack_start_w, self.eetrack_start_quat_w = eetrack_start_w, eetrack_start_quat_w
+                    self.eetrack_end_w, self.eetrack_end_quat_w = eetrack_end_w, eetrack_end_quat_w
+                else:
+                    target_0_pos, target_0_quat = body_pose(
+                            self.tf_buffer,
+                            frame="end_effector",
+                            ref_frame="world",
+                            rot_type='quat'
+                    )
+                    target_1_pos, target_1_quat = body_pose(
+                            self.tf_buffer,
+                            frame="end_effector",
+                            ref_frame="world",
+                            rot_type='quat'
+                    )
+                    eetrack_start_w = target_0_pos
+                    eetrack_start_quat_w = target_0_quat
+
+                    eetrack_end_w = target_1_pos
+                    eetrack_end_quat_w = target_1_quat
+
+                    self.eetrack_start_w, self.eetrack_start_quat_w = eetrack_start_w, eetrack_start_quat_w
+                    self.eetrack_end_w, self.eetrack_end_quat_w = eetrack_end_w, eetrack_end_quat_w
             else:
                 eetrack_start_pos_w = welding_points_from_vision[0, :]
                 eetrack_end_pos_w = welding_points_from_vision[-1, :]
 
                 # hard coded: 45 deg from the horizontal plate
-                eetrack_start_quat_w = np.array([0.8763992 ,  0.12110863,  0.3630175 , -0.29237816])
-                eetrack_end_quat_w = np.array([0.8763992 ,  0.12110863,  0.3630175 , -0.29237816])
+                # eetrack_start_quat_w = np.array([0.8763992 ,  0.12110863,  0.3630175 , -0.29237816])
+                # eetrack_end_quat_w = np.array([0.8763992 ,  0.12110863,  0.3630175 , -0.29237816])
 
-                self.eetrack_start_w, self.eetrack_start_quat_w = eetrack_start_w, eetrack_start_quat_w
-                self.eetrack_end_w, self.eetrack_end_quat_w = eetrack_end_w, eetrack_end_quat_w
+                # Compute approaching vector of welder
+                # Assume the point is in world frame.
+                z_up_axis = np.array([0,0,1])
+                # Assume the start point is in left (+y) and the end point is in right (-y)
+                y_axis = eetrack_start_pos_w - eetrack_end_pos_w
+                y_axis = y_axis / np.linalg.norm(y_axis)
+                x_axis = np.cross(y_axis, z_up_axis)
+                z_up_mat = np.stack([x_axis, y_axis, z_up_axis], axis=1)
+
+                # Rotate z_up for 45 deg about y-axis
+                sciR = R.from_matrix(z_up_mat) * R.from_euler('y', 45.0, degrees=True)
+                # sciR = sciR * R.from_euler('x', 30.0, degrees=True)
+                # Assume same rotation for start and end
+                eetrack_start_quat_w = eetrack_end_quat_w = np.roll(sciR.as_quat(), 1)
+                eetrack_x_axis = sciR.as_matrix()[:,0]
+                eetrack_start_pos_w = eetrack_start_pos_w - self.offset_len*eetrack_x_axis
+                eetrack_end_pos_w = eetrack_end_pos_w - self.offset_len*eetrack_x_axis
+
+                self.eetrack_start_w, self.eetrack_start_quat_w = eetrack_start_pos_w, eetrack_start_quat_w
+                self.eetrack_end_w, self.eetrack_end_quat_w = eetrack_end_pos_w, eetrack_end_quat_w
             
         else:
             self.eetrack_start_w, self.eetrack_start_quat_w = data["pos"][0], data["wxyz"][0] # FK
@@ -283,9 +330,13 @@ class eetrack:
             ref_frame="world",
             rot_type='quat'
         )
-        data = np.load("log_sit_ver4_ikctrl_1756891218.npy", allow_pickle=True).item()
+        # data = np.load("log_sit_ver4_ikctrl_1756891218.npy", allow_pickle=True).item()
+        # data = np.load("log_sit_ver4_ikctrl_1757658661.npy", allow_pickle=True).item()
+        # data = np.load("trajopt_result.npz")
+        # data = np.load("trajopt_result_1.npz")
 
-        if True:
+
+        if False:
             ref_ee_poses_bs = data["trajectories"]["ee_poses_b"]
 
             ref_ee_poses_pos = ref_ee_poses_bs[700:2000,:3]
@@ -302,7 +353,29 @@ class eetrack:
                 ref_frame="world",
                 rot_type='quat'
             )
-        else:
+        elif False:
+            ref_ee_poses_bs = data["trajectories"]["target_poses_b"]
+            indices = [1000, 2000, 2300, 2500, 3000]
+            sampled_pos = ref_ee_poses_bs[indices,:3]
+            sampled_quat = ref_ee_poses_bs[indices,3:]
+            waypoints_b = [(sampled_pos[i], sampled_quat[i]) for i in range(len(indices))]
+            pelvis_pos, pelvis_quat = body_pose(
+                self.tf_buffer,
+                frame="pelvis",
+                ref_frame="world",
+                rot_type='quat'
+            )
+        elif False:
+            sampled_pos = data["target_ee_pos_traj"][0,::5].astype(np.double)
+            sampled_quat = data["target_ee_wxyz_traj"][0,::5].astype(np.double)
+            waypoints_b = [(sampled_pos[i], sampled_quat[i]) for i in range(len(sampled_pos))]
+            pelvis_pos, pelvis_quat = body_pose(
+                self.tf_buffer,
+                frame="pelvis",
+                ref_frame="world",
+                rot_type='quat'
+            )
+        elif False:
             ref_ee_poses_ws = data["trajectories"]["ee_poses_w"]
 
             ref_ee_poses_pos = ref_ee_poses_ws[700:2000,:3]
@@ -319,24 +392,27 @@ class eetrack:
                 ref_frame="world",
                 rot_type='quat'
             )
+        else:
+            pass
 
         
-        waypoints = []
-        for w in waypoints_b:
-            waypoint_pos_b = w[0]
-            waypoint_quat_b = w[1]
-            waypoint_pos_w = quat_rotate(pelvis_quat, waypoint_pos_b) + pelvis_pos
-            waypoint_quat_w = quat_mul(pelvis_quat, waypoint_quat_b)
-            waypoints.append([waypoint_pos_w, waypoint_quat_w])
+        # waypoints = []
+        # for w in waypoints_b:
+        #     waypoint_pos_b = w[0]
+        #     waypoint_quat_b = w[1]
+        #     waypoint_pos_w = quat_rotate(pelvis_quat, waypoint_pos_b) + pelvis_pos
+        #     waypoint_quat_w = quat_mul(pelvis_quat, waypoint_quat_b)
+        #     waypoints.append([waypoint_pos_w, waypoint_quat_w])
         
 
 
-        to_z_num = 50
+        to_z_num = 25
         z_to_eetrack_sgs_num = 200
         if False:
             self.to_eetrack_sgs_num = to_z_num + z_to_eetrack_sgs_num
         else:
-            self.to_eetrack_sgs_num = to_z_num * len(waypoints) + z_to_eetrack_sgs_num
+            # self.to_eetrack_sgs_num = to_z_num * len(waypoints) + z_to_eetrack_sgs_num
+            self.to_eetrack_sgs_num = z_to_eetrack_sgs_num
         ################# pose interpolation ##################
         # pos_hand_w_left_high_z = waipoint 1
         pos_hand_w_left_high_z = pos_hand_w_left.copy()
@@ -346,16 +422,16 @@ class eetrack:
         
         # initial hand pos -> eetrack start pos
         # 1. initial hand pos -> waypoint 1
-        if False:
-            to_eeline_subgoals = interpolate_position(
-                torch.tensor(pos_hand_w_left).unsqueeze(0),
-                torch.tensor(pos_hand_w_left_high_z).unsqueeze(0),
-                to_z_num
-            )
+        if True:
+            # to_eeline_subgoals = interpolate_position(
+            #     torch.tensor(pos_hand_w_left).unsqueeze(0),
+            #     torch.tensor(pos_hand_w_left_high_z).unsqueeze(0),
+            #     to_z_num
+            # )
 
             # 2. waypoint 1 -> eetack start
-            to_eeline_subgoals += interpolate_position(
-                torch.tensor(pos_hand_w_left_high_z).unsqueeze(0),
+            to_eeline_subgoals = interpolate_position(
+                torch.tensor(pos_hand_w_left).unsqueeze(0),
                 self.eetrack_start_th_w,
                 z_to_eetrack_sgs_num
             )
@@ -403,31 +479,38 @@ class eetrack:
 
         lerped_quats = []
 
-        if False:
-            to_z_quat = interpolate_quaternion(
-                quat_hand_w_left,
-                self.eetrack_quat_w,
-                to_z_num
-            ).unsqueeze(0)
-            lerped_quats.append(to_z_quat)
+        if True:
+            # to_z_quat = interpolate_quaternion(
+            #     quat_hand_w_left,
+            #     self.eetrack_quat_w,
+            #     to_z_num
+            # ).unsqueeze(0)
+            # lerped_quats.append(to_z_quat)
 
             z_to_eetrack_quat = interpolate_quaternion(
-                self.eetrack_quat_w[0].cpu().numpy(),
+                quat_hand_w_left,
                 self.eetrack_quat_w,
                 z_to_eetrack_sgs_num
             ).unsqueeze(0)
             lerped_quats.append(z_to_eetrack_quat)
         else:
-            for i in range(len(waypoints)):
+            to_z_quat = interpolate_quaternion(
+            quat_hand_w_left,
+            torch.from_numpy(waypoints[0][1])[None],
+            to_z_num
+            ).unsqueeze(0)
+            lerped_quats.append(to_z_quat)
+
+            for i in range(len(waypoints)-1):
                 to_z_quat = interpolate_quaternion(
-                quat_hand_w_left,
-                torch.from_numpy(quat_hand_w_left)[None],
+                waypoints[i][1],
+                torch.from_numpy(waypoints[i+1][1])[None],
                 to_z_num
                 ).unsqueeze(0)
                 lerped_quats.append(to_z_quat)
         
             z_to_eetrack_quat = interpolate_quaternion(
-                quat_hand_w_left,
+                waypoints[-1][1],
                 self.eetrack_quat_w,
                 z_to_eetrack_sgs_num
             ).unsqueeze(0)

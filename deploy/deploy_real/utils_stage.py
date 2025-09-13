@@ -520,7 +520,7 @@ class VelocityHeightCommand:
         else:
             # if self.initial_pelvis_height is None:
             #     self.initial_pelvis_height = current_pelvis_height_w
-            target_height = 0.60
+            target_height = 0.65
             
         pelvis_height_diff = target_height - current_pelvis_height_w
         pelvis_lin_vel_z_w = np.clip( np.sign(pelvis_height_diff) 

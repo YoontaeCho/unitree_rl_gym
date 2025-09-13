@@ -109,10 +109,18 @@ kds: [
 #     10, 10, 10, 10, 10, 10, 10  # right arm
 # ]
 
+
+# hip yaw 15 -> 20, waist pitch 10 -> 15
+# hip pitch 15 -> 20
+# hip yaw 20 -> 25
+# hip yaw 25 -> 20
+# waist pitch, roll 15 -> 20
+# hip yaw 20 -> 25
+
 sit_kds: [
-    15, 15, 15, 15, 5, 5,           # left leg
-    15, 15, 15, 15, 5, 5,           # right leg
-    15, 15, 10,                    # waist
+    20, 15, 25, 15, 5, 5,           # left leg
+    20, 15, 25, 15, 5, 5,           # right leg
+    20, 20, 15,                    # waist
     10, 10, 10, 10, 10, 10, 10, # left arm
     # 10, 10, 10, 10, 10, 10, 10  # right arm
     10, 10, 10, 10, 10, 10, 10  # right arm
@@ -196,12 +204,14 @@ navigation_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0820_nav_f9.p
 
 
 # SIT
-# sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/sit_ver3.pt"
-sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0909_s1.pt"
+# sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/sit_ver4.pt"
+sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0910_s1.pt"
+# sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0910_s1_v2.pt"
 slow_bound: 0.2
 max_velocity: 0.1
 # sit target height when we press [down] button
-target_height: 0.38
+target_height: 0.45
+sit_later_smoothing: 0.8
 
 
 policy_path: ""

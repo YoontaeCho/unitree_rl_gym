@@ -69,6 +69,7 @@ class Config:
 
             self.initial_smoothing = config.get("initial_smoothing", None)
             self.later_smoothing = config.get("later_smoothing", None)
+            self.sit_later_smoothing = config.get("sit_later_smoothing", None)
             self.kpkd_smoothing =config.get("kpkd_smoothing", None)
 
             self.ik_joint = config.get("ik_joint", None)

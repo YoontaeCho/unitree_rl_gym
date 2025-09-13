@@ -104,7 +104,8 @@ def plot_log(file_path, start_time, end_time):
 
 def main():
     # NOTE: change the file_path
-    file_path = "/tmp/e2e/log_sit_ver3_dao_no_sg_right_baseline_1745849238.npy"
+    # file_path = "/tmp/e2e/log_sit_ver3_dao_no_sg_right_baseline_1745849238.npy"
+    file_path = "log_sit_ver4_ikctrl_1757658661.npy"
     
     # NOTE: change the start_time and end_time
     start_time = -5

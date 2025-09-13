@@ -720,7 +720,10 @@
   </link>
   <joint name="zed2i_left_camera_optical_joint" type="fixed">
     <!-- optical_offset_x=-0.01 -->
-    <origin xyz="-0.01 0 0" rpy="-1.5707963267948966 0 -1.5707963267948966"/>
+    <!-- <origin xyz="-0.01 0 0" rpy="-1.5707963267948966 0 -1.5707963267948966"/> -->
+    <!-- <origin xyz="0.01 0 0.04" rpy="-1.5707963267948966 0 -1.5707963267948966"/> -->
+    <!-- <origin xyz="-0.00839285 0.01741193 0.02823022" rpy="-1.5707963267948966 0 -1.5707963267948966"/> -->
+    <origin xyz="-0.00668378 0.01467285 0.03236308" rpy="-1.5707963267948966 0 -1.5707963267948966"/>
     <parent link="zed2i_left_camera_frame"/>
     <child link="zed2i_left_camera_optical_frame"/>
   </joint>
