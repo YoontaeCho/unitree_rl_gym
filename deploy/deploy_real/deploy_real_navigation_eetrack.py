@@ -64,6 +64,8 @@ quat_from_euler_xyz = math_utils.as_np(math_utils.quat_from_euler_xyz)
 euler_xyz_from_quat = math_utils.as_np(math_utils.euler_xyz_from_quat)
 yaw_quat = math_utils.as_np(math_utils.yaw_quat)
 matrix_from_quat = math_utils.as_np(math_utils.matrix_from_quat)
+
+# returns a tuple containing the position and orientation of frame 2 w.r.t. frame 1.
 subtract_frame_transforms = math_utils.as_np(math_utils.subtract_frame_transforms)
 
 
@@ -356,9 +358,10 @@ class Controller:
         self.weld_dz = 0.0
 
         self.act_joint = config.ik_joint
-        self.ikctrl = IKCtrl('../../resources/robots/g1_description/g1_29dof_rev_1_0_ver4_camera_mount_v4.urdf',
+        #self.ikctrl = IKCtrl('../../resources/robots/g1_description/g1_29dof_rev_1_0_ver4_camera_mount_v4.urdf',
+        self.ikctrl = IKCtrl('../../resources/robots/g1_description/g1_29dof_rev_1_0_tag_calibrated_camera_pose_fix_welder.urdf',
                              self.act_joint,
-                             frame='end_effector')
+                             frame='end_effector') # end_effector = end of torch
         self.lim_lo_pin = self.ikctrl.robot.model.lowerPositionLimit
         self.lim_hi_pin = self.ikctrl.robot.model.upperPositionLimit
         self.trajopt_data = np.load("trajopt_result_2.npz")
