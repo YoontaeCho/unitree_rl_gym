@@ -479,6 +479,17 @@ class Controller:
                 print(ex)
                 print("No zed tf wrt world exists")
         return t,q
+    
+    def get_zed_pose_wrt_pelvis(self):
+        # Get the camera to world frame
+        while True:
+            try:
+                t, q = body_pose(self.tf_buffer, "zed2i_left_camera_optical_frame", "pelvis", rot_type="quat")
+                break
+            except Exception as ex:
+                print(ex)
+                print("No zed tf wrt world exists")
+        return t,q
 
     def apply_transform_to_points(self, points, t, q):
         # t=translation, q=quternion
@@ -501,8 +512,15 @@ class Controller:
         t, q = self.get_zed_pose_wrt_world()
         self.zed_pose_w = np.concatenate([t, q])
         pts_world = self.apply_transform_to_points(pts_zed, t, q)
-        self.welding_points_from_vision = pts_world
 
+
+        ### DEBUGGING ###
+        t2,q2 = self.get_zed_pose_wrt_pelvis()
+        pts_pelvis = self.apply_transform_to_points(pts_zed, t2, q2)
+        print("PTS WRT PELVIS" + str(pts_pelvis))
+        ### DEBUGGING ### -- but use this later
+
+        self.welding_points_from_vision = pts_world
         self._node.get_logger().info(f"Welding points recieved: {self.welding_points_from_vision}")
 
         # Disable after recieve
@@ -773,25 +791,11 @@ class Controller:
             self.eetrack_command.eetrack_end_w += self.weld_dx*end_T[:3,0]
             self.eetrack_command.eetrack_end_w += self.weld_dy*end_T[:3,1]
             self.eetrack_command.eetrack_end_w += self.weld_dz*end_T[:3,2]
-            # eetrack_start_euler_w = euler_xyz_from_quat(self.eetrack_command.eetrack_start_quat_w[None])
-            # eetrack_end_euler_w = euler_xyz_from_quat(self.eetrack_command.eetrack_end_quat_w[None])
-            # eetrack_start_euler_w[1] += self.weld_dpitch
-            # eetrack_end_euler_w[1] += self.weld_dpitch
-            # eetrack_start_euler_w[2] += self.weld_dyaw
-            # eetrack_end_euler_w[2] += self.weld_dyaw
-            # self.eetrack_command.eetrack_start_quat_w = quat_from_euler_xyz(*eetrack_start_euler_w)[0]
-            # self.eetrack_command.eetrack_end_quat_w = quat_from_euler_xyz(*eetrack_end_euler_w)[0]
+          
             self.eetrack_command.create_eetrack()
             self.eetrack_command.eetrack_subgoal = self.eetrack_command.create_subgoal()
 
 
-            # self.start_ee_pos, self.start_ee_quat = body_pose(
-            #     self.tf_buffer,
-            #     'end_effector',
-            #     'world',
-            #     rot_type='quat'   
-            # )
-            # self.is_go_start = False
 
 
         ############################################ LOCOMOTION ############################################
@@ -1060,18 +1064,18 @@ class Controller:
                 th.from_numpy(self.root_state_w)[None]
                 )[0].detach().cpu().numpy()
             
-            self.target_pose_w = np.copy(
-                self.eetrack_command.next_command_s_left.squeeze().detach().cpu().numpy()
-            )
             self.target_pose_b = np.concatenate([
                 self.eetrack_command.lerp_command_b_left_pos.squeeze().detach().cpu().numpy(),
                 self.eetrack_command.lerp_command_b_left_quat.squeeze().detach().cpu().numpy(),
             ])
 
-            # print(self.target_pose_w)
-            # print(self.target_pose_b)
+            print("Commanding the robot hand pose in pelvis" + str(self.target_pose_b))
 
-            self.publish_hand_target()
+            # rviz visulaization purpose
+            self.target_pose_w = np.copy(
+                self.eetrack_command.next_command_s_left.squeeze().detach().cpu().numpy()
+            )
+            self.publish_hand_target() 
 
             if not self.is_go_start:
                 # Get current joint positions
