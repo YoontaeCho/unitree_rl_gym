@@ -698,8 +698,6 @@
       </material>
     </visual>
   </link>
-    
-    
   <joint name="zed2i_left_camera_joint" type="fixed">
     <parent link="zed2i_camera_center"/>
     <child link="zed2i_left_camera_frame"/>
