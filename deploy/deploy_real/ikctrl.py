@@ -42,6 +42,7 @@ def dls_ik(
         sqlmda: float
 ):
     """
+    Implements dampled eleast squares inverse kinematics
     Arg:
         dpose: task-space error (A[..., err])
         jac: jacobian (A[..., err, dof])
@@ -49,13 +50,19 @@ def dls_ik(
     Return:
         joint residual (A[..., dof])
     """
+    #concatenate pose errors if given as tuple
     if isinstance(dpose, tuple):
         dpose = np.concatenate([dpose[0], dpose[1]], axis=-1)
+    # formulate A, the task-space Hessian approximation 
     J = jac
     A = J @ J.T
-    # NOTE(ycho): add to view of diagonal
-    a = np.einsum('...ii->...i', A)
+    
+    # add the damping term to the diagonal of A
+    a = np.einsum('...ii->...i', A) # view of diagnoal entries
     a += sqlmda
+
+    # solve for the joint residual, using least squares
+    # J^T (JJ^T + lambda^2 *I)^{-1} dx, where dx is dpose
     dq = (J.T @ np.linalg.solve(A, dpose[..., None]))[..., 0]
     return dq
 
@@ -115,13 +122,13 @@ class IKCtrl:
 
         # source pose
         self.cfg.update(q0)
-        T0 = self.cfg.get_transform_frame_to_world(self.frame)
+        T0 = self.cfg.get_transform_frame_to_world(self.frame) #NOTE BK what is this? our welding points are already in world frame
 
         # target pose
-        dst_xyz = target_pose[..., 0:3]
+        dst_xyz = target_pose[..., 0:3] #welding point position and orientation
         dst_quat = pin.Quaternion(wxyz2xyzw(target_pose[..., 3:7]))
-        T1 = pin.SE3(dst_quat, dst_xyz)
-        if rel:
+        T1 = pin.SE3(dst_quat, dst_xyz) #whats this?
+        if rel: #what's rel? We set it to false
             TL = pin.SE3.Identity()
             TL.translation = dst_xyz
             TR = pin.SE3.Identity()
@@ -130,7 +137,7 @@ class IKCtrl:
 
         # jacobian
         self.task.set_target(T0)
-        jac = self.task.compute_jacobian(self.cfg)
+        jac = self.task.compute_jacobian(self.cfg) # what's the base frame of this Jacobian?
         jac = jac[:, self.pin_from_act]
 
         # error&ik
