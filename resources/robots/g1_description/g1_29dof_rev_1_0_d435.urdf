@@ -1216,6 +1216,7 @@
     <child link="right_wrist_yaw_link"/>
     <limit effort="5" velocity="22" lower="-1.614429558" upper="1.614429558"/>
   </joint>
+
   <link name="right_wrist_yaw_link">
     <inertial>
       <origin xyz="0.02200381568 -0.00049485096 0.00053861123" rpy="0 0 0"/>
@@ -1238,58 +1239,10 @@
       </geometry>
     </collision>
   </link>
-  <joint name="right_hand_palm_joint" type="fixed">
+    
+  <joint name="end_effector_joint" type="fixed">
     <origin xyz="0.0455 0.003 0" rpy="0 0 0"/>
     <parent link="right_wrist_yaw_link"/>
-    <child link="welder"/>
-  </joint>
-  <link name="welder">
-    <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="0.68"/>
-      <inertia ixx="0.00010099485234748" ixy="-0.00003618590790516" ixz="-0.00000074301518642" iyy="0.00028135871571621" iyz="-0.00000330189743286" izz="0.00021894770413514"/>
-    </inertial>
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="meshes/mount_v6.STL" scale="0.001 0.001 0.001"/>
-      </geometry>
-      <material name="white">
-        <color rgba="0.7 0.7 0.7 1"/>
-      </material>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="meshes/mount_v6.STL" scale="0.001 0.001 0.001"/>
-      </geometry>
-    </collision>
-  </link>
-  <!-- <link name="welder2">
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="meshes/welder_v2.STL" scale="0.001 0.001 0.001"/>
-      </geometry>
-      <material name="white">
-        <color rgba="0.7 0.7 0.7 1"/>
-      </material>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="meshes/welder_v2.STL" scale="0.001 0.001 0.001"/>
-      </geometry>
-    </collision>
-  </link>
-  <joint name="welder2_joint" type="fixed">
-    <origin xyz="0 0 0" rpy="0 0 0"/>
-    <parent link="welder"/>
-    <child link="welder2"/>
-  </joint> -->
-  <joint name="end_effector_joint" type="fixed">
-    <origin xyz="0.0 0 0.0" rpy="0 0 0"/>
-    <parent link="welder"/>
     <child link="end_effector"/>
   </joint>
   <link name="end_effector">
