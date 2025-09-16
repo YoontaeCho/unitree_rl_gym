@@ -24,6 +24,7 @@ from common.np_math import (index_map, with_dir)
 
 import math_utils
 axis_angle_from_quat = math_utils.as_np(math_utils.axis_angle_from_quat)
+quat_inv = math_utils.as_np(math_utils.quat_inv)
 import pink
 
 def index_map(k_to, k_from):
@@ -99,81 +100,80 @@ class PelvistoTrack(Node):
         self.pin_from_mot = index_map(
             pin_joint, motor_joint
         )
-        
-    def on_low_state(self,
-                     msg: LowStateHG):
+    def on_low_state(self, msg: LowStateHG):
         self.low_state = msg
+
+        # ZED localization: pose of base_link in world (i.e., world -> base_link)
         try:
-            map_from_world = self.tf_buffer.lookup_transform(
-                    'world', 
-                    'base_link',
-                    rclpy.time.Time(),
-                )
-                
+            world_to_base = self.tf_buffer.lookup_transform(
+                'world', 'base_link', rclpy.time.Time(),
+            )
         except Exception as ex:
-            print(f'Could not transform map to base_link as world to map is yet published: {ex}')
+            print(f'Could not get world->base_link: {ex}')
             return
+
+        # Build outgoing TF (world -> base_link_z_fk)
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
         t.header.frame_id = 'world'
         t.child_frame_id = 'base_link_z_fk'
-        # print("X : ", map_from_world.transform.translation.x)
-        # print("Y : ", map_from_world.transform.translation.y)
 
-        z_value, rot = self.lidar_height_rot(self.low_state)
-
+        # Height from FK/LiDAR routine (unchanged)
         try:
             to_zed_from_midsole = self.tf_buffer.lookup_transform(
-                    'fake_world', 
-                    'zed2i_base_link',
-                    rclpy.time.Time(),
-                )
-            z_value  = to_zed_from_midsole.transform.translation.z
-            print("MID SOLE FOUND")
+                'fake_world', 'zed2i_base_link', rclpy.time.Time(),
+            )
+            z_value = to_zed_from_midsole.transform.translation.z
         except:
+            ############## ONLY used on initialization ##############
             z_value, _ = self.lidar_height_rot(self.low_state)
-            
-        t.transform.translation.x = map_from_world.transform.translation.x
-        t.transform.translation.y = map_from_world.transform.translation.y
-        ####################### Use Height from FK #######################
-        t.transform.translation.z = z_value
 
-        if True:
-            ####################### Use rotation from zed #######################
-            t.transform.rotation.x = map_from_world.transform.rotation.x
-            t.transform.rotation.y = map_from_world.transform.rotation.y
-            t.transform.rotation.z = map_from_world.transform.rotation.z
-            t.transform.rotation.w = map_from_world.transform.rotation.w
-        elif False:
-            ####################### Use rotation from FK #######################
-            t.transform.rotation.x = float(rot[0])
-            t.transform.rotation.y = float(rot[1])
-            t.transform.rotation.z = float(rot[2])
-            t.transform.rotation.w = float(rot[3])
-        else:
-            ####################### Use Y from cam, RP from FK #######################
-            # Sit policy explodes!! NO use. just concept.
-            rpy_rot = R.from_quat(rot).as_euler("xyz")   # roll, pitch, yaw from FK
-            rpy_map = R.from_quat([
-                map_from_world.transform.rotation.x,
-                map_from_world.transform.rotation.y,
-                map_from_world.transform.rotation.z,
-                map_from_world.transform.rotation.w,
-            ]).as_euler("xyz")
-            combined_rpy = [rpy_rot[0],  # roll from rot
-                    rpy_rot[1],  # pitch from rot
-                    rpy_map[2]]  # yaw from map_from_world
-            combined_quat = R.from_euler("xyz", combined_rpy).as_quat()
+        # ---- Position: take X/Y from localization, Z from FK/LiDAR ----
+        t.transform.translation.x = float(world_to_base.transform.translation.x)
+        t.transform.translation.y = float(world_to_base.transform.translation.y)
+        t.transform.translation.z = float(z_value)
 
-            t.transform.rotation.x = float(combined_quat[0])
-            t.transform.rotation.y = float(combined_quat[1])
-            t.transform.rotation.z = float(combined_quat[2])
-            t.transform.rotation.w = float(combined_quat[3])
+        # ---- Orientation: RP from IMU, Y from localization ----
+        # IMU quaternion is (w,x,y,z)
+        imu_q_wxyz = np.asarray(self.low_state.imu_state.quaternion, dtype=np.float64)
+        q_wp_xyzw = np.roll(imu_q_wxyz, -1)  # (x,y,z,w) for scipy: R(world→pelvis)
+        R_wp = R.from_quat(q_wp_xyzw)
 
+        # 2) Extrinsic pelvis→zed2i_base_link from TF: lookup_transform('pelvis','zed2i_base_link') returns T_pelvis_zed
+        #    Its rotation maps vectors from zed frame to pelvis frame (R_pz).
+        pelvis_to_zed = self.tf_buffer.lookup_transform('pelvis', 'zed2i_base_link', rclpy.time.Time())
+        q_pz_xyzw = np.array([
+            pelvis_to_zed.transform.rotation.x,
+            pelvis_to_zed.transform.rotation.y,
+            pelvis_to_zed.transform.rotation.z,
+            pelvis_to_zed.transform.rotation.w,
+        ], dtype=np.float64)
+        R_pz = R.from_quat(q_pz_xyzw)
 
+        # 3) Chain to get world→zed: apply R_pz after R_wp (scipy: left-mult means apply right one first).
+        #    R_wz maps zed-frame vectors into world.
+        R_wz = R_wp * R_pz
 
+        # 4) Extract roll, pitch from world→zed
+        roll_zed, pitch_zed, _ = R_wz.as_euler('xyz', degrees=False)
+
+        # 5) Yaw from localization world→base_link
+        q_loc_xyzw = np.array([
+            world_to_base.transform.rotation.x,
+            world_to_base.transform.rotation.y,
+            world_to_base.transform.rotation.z,
+            world_to_base.transform.rotation.w,
+        ], dtype=np.float64)
+        yaw_loc = R.from_quat(q_loc_xyzw).as_euler('xyz', degrees=False)[2]
+
+        # 6) Compose final orientation: [RP from (world→zed), Y from localization]
+        q_comb_xyzw = R.from_euler('xyz', [roll_zed, pitch_zed, yaw_loc], degrees=False).as_quat()
+        t.transform.rotation.x = float(q_comb_xyzw[0])
+        t.transform.rotation.y = float(q_comb_xyzw[1])
+        t.transform.rotation.z = float(q_comb_xyzw[2])
+        t.transform.rotation.w = float(q_comb_xyzw[3])
+        
         self.tf_broadcaster.sendTransform(t)
-
         
     def lidar_height_rot(self, low_state: LowStateHG):
         robot = self.robot

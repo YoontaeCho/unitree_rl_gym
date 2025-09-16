@@ -51,6 +51,11 @@ class Config:
             else:
                 self.lab_joint_offsets=[]
 
+            if "lab_joint_offsets_sit" in config:
+                self.lab_joint_offsets_sit = config["lab_joint_offsets_sit"]
+            else:
+                self.lab_joint_offsets_sit = []
+
             self.locomotion_motor_joint_offsets = config.get("locomotion_motor_joint_offsets", None)
                 
             self.ang_vel_scale = config.get("ang_vel_scale", None)
@@ -96,3 +101,5 @@ class Config:
             self.slow_bound = config.get("slow_bound", 0.2)
 
             self.sit_kds = config.get("sit_kds", None)
+
+            self.sit_smoothing = config.get("sit_smoothing", 1)
