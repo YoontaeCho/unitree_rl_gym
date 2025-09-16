@@ -155,6 +155,25 @@ def index_map(k_to, k_from):
     """
     index_dict = {k: i for i, k in enumerate(k_to)}  # O(len(k_from))
     return [index_dict.get(k, -1) for k in k_from]  # O(len(k_to))
+    
+
+def interpolate_array_by_float_index(array, index):
+    # Get the lower and upper bounds
+    left_idx = int(np.floor(index))
+    right_idx = int(np.ceil(index))
+    
+    # Get the values at the left and right indices
+    left_value = array[left_idx]
+    right_value = array[right_idx]
+    
+    # Calculate the fractional distance between the left and right indices
+    fraction = index - left_idx
+    
+    # Linear interpolation formula
+    interpolated_value = left_value + (right_value - left_value) * fraction
+    
+    return interpolated_value
+
 
 from common.rotation_helper import get_gravity_orientation, transform_imu_data
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
@@ -179,6 +198,8 @@ class Controller:
         
         # num joints
         self.num_joints = len(self.config.motor_joint)
+
+        self.tasks = np.zeros((0,1))
         
         # log trajectory (1000Hz)
         self.timestamp_high_freq = np.array([])
@@ -198,6 +219,18 @@ class Controller:
         self.joint_pos_targets = np.zeros((0, self.num_joints))
 
         self.current_joint_pos = np.zeros(self.num_joints)
+        self.root_states_w = np.zeros((0, 7))
+
+        self.target_poses_w = np.zeros((0, 7))
+        self.target_poses_b = np.zeros((0, 7))
+        self.ee_poses_w = np.zeros((0, 7))
+        self.ee_poses_b = np.zeros((0, 7))
+
+        self.zed_pose_w = np.zeros(7)
+        self.zed_poses_w = np.zeros((0,7))
+
+        self.trajopt_target_joint_pos_traj = np.zeros((0,29))
+        self.trajopt_target_joint_pos = np.zeros(29)
 
         # counter
         self.counter = 0
@@ -780,9 +813,9 @@ class Controller:
         )
 
         xyz, quat_wxyz = world_from_pelvis
-        root_state_w = np.zeros(7)
-        root_state_w[0:3] = xyz
-        root_state_w[3:7] = quat_wxyz
+        self.root_state_w = np.zeros(7)
+        self.root_state_w[0:3] = xyz
+        self.root_state_w[3:7] = quat_wxyz
 
         # print()
         # print(f"Current pelvis height : {xyz[-1]}")
@@ -919,7 +952,7 @@ class Controller:
 
             # TODO We should have an assertion to prevent self.welding_points_from_vision being None
             self.eetrack_command = ue.eetrack(
-                th.from_numpy(root_state_w)[None],
+                th.from_numpy(self.root_state_w)[None],
                 self.tf_buffer,
                 clock, to_start=False, 
                 start_ee_pos=start_ee_pos,
@@ -1143,7 +1176,8 @@ class Controller:
                     qj[i_mot] = self.low_state.motor_state[i_mot].q
                 # Target joint pos
                 target_q = np.zeros(29)
-                target_q[self.mot_from_trajopt] = self.trajopt_joint_traj[self.trajopt_i//5]
+                self.trajopt_target_joint_pos = interpolate_array_by_float_index(self.trajopt_joint_traj, self.trajopt_i/5).copy()
+                target_q[self.mot_from_trajopt] = self.trajopt_target_joint_pos
                 res_q = target_q[-7:] - qj[-7:]
                 res_q = res_q.clip(-0.05, 0.05)
                 self.trajopt_i += 1
@@ -1162,7 +1196,7 @@ class Controller:
                                     self.lim_hi_pin[i_pin])
                     target_dof_pos[i_mot] = target_q_i
                     target_tau[i_mot] = arm_nle[i_act]
-                if self.trajopt_i == (10*(len(self.trajopt_joint_traj)-1)):
+                if self.trajopt_i == (5*(len(self.trajopt_joint_traj)-1)):
                     self._node.get_logger().info("Reached end of TrajOpt trajectory.")
             
         
@@ -1192,7 +1226,7 @@ class Controller:
                 # self.is_go_start = False
 
             _ = self.eetrack_command.get_command(
-                th.from_numpy(root_state_w)[None]
+                th.from_numpy(self.root_state_w)[None]
                 )[0].detach().cpu().numpy()
             
             self.target_pose_w = np.copy(
@@ -1311,13 +1345,30 @@ class Controller:
         # log timestamp
         timestamp_low_freq = clock.get_time().nanoseconds / 1e9
         self.timestamp_low_freq = np.append(self.timestamp_low_freq, timestamp_low_freq)
+
+        self.tasks = np.vstack((self.tasks, self.task))
         
         # self.locomotion_observations = np.vstack((self.locomotion_observations, self.obs))
         # self.locomotion_actions = np.vstack((self.locomotion_actions, self.locomotion_action))
         # self.locomotion_vel_traj = np.vstack((self.locomotion_vel_traj, self.locomotion_vel_command))
+        self.root_states_w = np.vstack((self.root_states_w, self.root_state_w))
 
         if self.task == "sit":
             self.sit_observations = np.vstack((self.sit_observations, self.obs))
+        elif self.task == "vision":
+            self.zed_poses_w = np.vstack((self.zed_poses_w, self.zed_pose_w))
+        elif self.task =="trajopt":
+            if self.trajopt_joint_traj is None:
+                self.trajopt_target_joint_pos_traj = np.vstack((self.trajopt_target_joint_pos_traj, np.zeros_like(self.trajopt_target_joint_pos)))
+            else:
+                self.trajopt_target_joint_pos_traj = np.vstack((self.trajopt_target_joint_pos_traj, self.trajopt_target_joint_pos))
+        elif self.task == "eetrack":
+            self.target_poses_w = np.vstack((self.target_poses_w, self.target_pose_w))
+            self.target_poses_b = np.vstack((self.target_poses_b, self.target_pose_b))
+            ee_pos_w, ee_quat_w = body_pose(self.tf_buffer, "end_effector", "world", rot_type="quat")
+            self.ee_poses_w = np.vstack((self.ee_poses_w, np.concatenate((ee_pos_w, ee_quat_w))))
+            ee_pos_b, ee_quat_b = body_pose(self.tf_buffer, "end_effector", "pelvis", rot_type="quat")
+            self.ee_poses_b = np.vstack((self.ee_poses_b, np.concatenate((ee_pos_b, ee_quat_b))))
 
         
              
@@ -1348,8 +1399,14 @@ class Controller:
             "tau_traj": self.tau_traj,
             "timestamp_low_freq": self.timestamp_low_freq,
             "sit_observations": self.sit_observations,
-            # "pelvis_states" : self.pelvis_states,
-            "trajopt_joint_traj": self.trajopt_joint_traj,
+            "tasks": self.tasks,
+            "root_states_w" : self.root_states_w,
+            "zed_poses_w": self.zed_poses_w,
+            "target_poses_w": self.target_poses_w,
+            "target_poses_b": self.target_poses_b,
+            "ee_poses_w": self.ee_poses_w,
+            "ee_poses_b": self.ee_poses_b,
+            "target_trajopt_joint_pos": self.trajopt_target_joint_pos_traj,
         }
         log_data = {
             "metrics": metrics,

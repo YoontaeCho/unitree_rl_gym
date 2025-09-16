@@ -147,7 +147,6 @@ class Range:
 
 class eetrack:
     def __init__(self, root_state_w, tf_buffer, clock, to_start=False, start_ee_pos=None, start_ee_quat=None, welding_points_from_vision=None):
-    def __init__(self, root_state_w, tf_buffer, clock, to_start=False, start_ee_pos=None, start_ee_quat=None, welding_points_from_vision=None):
         self.clock = clock
         self.tf_buffer = tf_buffer
         
