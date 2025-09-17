@@ -1031,9 +1031,6 @@
       </geometry>
     </collision>
   </link>
-
-
-
   
   <link name="right_shoulder_pitch_link">
     <inertial>
@@ -1242,7 +1239,7 @@
     
   <joint name="end_effector_joint" type="fixed">
     <origin xyz="0.0455 0.003 0" rpy="0 0 0"/>
-    <parent link="right_wrist_yaw_link"/>
+    <parent link="left_wrist_yaw_link"/>
     <child link="end_effector"/>
   </joint>
   <link name="end_effector">

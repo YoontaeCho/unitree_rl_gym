@@ -26,8 +26,8 @@ class FakeWorldPublisher(Node):
         super().__init__('fake_world_publisher')
 
         #urdf_path = '../../resources/robots/g1_description/g1_29dof_rev_1_0_ver4.urdf'
-        urdf_path = '../../resources/robots/g1_description/g1_29dof_rev_1_0_d435_with_welder_v2.urdf'
-        #urdf_path = '../../resources/robots/g1_description/g1_29dof_rev_1_0_tag_calibrated_camera_pose_fix_welder.urdf'
+        urdf_path = '../../resources/robots/g1_description/g1_29dof_rev_1_0_d435.urdf'
+        #urdf_path = '../../resources/robots/g1_description/g1_29dof_rev_1_0_zed2i_with_welder_v3.urdf'
         path = Path(urdf_path)
         with with_dir(path.parent):
             robot = pin.RobotWrapper.BuildFromURDF(filename=path.name,
