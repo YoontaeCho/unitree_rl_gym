@@ -1,0 +1,16 @@
+/apriltag:
+  ros__parameters:
+    blur: 0.0
+    debug: 0
+    decimate: 1.0
+    family: 36h11
+    image_transport: raw
+    max_hamming: 2
+    refine-edges: 1
+    size: 0.14
+    tag_frames: []
+    tag_ids: []
+    tag_sizes: []
+    threads: 4
+    use_sim_time: false
+    z_up: false

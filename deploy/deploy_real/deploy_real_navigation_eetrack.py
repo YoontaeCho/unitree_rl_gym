@@ -252,7 +252,7 @@ class Controller:
 
 
         ########################## Sit ##########################
-        self.sit_obsmap = us.SitObservation(config, self.tf_buffer)
+        self.sit_obsmap = us.SitObservation_v2(config, self.tf_buffer)
         self.sit_robot = self.locomotion_robot
         self.sit_actmap = us.SitActionVer2(config, self.sit_robot)
         self.vhcommand = us.VelocityHeightCommand(config)
@@ -349,6 +349,15 @@ class Controller:
         self.dqj = np.zeros(self.config.num_actions, dtype=np.float32)
 
         ######################### eetrack #########################
+        self.tags_on_welder = ["tag_10", "tag_11", "tag_12"]
+        self.zed_optical_frame = "zed2i_left_camera_optical_frame"
+        self.tag_poses_on_optical_frame = []
+        self.tag_calibration_interp_time = 0
+        self.tag_detected = False
+        self.tag_detection = False
+        self.last_ee_start_w = None
+        self.last_ee_end_w = None
+
         self.eetrack_command = None
         self.is_eetrack_first_iter = True
         self.is_go_start = False
@@ -473,7 +482,7 @@ class Controller:
         # Get the camera to world frame
         while True:
             try:
-                t, q = body_pose(self.tf_buffer, "zed2i_left_camera_optical_frame", "world", rot_type="quat")
+                t, q = body_pose(self.tf_buffer, self.zed_optical_frame, "world", rot_type="quat")
                 break
             except Exception as ex:
                 print(ex)
@@ -484,7 +493,7 @@ class Controller:
         # Get the camera to world frame
         while True:
             try:
-                t, q = body_pose(self.tf_buffer, "zed2i_left_camera_optical_frame", "pelvis", rot_type="quat")
+                t, q = body_pose(self.tf_buffer, self.zed_optical_frame, "pelvis", rot_type="quat")
                 break
             except Exception as ex:
                 print(ex)
@@ -513,6 +522,8 @@ class Controller:
         self.zed_pose_w = np.concatenate([t, q])
         pts_world = self.apply_transform_to_points(pts_zed, t, q)
 
+        self.pts_zed_cam_frame = pts_zed
+
 
         ### DEBUGGING ###
         t2,q2 = self.get_zed_pose_wrt_pelvis()
@@ -526,6 +537,7 @@ class Controller:
         # Disable after recieve
         self.start_eetrack_vision_callback = False
     
+
 
     def LowStateHgHandler(self, msg: LowStateHG):
         self.low_state = msg
@@ -643,6 +655,51 @@ class Controller:
             print("Terminated by pelvis condition.")
             print(f"euler: {euler}")
         return out_of_limit.item()
+    
+    def get_hand_pose_from_qr_tag(self):
+        # tag 10 from optical frame
+        tag_name = "tag_10"
+        tag_pos_from_opt_frame, tag_quat_from_opt_frame = body_pose(
+            self.tf_buffer,
+            tag_name + "_from_opt_frame",
+            self.zed_optical_frame,
+            rot_type="quat"
+        )
+        # end effector from tag 10
+        ee_pos_from_fk_tag, ee_quat_from_tag = body_pose(
+            self.tf_buffer,
+            "end_effector",
+            "tag_10",
+            rot_type="quat"
+        )
+
+        ee_pos_from_opt, ee_quat_from_opt = combine_frame_transforms(
+            tag_pos_from_opt_frame, tag_quat_from_opt_frame,
+            ee_pos_from_fk_tag, ee_quat_from_tag,
+        )
+
+        return (ee_pos_from_opt, ee_quat_from_opt)
+        
+    def get_delta_xyz_from_world_frame(self, ee_pos_from_opt):
+        delta_pos_from_opt = self.pts_zed_cam_frame[0] - ee_pos_from_opt
+
+# Could not transform tag_10_from_opt_frame to 
+# zed2i_left_camera_optical_frame: "tag_10_from_opt_frame"
+# passed to lookupTransform argument source_frame does not exist. 
+
+        opt_pos_w, opt_quat_w = body_pose(
+            self.tf_buffer,
+            self.zed_optical_frame,
+            "world",
+            rot_type="quat"
+        )
+        delta_pos_from_world = quat_apply(opt_quat_w, delta_pos_from_opt)
+
+        self.tag_detected = True
+
+        return delta_pos_from_world
+
+        
     
     def run_policy(self):
         ############################# MAIN LOOP #############################
@@ -764,6 +821,7 @@ class Controller:
         if self.remote_controller.button[KeyMap.R1] == 1:
             print("============== Trajopt mode activated ==============")
             self.task = "trajopt"
+
         if self.remote_controller.button[KeyMap.F1] == 1:
             print("============== eetrack mode activated ==============")
             self.task = "eetrack"
@@ -993,19 +1051,43 @@ class Controller:
         
         ################################# EETrack #################################
         elif self.task == "eetrack":
-
             if self.is_eetrack_first_iter:
                 print("\n[EETrack] EETrack has began.")
                 self.is_eetrack_first_iter = False
                 self.eetrack_initial_counter = self.counter
 
-            # if self.eetrack_command is None:
-            #     self.eetrack_command = ue.eetrack(
-            #         th.from_numpy(root_state_w)[None],
-            #         self.tf_buffer,
-            #         clock, to_start=False)
+            # Compute ee_pose from opt frame, based on QR tag detection
+            if self.remote_controller.button[KeyMap.R2] == 1:
+                self.tag_detection = True
 
-            # Keymap press -> changes is_initial_goal == False
+            if not self.tag_detected and self.tag_detection:
+                print("Tag Detection activated !!!")
+                try:
+                    ee_pos_from_opt_frame, ee_quat_from_opt_frame = self.get_hand_pose_from_qr_tag()
+                except Exception as e:
+                    print(f"No tag in sight error : {e}")
+                try:
+                    self.delta_pos_w = self.get_delta_xyz_from_world_frame(ee_pos_from_opt_frame)
+                except Exception as e:
+                    print(f"Pose transform error : {e}")
+            
+            if self.tag_detected and self.tag_detection:
+                self.tag_calibration_interp_time += 1
+                interp_time = 400 # 8s
+
+                if self.last_ee_start_w is None:
+                    self.last_ee_start_w = self.eetrack_command.eetrack_start_w.copy()
+                    self.last_ee_end_w = self.eetrack_command.eetrack_end_w.copy()
+                
+                if self.tag_calibration_interp_time <= interp_time:
+                    alpha = self.tag_calibration_interp_time / interp_time
+                    print(f"Delta XYZ to move on world frame: {self.delta_pos_w}")
+                    print(f"Calibration progress : {alpha * 100} %")
+                    self.eetrack_command.eetrack_start_w = alpha * self.delta_pos_w + self.last_ee_start_w
+                    self.eetrack_command.eetrack_end_w = alpha * self.delta_pos_w + self.last_ee_end_w
+                    self.eetrack_command.create_eetrack()
+                    self.eetrack_command.eetrack_subgoal = self.eetrack_command.create_subgoal()
+            
             commanded_to_go_to_first_welding_ee_pose = self.remote_controller.button[KeyMap.start] == 1
             if commanded_to_go_to_first_welding_ee_pose:
                 print("\n[EETrack] To welding line start Sampling has begun.")
@@ -1015,7 +1097,7 @@ class Controller:
                 # Welding pose
                 self.eetrack_command.eetrack_start_w += 0.001*matrix_from_quat(yaw_quat(self.eetrack_command.eetrack_start_quat_w))[:3,0]
                 self.eetrack_command.eetrack_end_w += 0.001*matrix_from_quat(yaw_quat(self.eetrack_command.eetrack_end_quat_w))[:3,0]
-                self.eetrack_command.create_eetrack()
+                self.eetrack_command.create_eetee_pos_from_opt_framerack()
                 self.eetrack_command.eetrack_subgoal = self.eetrack_command.create_subgoal()
                 print("Increase x")
             if self.remote_controller.button[KeyMap.down] == 1:
@@ -1053,13 +1135,15 @@ class Controller:
                 self.eetrack_command.create_eetrack()
                 self.eetrack_command.eetrack_subgoal = self.eetrack_command.create_subgoal()
                 print("Decrease z")
-            print(f"dx: {self.weld_dx}, dy: {self.weld_dy}, dz: {self.weld_dz}")
+            # print(f"dx: {self.weld_dx}, dy: {self.weld_dy}, dz: {self.weld_dz}")
 
             if self.remote_controller.button[KeyMap.F2] == 1: # F2 is F3 button in controller
                 print("\n[EETrack] Subgoal Sampling has begun.")
                 self.eetrack_command.is_initial_eetrack = False
                 # self.is_go_start = False
 
+            # updates and gets the next command
+            
             _ = self.eetrack_command.get_command(
                 th.from_numpy(self.root_state_w)[None]
                 )[0].detach().cpu().numpy()
@@ -1069,13 +1153,14 @@ class Controller:
                 self.eetrack_command.lerp_command_b_left_quat.squeeze().detach().cpu().numpy(),
             ])
 
-            print("Commanding the robot hand pose in pelvis" + str(self.target_pose_b))
+            # print("Commanding the robot hand pose in pelvis" + str(self.target_pose_b))
 
-            # rviz visulaization purpose
+            ########### rviz visulaization purpose
             self.target_pose_w = np.copy(
                 self.eetrack_command.next_command_s_left.squeeze().detach().cpu().numpy()
             )
-            self.publish_hand_target() 
+            self.publish_hand_target()
+            ############################3 
 
             if not self.is_go_start:
                 # Get current joint positions
@@ -1093,59 +1178,21 @@ class Controller:
                 res_q = 2*res_q
 
                 target_dof_pos = self.sit_target_dof_pos.copy()
-                if True:
-                    for i_act in range(len(res_q)):
-                        i_mot = self.mot_from_act[i_act]
-                        i_pin = self.pin_from_mot[i_mot]
-                        target_q_i = (
-                                self.low_state.motor_state[i_mot].q + res_q[i_act]
-                        )
-                        target_q_i = np.clip(target_q_i,
-                                        self.lim_lo_pin[i_pin],
-                                        self.lim_hi_pin[i_pin])
-                        target_dof_pos[i_mot] = target_q_i
-                        target_tau[i_mot] = arm_nle[i_act]
-            # else:
-            #     if self.eetrack_command.to_start:
-            #         qj = np.zeros(29, dtype=np.float32)
-            #         for i_mot in range(len(self.config.motor_joint)):
-            #             qj[i_mot] = self.low_state.motor_state[i_mot].q
-            #         target_dof_pos = self.sit_target_dof_pos.copy()
-            #         target_dof_pos[-7:] = qj[-7:] + (self.last_sit_dof_pos[-7:] - qj[-7:]).clip(-0.01,0.01)
-            #     else:
-            #         if self.trajopt_joint_traj is None:
-            #             trajopt_init_dof_pos = self.prev_target_dof_pos[-7:]
-            #         else:
-            #             trajopt_init_dof_pos = np.array(self.trajopt_joint_traj.points[0].positions)
-            #         qj = np.zeros(29, dtype=np.float32)
-            #         for i_mot in range(len(self.config.motor_joint)):
-            #             qj[i_mot] = self.low_state.motor_state[i_mot].q
-            #         target_dof_pos = self.sit_target_dof_pos.copy()
-            #         target_dof_pos[-7:] = qj[-7:] + (trajopt_init_dof_pos - qj[-7:]).clip(-0.01,0.01)
 
-            #         joint_pos_diff = np.linalg.norm(trajopt_init_dof_pos - qj[-7:])
-            #         print("Joint pos diff: ", joint_pos_diff)
-            #         if joint_pos_diff < 0.005:
-            #             self.is_go_start = False
-            #             print("is_go_start disabled!!!")
-                
+                for i_act in range(len(res_q)):
+                    i_mot = self.mot_from_act[i_act]
+                    i_pin = self.pin_from_mot[i_mot]
+                    target_q_i = (
+                            self.low_state.motor_state[i_mot].q + res_q[i_act]
+                    )
+                    target_q_i = np.clip(target_q_i,
+                                    self.lim_lo_pin[i_pin],
+                                    self.lim_hi_pin[i_pin])
+                    target_dof_pos[i_mot] = target_q_i
+                    target_tau[i_mot] = arm_nle[i_act]
+                        
         kps = np.array(self.config.kps).astype(np.float32).copy()
         kds = np.array(self.config.kds).astype(np.float32).copy()
-
-        if False:
-            ########################## Prevent abrupt motion when transition from loco -> sit ##########################
-            self.task_counter += 1
-            if self.prev_task != self.task:
-                self.task_counter = 0
-            self.prev_task = self.task
-            
-            if self.task_counter < 100 and self.task == "sit":
-                print("transition smoothing applied")
-                if self.config.later_smoothing:
-                    if self.prev_joint_pos_target is not None:
-                            target_dof_pos = 0.2 * target_dof_pos + \
-                                            0.8 * self.prev_joint_pos_target
-                    self.prev_joint_pos_target = target_dof_pos
 
         if self.task == "eetrack":
             kps[-7:] = self.config.eetrack_right_arm_kps
@@ -1154,6 +1201,11 @@ class Controller:
 
         elif self.task == "sit":
             # print(kds)
+            if self.prev_joint_pos_target is not None:
+                target_dof_pos = self.config.sit_later_smoothing * target_dof_pos + \
+                                (1-self.config.sit_later_smoothing) * self.prev_joint_pos_target
+                self.prev_joint_pos_target = target_dof_pos
+
             kds = np.array(self.config.sit_kds).astype(np.float32).copy()
 
         for mot_idx in range(self.num_joints):
@@ -1163,11 +1215,8 @@ class Controller:
             self.low_cmd.motor_cmd[mot_idx].kd = self.config.kpkd_smoothing * float(kds[mot_idx])
             self.low_cmd.motor_cmd[mot_idx].tau = float(target_tau[mot_idx])
         
-        # observation dumping
         self.dump_observations_and_joint_pos_target(target_dof_pos)
-
          
-        # send the command
         self.send_cmd(self.low_cmd)
 
     def dump_observations_and_joint_pos_target(self, target_dof_pos):

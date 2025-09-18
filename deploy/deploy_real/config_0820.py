@@ -97,3 +97,5 @@ class Config:
             self.slow_bound = config.get("slow_bound", 0.2)
 
             self.sit_kds = config.get("sit_kds", None)
+
+            self.lab_joint_offsets_sit = config.get("lab_joint_offsets_sit", [])

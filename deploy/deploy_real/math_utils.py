@@ -184,6 +184,107 @@ def copysign(mag: float, other: torch.Tensor) -> torch.Tensor:
     return torch.abs(mag_torch) * torch.sign(other)
 
 
+from scipy.spatial.transform import Rotation as R
+
+def pose_to_matrix(pose):
+    """
+    Convert pose [x, y, z, qw, qx, qy, qz] to 4x4 homogeneous matrix.
+    
+    Parameters
+    ----------
+    pose : array-like, shape (7,)
+        [x, y, z, qw, qx, qy, qz]
+    
+    Returns
+    -------
+    T : np.ndarray, shape (4,4)
+        Homogeneous transformation matrix
+    """
+    x, y, z, qw, qx, qy, qz = pose
+    
+    # Reorder to scipy's [x, y, z, w]
+    quat = [qx, qy, qz, qw]
+    R_mat = R.from_quat(quat).as_matrix()
+
+    # Build homogeneous matrix
+    T = np.eye(4)
+    T[:3, :3] = R_mat
+    T[:3, 3] = [x, y, z]
+    
+    return T
+
+
+def invert_transform(T):
+    """
+    Invert a 4x4 homogeneous transformation matrix.
+
+    Parameters
+    ----------
+    T : np.ndarray, shape (4,4)
+        Homogeneous transformation matrix
+
+    Returns
+    -------
+    T_inv : np.ndarray, shape (4,4)
+        Inverse of T
+    """
+    R = T[:3, :3]
+    t = T[:3, 3]
+
+    T_inv = np.eye(4)
+    T_inv[:3, :3] = R.T
+    T_inv[:3, 3] = -R.T @ t
+    return T_inv
+
+
+import numpy as np
+
+def quat_normalize(q):
+    """Normalize quaternion(s). q shape (...,4) with (w,x,y,z)."""
+    return q / np.linalg.norm(q, axis=-1, keepdims=True)
+
+def mean_quaternion(quats, weights=None):
+    """
+    Compute the mean quaternion using chordal L2 averaging.
+    quats: (N,4) array of quaternions (w,x,y,z), assumed normalized
+    weights: (N,) or None
+    Returns: (4,) mean quaternion (normalized)
+    """
+    quats = quat_normalize(quats)
+    N = quats.shape[0]
+    if weights is None:
+        weights = np.ones(N)
+    weights = weights / np.sum(weights)
+
+    # Align signs to avoid cancellation
+    ref = quats[0]
+    dots = np.sum(quats * ref, axis=-1)
+    quats[dots < 0] *= -1
+
+    # Weighted average
+    q_mean = np.sum(quats * weights[:, None], axis=0)
+    return quat_normalize(q_mean)
+
+def mean_relative_pose(p_list, q_list, weights=None):
+    """
+    Average translations and quaternions.
+    p_list: (N,3) translations
+    q_list: (N,4) quaternions (w,x,y,z)
+    weights: (N,) or None
+    Returns: (p_mean, q_mean)
+    """
+    p_list = np.array(p_list)
+    q_list = np.array(q_list)
+
+    if weights is None:
+        weights = np.ones(len(p_list))
+    weights = weights / np.sum(weights)
+
+    p_mean = np.sum(p_list * weights[:, None], axis=0)
+    q_mean = mean_quaternion(q_list, weights)
+
+    return p_mean, q_mean
+
 """
 Rotation
 """

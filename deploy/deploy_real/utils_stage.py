@@ -369,7 +369,35 @@ class SitObservation(EETrackObservation):
         self.prev_pelvis_height = pelvis_height
         return np.concatenate(obs, axis=-1)
     
-    
+class SitObservation_v2(SitObservation):
+    def __call__(self,
+                 low_state: LowStateHG,
+                 height_command: np.ndarray,
+                 xyz
+                 ):
+        base_ang_vel = self._base_ang_vel(low_state)
+        # NOTE(ycho): requires running `fake_world_tf_pub.py`.
+        projected_gravity = self._projected_gravity_from_lowstate(low_state)
+        foot_pose = self._foot_pose()
+        hand_pose = self._hand_pose()
+        joint_pos, joint_vel = self._joint_pos_vel(low_state, self.config.lab_joint_offsets_sit)
+        pelvis_height = self._pelvis_height(xyz)
+        prev_pelvis_height = self._pelvis_height_prev(xyz)
+
+        obs = [
+            base_ang_vel,       # 3 
+            projected_gravity,  # 3 6
+            foot_pose,          # 12 18
+            hand_pose,          # 12 30
+            joint_pos,          # 29 59
+            joint_vel,          # 29 88
+            height_command,     # 2 90
+            pelvis_height,      # 1 91
+            prev_pelvis_height  # 1 92
+        ]
+
+        self.prev_pelvis_height = pelvis_height
+        return np.concatenate(obs, axis=-1) 
     
 from utils_robot import Robot
 

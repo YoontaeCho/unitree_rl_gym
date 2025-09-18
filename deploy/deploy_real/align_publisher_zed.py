@@ -158,13 +158,13 @@ class NavAlignPublisher(Node):
     def __init__(self):
         super().__init__('gtworld_publisher')
         self.camera_frame = ''
-        self.tags = ["tag_0", "tag_1", "tag_2", "tag_3"]
+        self.tags = ["tag_0", "tag_1", "tag_2", "tag_3", "tag_10", "tag_11", "tag_12"]
         self.mid_point = "tag_mid"
-        self.world_frame = "fake_world"
+        self.world_frame = "world"
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
-        self.w2t = [None, None, None, None]
-        self.l2t = [None, None, None, None]
+        self.w2t = [None] * len(self.tags)
+        self.l2t = [None] * len(self.tags)
         self.w2target = None
         self.w2n = None
         self.tf_broadcaster_w2m = StaticTransformBroadcaster(self)
@@ -185,7 +185,7 @@ class NavAlignPublisher(Node):
                         )
                     
                         world_to_cam = self.tf_buffer.lookup_transform(
-                            "fake_world",
+                            "world",
                             "zed2i_left_camera_optical_frame",
                             rclpy.time.Time()
                         )
@@ -221,9 +221,9 @@ class NavAlignPublisher(Node):
                         w2c_mat = tf_to_mat(world_to_cam)
                         c2t_mat = tf_to_mat(cam_to_tag)
                         w2t_mat = w2c_mat @ c2t_mat
-                        adjusted_tf = mat_to_tf(w2t_mat, self.world_frame, f"tag_adjusted_{i}")
+                        adjusted_tf = mat_to_tf(w2t_mat, "world", f"tag_adjusted_{i}")
 
-                        # self.tf_broadcaster.publish(adjusted_tf)
+                        self.tf_broadcaster.publish(adjusted_tf)
                         self.w2t[i] = adjusted_tf
                         # Optionally, store or use w2t_mat as needed                
                 else:
