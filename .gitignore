@@ -173,3 +173,4 @@ deploy_log/
 *.pt
 *.gv
 *.db3
+*.swp

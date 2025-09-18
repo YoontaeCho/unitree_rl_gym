@@ -9,7 +9,7 @@ def generate_launch_description():
 
     use_sim_time = LaunchConfiguration('use_sim_time', default='false')
 
-    urdf = '../../resources/robots/g1_description/g1_29dof_rev_1_0_ver4_camera_mount_v4.urdf'
+    urdf = '../../resources/robots/g1_description/g1_29dof_rev_1_0_zed2i_with_welder_v3.urdf'
     with open(urdf, 'r') as infp:
         robot_desc = infp.read()
 

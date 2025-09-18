@@ -5,16 +5,11 @@ import math_utils
 from pathlib import Path
 from typing import Union, Literal
 from legged_gym import LEGGED_GYM_ROOT_DIR
-from scipy.spatial.transform import Rotation as R
 
 import rclpy as rp
 from unitree_hg.msg import LowCmd as LowCmdHG, LowState as LowStateHG
 from unitree_go.msg import LowCmd as LowCmdGo, LowState as LowStateGo
 from rclpy.duration import Duration
-
-from rclpy.action import ActionClient
-from action_msgs.msg import GoalStatus
-from pyroki_ros.action import TrajOptSingleEE
 
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
@@ -26,15 +21,14 @@ from config_0820 import Config
 from common.crc import CRC
 from enum import Enum
 from ikctrl import IKCtrl
-from std_msgs.msg import Bool
+from std_msgs.msg import Empty
 
 import utils_robot as ur
 import utils_locomotion as ul
 import utils_stage as us
 import utils_eetrack_tag as ue
-from scipy.spatial.transform import Rotation as R
 
-from std_msgs.msg import Float64MultiArray
+from std_msgs.msg import MultiArrayLayout
 
 class Mode(Enum):
     wait = 0
@@ -155,25 +149,6 @@ def index_map(k_to, k_from):
     """
     index_dict = {k: i for i, k in enumerate(k_to)}  # O(len(k_from))
     return [index_dict.get(k, -1) for k in k_from]  # O(len(k_to))
-    
-
-def interpolate_array_by_float_index(array, index):
-    # Get the lower and upper bounds
-    left_idx = int(np.floor(index))
-    right_idx = int(np.ceil(index))
-    
-    # Get the values at the left and right indices
-    left_value = array[left_idx]
-    right_value = array[right_idx]
-    
-    # Calculate the fractional distance between the left and right indices
-    fraction = index - left_idx
-    
-    # Linear interpolation formula
-    interpolated_value = left_value + (right_value - left_value) * fraction
-    
-    return interpolated_value
-
 
 from common.rotation_helper import get_gravity_orientation, transform_imu_data
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
@@ -198,8 +173,6 @@ class Controller:
         
         # num joints
         self.num_joints = len(self.config.motor_joint)
-
-        self.tasks = np.zeros((0,1))
         
         # log trajectory (1000Hz)
         self.timestamp_high_freq = np.array([])
@@ -219,20 +192,6 @@ class Controller:
         self.joint_pos_targets = np.zeros((0, self.num_joints))
 
         self.current_joint_pos = np.zeros(self.num_joints)
-        self.root_states_w = np.zeros((0, 7))
-
-        self.target_dof_poss = np.zeros((0,self.num_joints))
-
-        self.target_poses_w = np.zeros((0, 7))
-        self.target_poses_b = np.zeros((0, 7))
-        self.ee_poses_w = np.zeros((0, 7))
-        self.ee_poses_b = np.zeros((0, 7))
-
-        self.zed_pose_w = np.zeros(7)
-        self.zed_poses_w = np.zeros((0,7))
-
-        self.trajopt_target_joint_pos_traj = np.zeros((0,29))
-        self.trajopt_target_joint_pos = np.zeros(29)
 
         # counter
         self.counter = 0
@@ -277,21 +236,14 @@ class Controller:
 
 
         ########################## Sit ##########################
-        if False:
-            self.sit_obsmap = us.SitObservation(config, self.tf_buffer)
-        else:
-            self.sit_obsmap = us.SitObservation_v2(config, self.tf_buffer)
-            
+        self.sit_obsmap = us.SitObservation(config, self.tf_buffer)
         self.sit_robot = self.locomotion_robot
         self.sit_actmap = us.SitActionVer2(config, self.sit_robot)
         self.vhcommand = us.VelocityHeightCommand(config)
         self.sit_policy = th.jit.load(config.sit_policy_path) # FIXME sit_policy_path
         self.sit_policy.eval()
 
-        self.sit_observations = np.zeros((1,92))
-
         ########################## Navigation ##########################
-        # NOTE (bk) is this where we set the position target for the navigation?
         self.navigation_pos_target = np.array([1.0, 0.0, 0.0])
         self.navigation_heading_target = 0.0 # radians
         self.pos_error_bs = np.zeros((1,1))
@@ -332,23 +284,19 @@ class Controller:
         self.prev_locomotion_vel_command = np.zeros(3)
 
 
+        self.image_capture_publisher = self._node.create_publisher(Empty, '/capture_trigger', 10)
         self.bending_counter = 0
 
-        # Publisher for /vision/eetrack
-        self.eetrack_vision_trigger_publisher = self._node.create_publisher(
-            Bool,
-            'eetrack_vision/trigger_vision_pipeline',
-            10,
-        )
         # Subscribe to /eetrack_vision topic (MultiArrayLayout)
-        self.start_eetrack_vision_callback = False
         self.eetrack_vision_subscriber = self._node.create_subscription(
-            Float64MultiArray,
-            'eetrack_vision/weldpoints',
+            MultiArrayLayout,
+            '/eetrack_vision/weldpoints',
             self.eetrack_vision_callback,
             10
         )
-        self.welding_points_from_vision = None
+        self.eetrack_vision_points = None
+
+
 
         self.bending_offset = 0.
         self.bending_target_dof = None
@@ -362,7 +310,6 @@ class Controller:
         self.NAV_HZ = 5
         self.ERROR_THRESHOLD = 0.04  # m
         self.NUM_AVG = 30
-
         ########################## Navigation ##########################
 
         self.target_vec_b_log = np.zeros((0, 4))
@@ -378,8 +325,6 @@ class Controller:
         self.qj = np.zeros(self.config.num_actions, dtype=np.float32)
         self.dqj = np.zeros(self.config.num_actions, dtype=np.float32)
 
-        self.zed_optical_frame = "zed2i_left_camera_optical_frame"
-
         ######################### eetrack #########################
         self.eetrack_command = None
         self.is_eetrack_first_iter = True
@@ -391,21 +336,8 @@ class Controller:
         self.weld_dpitch = 0.0
         self.weld_dyaw = 0.0
 
-        self.trajopt_i = 0
-        self.trajopt_joint_traj = None
-        self.mot_from_trajopt = None
-        self._goal_handle = None
-        self.execute_trajopt_joint_traj = False
-        self._action_client = ActionClient(
-            self._node,
-            TrajOptSingleEE,
-            'trajopt_single_ee',
-        )
-        self._node.get_logger().info("Waiting for trajopt action server...")
-        self._action_client.wait_for_server()
-
         self.act_joint = config.ik_joint
-        self.ikctrl = IKCtrl('../../resources/robots/g1_description/g1_29dof_rev_1_0_zed2i_with_welder_v3.urdf',
+        self.ikctrl = IKCtrl('../../resources/robots/g1_description/g1_29dof_rev_1_0_ver4_camera_mount_v4.urdf',
                              self.act_joint,
                              frame='end_effector')
         self.lim_lo_pin = self.ikctrl.robot.model.lowerPositionLimit
@@ -461,9 +393,6 @@ class Controller:
         self.mode = Mode.wait
         self.task : Literal["locomotion", "navigation", "sit", "eetrack"] = "locomotion"
         # self.task : Literal["locomotion", "navigation", "sit", "eetrack"] = "sit"
-        self.prev_task = self.task
-        self.task_counter = 0
-
         self.zero_phase = False
 
         self.sitting = False
@@ -472,8 +401,6 @@ class Controller:
 
         # calls run_wrapper every self.config.control_dt seconds
         self._timer = self._node.create_timer(self.config.control_dt, self.run_wrapper)
-        self.welding_object_pose_w = None
-        self._tf_timer = self._node.create_timer(0.01, self.publish_welding_object_pose_callback)
         self.stop_time = None
         try:
             rp.spin(self._node)
@@ -488,122 +415,11 @@ class Controller:
             rp.shutdown()
             print("Exit")
 
-
-    def trigger_vision_pipeline(self):
-        msg = Bool()
-        msg.data = True
-        self.eetrack_vision_trigger_publisher.publish(msg)
-        self.start_eetrack_vision_callback = True
-
-
-    def process_msg_from_eetrack_vision(self, msg):
-        N = None
-        if msg.layout and msg.layout.dim and len(msg.layout.dim) >= 2:
-            # Expect row-major: [rows, columns] with columns==3
-            rows = msg.layout.dim[0].size
-            cols = msg.layout.dim[1].size
-            if cols == 3:
-                N = rows
-
-        data = np.asarray(msg.data, dtype=np.float64)
-        if N is None:
-            if data.size % 3 != 0:
-                print(f"Received {data.size} values (not divisible by 3). Dropping.")
-                return
-            N = data.size // 3
-
-        pts_zed = data.reshape(N, 3) # originally the points are in zed frame
-        return pts_zed
-
-    def get_zed_pose_wrt_world(self):
-        # Get the camera to world frame
-        while True:
-            try:
-                t, q = body_pose(self.tf_buffer, self.zed_optical_frame, "world", rot_type="quat")
-                break
-            except Exception as ex:
-                print(ex)
-                print("No zed tf wrt world exists")
-        return t,q
-
-    def apply_transform_to_points(self, points, t, q):
-        # t=translation, q=quternion
-        q = np.roll(q, -1) # wxyz -> xyzw
-        R_wc = R.from_quat(q).as_matrix()  # SciPy expects [x, y, z, w]
-        pts_world = (R_wc @ points.T).T + t[None, :]
-        return pts_world
-
-    def eetrack_vision_callback(self, msg: 'Float64MultiArray'):
-        if not self.start_eetrack_vision_callback:
-            return
-        # -------- parse incoming [N,3] points from Float64MultiArray ----------
-        data = np.asarray(msg.data, dtype=np.float64)
-        if data.size == 0:
-            return
-
-        # points format: (2,3), where each point indicates the start and
-        # end points on the welding line
-        pts_zed = self.process_msg_from_eetrack_vision(msg)
-        t, q = self.get_zed_pose_wrt_world()
-        self.zed_pose_w = np.concatenate([t, q])
-        pts_world = self.apply_transform_to_points(pts_zed, t, q)
-
-        self.welding_points_from_vision = pts_world
-        self._node.get_logger().info(f"Welding points recieved: {self.welding_points_from_vision}")
-
-        # Disable after recieve
-        self.start_eetrack_vision_callback = False
-
-
-    def compute_welding_object_pose_from_welding_line(
-        self,
-        welding_start_pos_w,
-        welding_end_pos_w,
-        dx_mid_to_object = 0.0025,  # dx of welding mid point to object pose
-        dz_mid_to_object = 0.005,   # dz of welding mid point to object pose
-    ):
-        # Assume the point is in world frame.
-        z_axis = np.array([0,0,1])
-        # Assume the start point is in left (+y) and the end point is in right (-y)
-        y_axis = welding_start_pos_w - welding_end_pos_w
-        y_axis = y_axis / np.linalg.norm(y_axis)
-        x_axis = np.cross(y_axis, z_axis)
-
-        # 
-        welding_mid_pos_w = (welding_start_pos_w + welding_end_pos_w) / 2
-        welding_object_pos_w = welding_mid_pos_w + dx_mid_to_object*x_axis - dz_mid_to_object*z_axis
-
-        mat = np.stack([x_axis, y_axis, z_axis], axis=1)
-        sciR = R.from_matrix(mat)
-        # xyzw -> wxyz
-        welding_object_quat_w = np.roll(sciR.as_quat(), 1)
-
-        return np.concatenate([welding_object_pos_w, welding_object_quat_w])
-
-    
-    def publish_welding_object_pose_callback(self):
-        if self.welding_object_pose_w is None:
-            return
-        t = TransformStamped()
-
-        # Format header
-        t.header.stamp = self._node.get_clock().now().to_msg()
-        t.header.frame_id = 'world'
-        t.child_frame_id = 'welding_object'
-
-        # Populate translation
-        t.transform.translation.x = self.welding_object_pose_w[0]
-        t.transform.translation.y = self.welding_object_pose_w[1]
-        t.transform.translation.z = self.welding_object_pose_w[2]
-
-        t.transform.rotation.w = self.welding_object_pose_w[3]
-        t.transform.rotation.x = self.welding_object_pose_w[4]
-        t.transform.rotation.y = self.welding_object_pose_w[5]
-        t.transform.rotation.z = self.welding_object_pose_w[6]
-
-        # Send the transformation
-        self.tf_broadcaster.sendTransform(t)
-
+    def eetrack_vision_callback(self, msg: 'MultiArrayLayout'):
+    # TODO: Implement handling of the received MultiArrayLayout message
+        self.eetrack_vision_points = msg
+        print("CALLBACK!!")
+        print(msg)
     
     def LowStateHgHandler(self, msg: LowStateHG):
         self.low_state = msg
@@ -721,81 +537,7 @@ class Controller:
             print("Terminated by pelvis condition.")
             print(f"euler: {euler}")
         return out_of_limit.item()
-
-
-    def send_ee_goal_to_trajopt(self, target_pos_b, target_quat_b):
-        if self._goal_handle is not None and not self._goal_done():
-            return
-        self._node.get_logger().info('Start sending end effector trajectories...')
-
-        stamp = self._node.get_clock().now().to_msg()
-        frame_id = "pelvis"
-
-        goal_msg = TrajOptSingleEE.Goal()
-        goal_msg.ee_goal.header.stamp = stamp
-        goal_msg.ee_goal.header.frame_id = frame_id
-
-        goal_msg.ee_goal.pose.position.x = target_pos_b[0]
-        goal_msg.ee_goal.pose.position.y = target_pos_b[1]
-        goal_msg.ee_goal.pose.position.z = target_pos_b[2]
-
-        goal_msg.ee_goal.pose.orientation.w = target_quat_b[0]
-        goal_msg.ee_goal.pose.orientation.x = target_quat_b[1]
-        goal_msg.ee_goal.pose.orientation.y = target_quat_b[2]
-        goal_msg.ee_goal.pose.orientation.z = target_quat_b[3]
-
-        self._node.get_logger().info("Sending goal end effector trajectories...")
-        self._send_goal_future = self._action_client.send_goal_async(
-            goal_msg,
-            feedback_callback=self.feedback_callback,
-        )
-        
-        self._send_goal_future.add_done_callback(self.goal_response_callback)
-
-
-    def goal_response_callback(self, future):
-        self._goal_handle = future.result()
-
-        if not self._goal_handle.accepted:
-            self._node.get_logger().info('Goal rejected :(')
-            return
-
-        self._node.get_logger().info('Goal accepted :)')
-
-        self._get_result_future = self._goal_handle.get_result_async()
-
-        self._get_result_future.add_done_callback(self.get_result_callback)
-
-
-    def get_result_callback(self, future):
-        result = future.result().result
-
-        joint_traj = result.joint_traj
-        success = result.success
-        error_message = result.error_message
-
-        self.trajopt_joint_traj = np.array([point.positions for point in joint_traj.points])
-        self.mot_from_trajopt = index_map(self.config.motor_joint, joint_traj.joint_names)
-
-        self._node.get_logger().info(f'TrajOpt result recieved!!')
-
-
-    def feedback_callback(self, feedback_msg):
-        feedback = feedback_msg.feedback
-        percent = feedback_msg.percent_complete
-        self._node.get_logger().info(f'In progress: {percent:.1f}')
-
-
-    def _goal_done(self):
-        """Return True if goal is done (succeeded, canceled, or aborted)."""
-        status = self._goal_handle.status
-        return status in (
-            GoalStatus.STATUS_SUCCEEDED,
-            GoalStatus.STATUS_ABORTED,
-            GoalStatus.STATUS_CANCELED,
-        )
-
-
+    
     def run_policy(self):
         ############################# MAIN LOOP #############################
         # If the button A is pressed, then finish the policy.
@@ -815,12 +557,9 @@ class Controller:
         )
 
         xyz, quat_wxyz = world_from_pelvis
-        self.root_state_w = np.zeros(7)
-        self.root_state_w[0:3] = xyz
-        self.root_state_w[3:7] = quat_wxyz
-
-        # print()
-        # print(f"Current pelvis height : {xyz[-1]}")
+        root_state_w = np.zeros(7)
+        root_state_w[0:3] = xyz
+        root_state_w[3:7] = quat_wxyz
 
         if False:
             nav_target_pos , nav_target_axa = body_pose(
@@ -866,7 +605,7 @@ class Controller:
         forward_w = quat_apply(quat_wxyz.astype(np.float32), np.array([1., 0., 0.]).astype(np.float32))
         pelvis_heading_w = np.arctan2(forward_w[1], forward_w[0])
 
-        if False:
+        if True:
             # Feet heading direction
             l_foot_pos_w, l_foot_quat_w = body_pose(
                 self.tf_buffer,
@@ -903,45 +642,15 @@ class Controller:
 
 
         ############################################ SWITCH MODE FROM LOCOMOTION TO NAVIVATION ############################################
-        if self.remote_controller.button[KeyMap.Y] == 1 and (self.task not in  ["eetrack", "sit"] or not self.sitting):
+        if self.remote_controller.button[KeyMap.Y] == 1 and self.task not in  ["eetrack", "sit"]:
             print("============== locomotion mode activated ==============")
             self.task = "locomotion" 
-        if self.remote_controller.button[KeyMap.X] == 1 and (self.task not in  ["eetrack", "sit"] or not self.sitting):
+        if self.remote_controller.button[KeyMap.X] == 1 and self.task not in  ["eetrack", "sit"]:
             print("============== navigation mode activated ==============")
             self.task = "navigation"
         if self.remote_controller.button[KeyMap.B] == 1 and self.task != "eetrack":
             print("============== Sitting mode activated ==============")
             self.task = "sit"
-        if self.remote_controller.button[KeyMap.select] == 1:
-            print("============== Trigger vision pipeline ==============")
-            # self.trigger_vision_pipeline()
-            self.task = "vision"
-            self.vision_start_counter = int(self.counter)
-        # Change to trajopt task only one the welding points are received.
-        if self.remote_controller.button[KeyMap.R1] == 1 and self.welding_points_from_vision is not None:
-            print("============== TrajOpt mode activated ==============")
-            self.task = "trajopt"
-
-            self.trajopt_i = 0
-            self.trajopt_joint_traj = None
-            self.execute_trajopt_joint_traj = False
-
-            welding_start_pos_w = self.welding_points_from_vision[0]
-            welding_end_pos_w = self.welding_points_from_vision[-1]
-            eetrack_start_pos_w, eetrack_start_quat_w, _, _ \
-                = ue.eetrack.get_eetrack_pos_quat(
-                welding_start_pos_w,
-                welding_end_pos_w,
-                offset_len=0.01,
-                approach_deg=45.0,
-            )
-            eetrack_start_pos_b, eetrack_start_quat_b = subtract_frame_transforms(
-                world_from_pelvis[0],
-                world_from_pelvis[1],
-                eetrack_start_pos_w,
-                eetrack_start_quat_w,
-            )
-            self.send_ee_goal_to_trajopt(eetrack_start_pos_b, eetrack_start_quat_b)
         if self.remote_controller.button[KeyMap.F1] == 1:
             print("============== eetrack mode activated ==============")
             self.task = "eetrack"
@@ -953,14 +662,13 @@ class Controller:
                 rot_type='quat'   
             )
 
-            # TODO We should have an assertion to prevent self.welding_points_from_vision being None
             self.eetrack_command = ue.eetrack(
-                th.from_numpy(self.root_state_w)[None],
+                th.from_numpy(root_state_w)[None],
                 self.tf_buffer,
                 clock, to_start=False, 
                 start_ee_pos=start_ee_pos,
                   start_ee_quat=start_ee_quat,
-                  welding_points_from_vision = self.welding_points_from_vision)
+                  eetrack_vision_points = self.eetrack_vision_points)
             
             # start_T = matrix_from_quat(yaw_quat(self.eetrack_command.eetrack_start_quat_w))
             # end_T = matrix_from_quat(yaw_quat(self.eetrack_command.eetrack_end_quat_w))
@@ -990,11 +698,16 @@ class Controller:
             # )
             # self.is_go_start = False
 
+        if self.remote_controller.button[KeyMap.select] == 1:
+            print("Capture ZED images")
+            msg = Empty()
+            self.image_capture_publisher.publish(msg)
+        if self.remote_controller.button[KeyMap.R2] == 1:
+            self.task = "bending"
+
 
         ############################################ LOCOMOTION ############################################
         if self.task == "locomotion":
-            self.stop_locomotion = False
-            self.navigation_counter = 0
             # NOTE (bk): what's this if statement? needs to be re-written
             if np.any(
                 np.abs(np.array([self.remote_controller.ly, self.remote_controller.lx, self.remote_controller.rx])) > 0.
@@ -1023,48 +736,25 @@ class Controller:
         elif self.task == "navigation":
             # print("Pelvis height :", xyz[-1])
             print(pos_command_b)
-            ###################### Hand design navigation ######################
-            if True:
-                if self.pos_error_bs.shape[0] > self.NUM_AVG:
-                    # print("pos command mean : ", np.mean(self.pos_error_bs[-self.NUM_AVG:, :].reshape((self.NUM_AVG,))))
-                    # print("heading error mean : ", np.mean(np.abs(self.heading_error_bs[-self.NUM_AVG:, :]).reshape((self.NUM_AVG,))))
-                    if np.mean(self.pos_error_bs[-self.NUM_AVG:, :].reshape((self.NUM_AVG,))) < self.ERROR_THRESHOLD \
-                        and np.mean(np.abs(self.heading_error_bs[-self.NUM_AVG:, :]).reshape((self.NUM_AVG,))) < 0.05:
-                        if self.stop_locomotion is not True :
-                            self.stop_time = (self.counter-400) * self.config.control_dt
-                        self.stop_locomotion = True
-                    
-                # # To stop when being initialized
-                # if self.counter < 200 * 2 :
-                #     self.locomotion_vel_command = np.array([0., 0., 0.])
-                #     phase = 0.0
-                if self.counter % 10 == 0:
-                    # self.locomotion_vel_command[:2] = np.clip(np.sign(pos_command_b[:2]) * MAX_LIN_VEL * np.sqrt(np.abs(pos_command_b[:2] / SLOW_BOUND)), -MAX_LIN_VEL, MAX_LIN_VEL)
-                    # X >= 0
-                    if pos_command_b[0] >= 0:
-                        self.locomotion_vel_command[0] = np.clip(0.07 * np.sqrt(np.abs(pos_command_b[0] / 0.8)), 0., 0.07)
-                    # X < 0
-                    if pos_command_b[0] < 0:
-                        self.locomotion_vel_command[0] = np.clip(-0.3 * np.sqrt(np.abs(pos_command_b[0] / 0.1)), -0.3, 0.)
-                    # Y >= 0
-                    if pos_command_b[1] >= 0:
-                        self.locomotion_vel_command[1] = np.clip(0.1 * np.sqrt(np.abs(pos_command_b[1] / 0.2)), 0., 0.1)
-                    # Y < 0
-                    if pos_command_b[1] < 0:
-                        self.locomotion_vel_command[1] = np.clip(-0.2 * np.sqrt(np.abs(pos_command_b[1] / 0.2)), -0.2, 0.)
-
-                    self.locomotion_vel_command[2] = np.clip(np.sign(heading_error) * 0.3 * np.sqrt(np.abs(heading_error / self.SLOW_BOUND)), -0.2, 0.2)
-
-                if self.stop_locomotion:
-                    self.locomotion_vel_command = np.array([0., 0., 0.])
-                    phase = 0.0
-
-            if self.navigation_counter < 100:
-                # vel cmd smoothing
-                alpha = self.navigation_counter / 100
-                self.locomotion_vel_command = np.zeros(3) * (1-alpha) + self.locomotion_vel_command * alpha
             
-                self.navigation_counter += 1
+            self.locomotion_vel_command[0] = 0.06
+            self.locomotion_vel_command[1] = 0.0
+            self.locomotion_vel_command[2] = np.clip(heading_error, -0.5, 0.5)
+            
+            if self.stop_locomotion:
+                self.locomotion_vel_command = np.array([0., 0., 0.])
+                phase = 0.0
+
+            if self.navigation_counter > 500:
+                self.locomotion_vel_command[0] = 0.0
+                self.locomotion_vel_command[2] = np.clip(2*heading_error, -0.5, 0.5)
+                if np.linalg.norm(self.locomotion_vel_command) < 0.05:
+                    self.stop_locomotion = True
+
+
+            self.navigation_counter += 1
+            
+
         
         # phase = 0.0
         target_tau = np.zeros(29, dtype=np.float32)
@@ -1087,38 +777,36 @@ class Controller:
             self.bending_target_dof = None
             self.bending_counter = 0
 
-        # elif self.task == "bending":
-        #     target_dof_pos = self.locomotion_target_dof_pos.copy()
-        #     if self.bending_target_dof is None:
-        #         self.bending_target_dof = self.locomotion_target_dof_pos.copy()
-        #     down_button = self.remote_controller.button[KeyMap.down]
+        elif self.task == "bending":
+            target_dof_pos = self.locomotion_target_dof_pos.copy()
+            if self.bending_target_dof is None:
+                self.bending_target_dof = self.locomotion_target_dof_pos.copy()
+            down_button = self.remote_controller.button[KeyMap.down]
 
-        #     if down_button == 1:
-        #         print(f"Waist pitch bent : {self.bending_offset} [rad]")
-        #         self.bending_offset += 0.01
-        #         # 버튼 누른 상태에서는 현재 관절 그대로 유지
-        #         self.bending_counter = 0
-        #         self.last_target_dof = self.bending_target_dof.copy()
+            if down_button == 1:
+                print(f"Waist pitch bent : {self.bending_offset} [rad]")
+                self.bending_offset += 0.01
+                # 버튼 누른 상태에서는 현재 관절 그대로 유지
+                self.bending_counter = 0
+                self.last_target_dof = self.bending_target_dof.copy()
 
-        #     else:
-        #         self.bending_offset = np.clip(self.bending_offset, a_min= -1.0, a_max= 0.087)
-        #         # 버튼 안 눌렀을 때만 목표 위치로 스무스하게 이동
-        #         if self.bending_counter < 100:
-        #             alpha = self.bending_counter / 100
-        #             waist_pos = self.last_target_dof[14] * (1 - alpha) + (self.last_target_dof[14] + self.bending_offset) * alpha
-        #             target_dof_pos[14] = waist_pos
-        #             self.bending_target_dof = target_dof_pos
-        #             self.bending_counter += 1
-        #         elif self.bending_counter == 100:
-        #             target_dof_pos = self.bending_target_dof
+            else:
+                self.bending_offset = np.clip(self.bending_offset, a_min= -1.0, a_max= 0.087)
+                # 버튼 안 눌렀을 때만 목표 위치로 스무스하게 이동
+                if self.bending_counter < 100:
+                    alpha = self.bending_counter / 100
+                    waist_pos = self.last_target_dof[14] * (1 - alpha) + (self.last_target_dof[14] + self.bending_offset) * alpha
+                    target_dof_pos[14] = waist_pos
+                    self.bending_target_dof = target_dof_pos
+                    self.bending_counter += 1
+                elif self.bending_counter == 100:
+                    target_dof_pos = self.bending_target_dof
 
 
 
         elif self.task == "sit":
             if self.remote_controller.button[KeyMap.down] == 1:
                 self.sitting = True
-            if self.remote_controller.button[KeyMap.up] == 1:
-                self.sitting = False
 
             height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.00, sitting=self.sitting)
 
@@ -1145,59 +833,6 @@ class Controller:
 
         # elif self.task == "to_eetrack_init":
         #     pass
-
-        elif self.task == "vision":
-            target_dof_pos = self.sit_target_dof_pos.copy()
-
-            if (self.counter - self.vision_start_counter) == 250:
-                self.trigger_vision_pipeline()
-
-            if self.welding_points_from_vision is not None:
-                # Publish welding object pose
-                welding_start_pos_w = self.welding_points_from_vision[0]
-                welding_end_pos_w = self.welding_points_from_vision[-1]
-                self.welding_object_pose_w = self.compute_welding_object_pose_from_welding_line(
-                    welding_start_pos_w,
-                    welding_end_pos_w,
-                )
-
-        elif self.task == "trajopt":
-            target_dof_pos = self.sit_target_dof_pos.copy()
-
-            if self.remote_controller.button[KeyMap.start] == 1:
-                self.execute_trajopt_joint_traj = True
-                self._node.get_logger().info("Start executing trajopt joint trajectories!!")
-
-            if self.trajopt_joint_traj is not None and self.execute_trajopt_joint_traj:
-                # Get current joint positions
-                qj = np.zeros(29, dtype=np.float32)
-                for i_mot in range(len(self.config.motor_joint)):
-                    qj[i_mot] = self.low_state.motor_state[i_mot].q
-                # Target joint pos
-                target_q = np.zeros(29)
-                self.trajopt_target_joint_pos = interpolate_array_by_float_index(self.trajopt_joint_traj, self.trajopt_i/5).copy()
-                target_q[self.mot_from_trajopt] = self.trajopt_target_joint_pos
-                res_q = target_q[-7:] - qj[-7:]
-                res_q = res_q.clip(-0.05, 0.05)
-                self.trajopt_i += 1
-                self.trajopt_i = min(self.trajopt_i, 5*(len(self.trajopt_joint_traj)-1))
-                # Gravity compensation
-                gravity_vec = 9.81*self.sit_obsmap._projected_gravity()
-                arm_nle = self.ikctrl.get_gravity_compensation(qj, gravity_vec=gravity_vec)
-                for i_act in range(len(res_q)):
-                    i_mot = self.mot_from_act[i_act]
-                    i_pin = self.pin_from_mot[i_mot]
-                    target_q_i = (
-                            self.low_state.motor_state[i_mot].q + res_q[i_act]
-                    )
-                    target_q_i = np.clip(target_q_i,
-                                    self.lim_lo_pin[i_pin],
-                                    self.lim_hi_pin[i_pin])
-                    target_dof_pos[i_mot] = target_q_i
-                    target_tau[i_mot] = arm_nle[i_act]
-                if self.trajopt_i == (5*(len(self.trajopt_joint_traj)-1)):
-                    self._node.get_logger().info("Reached end of TrajOpt trajectory.")
-            
         
         ################################# EETrack #################################
         elif self.task == "eetrack":
@@ -1225,7 +860,7 @@ class Controller:
                 # self.is_go_start = False
 
             _ = self.eetrack_command.get_command(
-                th.from_numpy(self.root_state_w)[None]
+                th.from_numpy(root_state_w)[None]
                 )[0].detach().cpu().numpy()
             
             self.target_pose_w = np.copy(
@@ -1236,8 +871,8 @@ class Controller:
                 self.eetrack_command.lerp_command_b_left_quat.squeeze().detach().cpu().numpy(),
             ])
 
-            # print(self.target_pose_w)
-            # print(self.target_pose_b)
+            print(self.target_pose_w)
+            print(self.target_pose_b)
 
             self.publish_hand_target()
 
@@ -1295,35 +930,15 @@ class Controller:
                 
         kps = np.array(self.config.kps).astype(np.float32).copy()
         kds = np.array(self.config.kds).astype(np.float32).copy()
-
-        if False:
-            ########################## Prevent abrupt motion when transition from loco -> sit ##########################
-            self.task_counter += 1
-            if self.prev_task != self.task:
-                self.task_counter = 0
-            self.prev_task = self.task
-            
-            if self.task_counter < 100 and self.task == "sit":
-                print("transition smoothing applied")
-                if self.config.later_smoothing:
-                    if self.prev_joint_pos_target is not None:
-                            target_dof_pos = 0.2 * target_dof_pos + \
-                                            0.8 * self.prev_joint_pos_target
-                    self.prev_joint_pos_target = target_dof_pos
-
-        if self.task == "vision" or self.task == "trajopt" or self.task == "eetrack":
+         
+        if self.task == "eetrack":
             kps[-7:] = self.config.eetrack_right_arm_kps
             kds[-7:] = self.config.eetrack_right_arm_kds
+            target_tau[-7:] = 0.0
 
         elif self.task == "sit":
+            print(kds)
             kds = np.array(self.config.sit_kds).astype(np.float32).copy()
-
-            if True:
-                if self.prev_joint_pos_target is not None:
-                    target_dof_pos = self.config.sit_smoothing * target_dof_pos + \
-                                    (1-self.config.sit_smoothing) * self.prev_joint_pos_target
-
-                self.prev_joint_pos_target = target_dof_pos
 
         for mot_idx in range(self.num_joints):
             self.low_cmd.motor_cmd[mot_idx].q = float(target_dof_pos[mot_idx])
@@ -1333,7 +948,7 @@ class Controller:
             self.low_cmd.motor_cmd[mot_idx].tau = float(target_tau[mot_idx])
         
         # observation dumping
-        self.dump_observations_and_joint_pos_target(target_dof_pos)
+        # self.dump_observations_and_joint_pos_target(target_dof_pos)
 
          
         # send the command
@@ -1343,35 +958,13 @@ class Controller:
         # log timestamp
         timestamp_low_freq = clock.get_time().nanoseconds / 1e9
         self.timestamp_low_freq = np.append(self.timestamp_low_freq, timestamp_low_freq)
-
-        self.tasks = np.vstack((self.tasks, self.task))
         
-        # self.locomotion_observations = np.vstack((self.locomotion_observations, self.obs))
-        # self.locomotion_actions = np.vstack((self.locomotion_actions, self.locomotion_action))
-        # self.locomotion_vel_traj = np.vstack((self.locomotion_vel_traj, self.locomotion_vel_command))
-        self.root_states_w = np.vstack((self.root_states_w, self.root_state_w))
-
-        self.target_dof_poss = np.vstack((self.target_dof_poss, target_dof_pos))
-
-        if self.task == "sit":
-            self.sit_observations = np.vstack((self.sit_observations, self.obs))
-        elif self.task == "vision":
-            self.zed_poses_w = np.vstack((self.zed_poses_w, self.zed_pose_w))
-        elif self.task =="trajopt":
-            if self.trajopt_joint_traj is None:
-                self.trajopt_target_joint_pos_traj = np.vstack((self.trajopt_target_joint_pos_traj, np.zeros_like(self.trajopt_target_joint_pos)))
-            else:
-                self.trajopt_target_joint_pos_traj = np.vstack((self.trajopt_target_joint_pos_traj, self.trajopt_target_joint_pos))
-        elif self.task == "eetrack":
-            self.target_poses_w = np.vstack((self.target_poses_w, self.target_pose_w))
-            self.target_poses_b = np.vstack((self.target_poses_b, self.target_pose_b))
-            ee_pos_w, ee_quat_w = body_pose(self.tf_buffer, "end_effector", "world", rot_type="quat")
-            self.ee_poses_w = np.vstack((self.ee_poses_w, np.concatenate((ee_pos_w, ee_quat_w))))
-            ee_pos_b, ee_quat_b = body_pose(self.tf_buffer, "end_effector", "pelvis", rot_type="quat")
-            self.ee_poses_b = np.vstack((self.ee_poses_b, np.concatenate((ee_pos_b, ee_quat_b))))
+        self.locomotion_observations = np.vstack((self.locomotion_observations, self.obs))
+        self.locomotion_actions = np.vstack((self.locomotion_actions, self.locomotion_action))
+        self.locomotion_vel_traj = np.vstack((self.locomotion_vel_traj, self.locomotion_vel_command))
 
         
-             
+            
     def log_metrics_and_trajectories(self):     
         # Calculate pos diff & torque diff metrics
         pos_diff = np.average(np.abs(self.q_traj[1:] - self.q_traj[:-1]))
@@ -1398,16 +991,16 @@ class Controller:
             "dq_traj": self.dq_traj,
             "tau_traj": self.tau_traj,
             "timestamp_low_freq": self.timestamp_low_freq,
-            "sit_observations": self.sit_observations,
-            "tasks": self.tasks,
-            "root_states_w" : self.root_states_w,
-            "target_dof_pos": self.target_dof_poss,
-            "zed_poses_w": self.zed_poses_w,
-            "target_poses_w": self.target_poses_w,
-            "target_poses_b": self.target_poses_b,
-            "ee_poses_w": self.ee_poses_w,
-            "ee_poses_b": self.ee_poses_b,
-            "target_trajopt_joint_pos": self.trajopt_target_joint_pos_traj,
+            # "sit_observations": self.sit_observations,
+            "locomotion_observations": self.locomotion_observations,
+            # "eetrack_observations": self.eetrack_observations,
+            # "sit_actions": self.sit_actions,
+            "locomotion_actions": self.locomotion_actions,
+            # "eetrack_actions": self.eetrack_actions,
+            "joint_pos_targets" : self.joint_pos_targets,
+            "locomotion_vel_traj" : self.locomotion_vel_traj,
+            "pos_errors" : self.pos_error_bs,
+            "heading_errors" : self.heading_error_bs,
         }
         log_data = {
             "metrics": metrics,

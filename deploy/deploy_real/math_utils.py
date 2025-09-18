@@ -508,9 +508,9 @@ def euler_xyz_from_quat(
     yaw = torch.atan2(sin_yaw, cos_yaw)
 
     return (
-        roll % (2 * torch.pi),
-        pitch % (2 * torch.pi),
-        yaw % (2 * torch.pi),
+        wrap_to_pi(roll % (2 * torch.pi)),
+        wrap_to_pi(pitch % (2 * torch.pi)),
+        wrap_to_pi(yaw % (2 * torch.pi)),
     )  # TODO: why not wrap_to_pi here ?
 
 

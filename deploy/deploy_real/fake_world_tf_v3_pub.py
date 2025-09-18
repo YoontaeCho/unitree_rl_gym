@@ -92,8 +92,10 @@ class FakeWorldPublisher(Node):
         # Read message content and assign it to
         # corresponding tf variables
         t.header.stamp = self.get_clock().now().to_msg()
-        t.header.frame_id = 'world'
-        t.child_frame_id = 'fake_world'
+        # t.header.frame_id = 'world'
+        # t.child_frame_id = 'fake_world'
+        t.header.frame_id = 'mid_sole_link'
+        t.child_frame_id = 'world'
 
         # 
         t.transform.translation.x = 0.5
