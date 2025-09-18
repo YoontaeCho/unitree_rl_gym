@@ -122,6 +122,46 @@ class MidSoleTFPublisher(Node):
         # Send the transformation
         self.tf_broadcaster.sendTransform(t)
 
+        try:
+            left_sole_pos, left_sole_quat = body_pose(
+                self.tf_buffer,
+                'mid360_link_IMU',
+                'left_sole_link',
+                rot_type='quat'
+            )
+            right_sole_pos, right_sole_quat = body_pose(
+                self.tf_buffer,
+                'mid360_link_IMU',
+                'right_sole_link',
+                rot_type='quat'
+            )
+
+            mid_sole_pos = (left_sole_pos + right_sole_pos) / 2.0
+
+            body_pos_from_world, body_quat_from_world = body_pose(
+                self.tf_buffer,
+                'body',
+                'world',
+                rot_type='quat'
+            )
+
+            body_tf_from_world = TransformStamped()
+           
+            body_tf_from_world.header.stamp = self.get_clock().now().to_msg()
+            body_tf_from_world.header.frame_id = "body"
+            body_tf_from_world.child_frame_id = "body_z_from_mid_sole_link"
+
+
+            body_tf_from_world.transform.translation.z = body_pos_from_world[2] - mid_sole_pos[2]
+
+
+            self.tf_broadcaster.sendTransform(body_tf_from_world)
+
+        except Exception as e:
+            self.get_logger().info(
+                "Transform connection betwwen body <> world is not found yet."
+            )
+
         # if True:
 
         #     t = TransformStamped()

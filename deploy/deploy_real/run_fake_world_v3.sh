@@ -2,7 +2,7 @@
 
 trap "trap - SIGINT && kill -- -$$" SIGINT SIGTERM
 
-ros2 run tf2_ros static_transform_publisher 0.5 0.5 0 1.0 0 0 world fake_world &
+# ros2 run tf2_ros static_transform_publisher 0.5 0.5 0 1.0 0 0 mid_sole_link world &
 python3 state_pub.py &
 ros2 launch state_pub.launch.py &
 python3 fake_world_tf_v3_pub.py &

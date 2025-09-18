@@ -125,7 +125,7 @@ def body_pose(
         # _last_tf = t
     except TransformException as ex:
         print(f'Could not transform {frame} to {ref_frame}: {ex}')
-        # return map_transform(_last_tf, rot_type)
+        t = TransformStamped()
 
     txn = t.transform.translation
     rxn = t.transform.rotation
@@ -402,7 +402,7 @@ class Controller:
             'trajopt_single_ee',
         )
         self._node.get_logger().info("Waiting for trajopt action server...")
-        self._action_client.wait_for_server()
+        # self._action_client.wait_for_server()
 
         self.act_joint = config.ik_joint
         self.ikctrl = IKCtrl('../../resources/robots/g1_description/g1_29dof_rev_1_0_zed2i_with_welder_v3.urdf',
@@ -459,7 +459,7 @@ class Controller:
 
         print("Waiting for the robot to be ready...")
         self.mode = Mode.wait
-        self.task : Literal["locomotion", "navigation", "sit", "eetrack"] = "locomotion"
+        self.task : Literal["locomotion", "navigation", "sit", "eetrack"] = "calib"
         # self.task : Literal["locomotion", "navigation", "sit", "eetrack"] = "sit"
         self.prev_task = self.task
         self.task_counter = 0
@@ -669,7 +669,7 @@ class Controller:
             self.mode = Mode.policy
 
     def default_pos_state(self):
-        if self.remote_controller.button[KeyMap.Y] != 1:
+        if self.remote_controller.button[KeyMap.R2] != 1:
             # NOTE (bk) what does this code snippet do? perhaps it sends the robot to default pos?
             # return
             for motor_idx in range(self.num_joints):
@@ -682,6 +682,29 @@ class Controller:
         else:
             self._mode_change = True
             self.mode = Mode.policy
+
+    def publish_calib_frame(self, pos, rpy, parent_frame):
+        t = TransformStamped()
+
+        # Format header
+        t.header.stamp = self._node.get_clock().now().to_msg()
+        t.header.frame_id = parent_frame
+        t.child_frame_id = 'zed2i_left_camera_optical_frame_calib'
+
+        quat = quat_from_euler_xyz(np.array(rpy[0]), np.array(rpy[1]), np.array(rpy[2]))
+
+        # Populate translation
+        t.transform.translation.x = pos[0]
+        t.transform.translation.y = pos[1]
+        t.transform.translation.z = pos[2]
+
+        t.transform.rotation.w = quat[0]
+        t.transform.rotation.x = quat[1]
+        t.transform.rotation.y = quat[2]
+        t.transform.rotation.z = quat[3]
+
+        # Send the transformation
+        self.tf_broadcaster.sendTransform(t)
 
     def publish_hand_target(self):
         t = TransformStamped()
@@ -909,14 +932,16 @@ class Controller:
         if self.remote_controller.button[KeyMap.X] == 1 and (self.task not in  ["eetrack", "sit"] or not self.sitting):
             print("============== navigation mode activated ==============")
             self.task = "navigation"
+        if self.remote_controller.button[KeyMap.R2] == 1:
+            print("============== Calibration mode activated ==============")
+            self.task = "calib"
         if self.remote_controller.button[KeyMap.B] == 1 and self.task != "eetrack":
             print("============== Sitting mode activated ==============")
             self.task = "sit"
         if self.remote_controller.button[KeyMap.select] == 1:
             print("============== Trigger vision pipeline ==============")
-            # self.trigger_vision_pipeline()
+            self.trigger_vision_pipeline()
             self.task = "vision"
-            self.vision_start_counter = int(self.counter)
         # Change to trajopt task only one the welding points are received.
         if self.remote_controller.button[KeyMap.R1] == 1 and self.welding_points_from_vision is not None:
             print("============== TrajOpt mode activated ==============")
@@ -1041,19 +1066,26 @@ class Controller:
                 if self.counter % 10 == 0:
                     # self.locomotion_vel_command[:2] = np.clip(np.sign(pos_command_b[:2]) * MAX_LIN_VEL * np.sqrt(np.abs(pos_command_b[:2] / SLOW_BOUND)), -MAX_LIN_VEL, MAX_LIN_VEL)
                     # X >= 0
+                    is_welder_attached = False
                     if pos_command_b[0] >= 0:
-                        self.locomotion_vel_command[0] = np.clip(0.07 * np.sqrt(np.abs(pos_command_b[0] / 0.8)), 0., 0.07)
+                        if is_welder_attached:
+                            self.locomotion_vel_command[0] = np.clip(0.12 * np.sqrt(np.abs(pos_command_b[0] / 0.2)), 0., 0.12)
+                        else:
+                            self.locomotion_vel_command[0] = np.clip(0.08 * np.sqrt(np.abs(pos_command_b[0] / 0.8)), 0., 0.08)
                     # X < 0
                     if pos_command_b[0] < 0:
-                        self.locomotion_vel_command[0] = np.clip(-0.3 * np.sqrt(np.abs(pos_command_b[0] / 0.1)), -0.3, 0.)
+                        self.locomotion_vel_command[0] = np.clip(-0.3 * np.sqrt(np.abs(pos_command_b[0] / 0.2)), -0.3, 0.)
                     # Y >= 0
                     if pos_command_b[1] >= 0:
                         self.locomotion_vel_command[1] = np.clip(0.1 * np.sqrt(np.abs(pos_command_b[1] / 0.2)), 0., 0.1)
                     # Y < 0
                     if pos_command_b[1] < 0:
-                        self.locomotion_vel_command[1] = np.clip(-0.2 * np.sqrt(np.abs(pos_command_b[1] / 0.2)), -0.2, 0.)
-
-                    self.locomotion_vel_command[2] = np.clip(np.sign(heading_error) * 0.3 * np.sqrt(np.abs(heading_error / self.SLOW_BOUND)), -0.2, 0.2)
+                        if is_welder_attached:
+                            self.locomotion_vel_command[1] = np.clip(-0.2 * np.sqrt(np.abs(pos_command_b[1] / 0.2)), -0.2, 0.)
+                        else:
+                            self.locomotion_vel_command[1] = np.clip(-0.2 * np.sqrt(np.abs(pos_command_b[1] / 0.2)), -0.2, 0.)
+                    
+                    self.locomotion_vel_command[2] = np.clip(np.sign(heading_error) * self.MAX_ANG_VEL * np.sqrt(np.abs(heading_error / self.SLOW_BOUND)), -self.MAX_ANG_VEL, self.MAX_ANG_VEL)
 
                 if self.stop_locomotion:
                     self.locomotion_vel_command = np.array([0., 0., 0.])
@@ -1113,6 +1145,55 @@ class Controller:
         #             target_dof_pos = self.bending_target_dof
 
 
+        elif self.task == "calib":
+            qj = np.zeros(self.num_joints)
+            qj[:] = [self.low_state.motor_state[mot_idx].q for mot_idx in range(self.num_joints)]
+
+            end_target_dof_pos = np.zeros(self.num_joints)
+            end_target_dof_pos[:] = [ 0.01986018,  0.0104822,   0.0023168,   0.01389957, -0.00005328,  0.0004273,
+                                0.02347599,  0.00330658,  0.00467377,  0.02251543, -0.00389107, -0.0011151,
+                                -0.00116509, -0.08396117,  0.00196204,  0.15910257,  0.05286242, -0.00417051,
+                                0.93385875, -0.00079096,  0.00742447,  0.00111214, -0.33684063, -0.44240966,
+                                -0.44957623,  0.00799348,  0.40574992,  0.54905778,  0.7704879, ]
+            
+            target_dof_pos = (end_target_dof_pos - qj).clip(-0.025, 0.025) + qj
+
+            tag_ids = [10, 11, 12]
+            tags_cam_opt = [
+                body_pose(self.tf_buffer, f"tag_{tag_id}_from_opt_frame", "zed2i_left_camera_optical_frame", rot_type="quat")
+                for tag_id in tag_ids
+            ]
+            tag_id_to_offset = [
+                [[0.04, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+                [[-0.04, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+            ]
+            opt_tag_center_cam_pos_list = []
+            opt_tag_center_cam_rpy_list = []
+            for tag_cam_opt, offset in zip(tags_cam_opt, tag_id_to_offset):
+                tag_center_pos, tag_center_quat = combine_frame_transforms(
+                    tag_cam_opt[0],
+                    tag_cam_opt[1],
+                    np.array(offset[0]),
+                    np.array(offset[1]),
+                )
+                tag_center_pos, tag_center_quat = subtract_frame_transforms(tag_center_pos, tag_center_quat)
+                opt_tag_center_cam_pos_list.append(tag_center_pos)
+                opt_tag_center_cam_rpy_list.append(np.concatenate(euler_xyz_from_quat(tag_center_quat[None])))
+            opt_tag_center_cam_pos_mean = np.mean(opt_tag_center_cam_pos_list, axis=0)
+            opt_tag_center_cam_rpy_mean = np.mean(opt_tag_center_cam_rpy_list, axis=0)
+
+            self.publish_calib_frame(opt_tag_center_cam_pos_mean, opt_tag_center_cam_rpy_mean, parent_frame="tag_11")
+
+            cam_opt_calib_parent_pos, cam_opt_calib_parent_quat = body_pose(
+                self.tf_buffer,
+                "zed2i_left_camera_optical_frame_calib",
+                "zed2i_left_camera_frame",
+                rot_type="quat",
+            )
+            print("Calib translation from parent:", cam_opt_calib_parent_pos)
+            print("Calib rpy from parent:", np.concatenate(euler_xyz_from_quat(cam_opt_calib_parent_quat[None])))
+
 
         elif self.task == "sit":
             if self.remote_controller.button[KeyMap.down] == 1:
@@ -1148,9 +1229,6 @@ class Controller:
 
         elif self.task == "vision":
             target_dof_pos = self.sit_target_dof_pos.copy()
-
-            if (self.counter - self.vision_start_counter) == 250:
-                self.trigger_vision_pipeline()
 
             if self.welding_points_from_vision is not None:
                 # Publish welding object pose
@@ -1311,7 +1389,7 @@ class Controller:
                                             0.8 * self.prev_joint_pos_target
                     self.prev_joint_pos_target = target_dof_pos
 
-        if self.task == "vision" or self.task == "trajopt" or self.task == "eetrack":
+        if self.task == "calib" or self.task == "vision" or self.task == "trajopt" or self.task == "eetrack":
             kps[-7:] = self.config.eetrack_right_arm_kps
             kds[-7:] = self.config.eetrack_right_arm_kds
 
@@ -1451,7 +1529,7 @@ class Controller:
         elif self.mode == Mode.damping:
             if self._mode_change:
                 print("Enter default pos state.")
-                print("Waiting for the Button Y signal...")
+                print("Waiting for the Button R2 signal...")
                 self._mode_change = False
             self.default_pos_state()
         elif self.mode == Mode.policy:

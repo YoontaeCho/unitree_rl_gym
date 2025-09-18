@@ -720,7 +720,9 @@
   </link>
   <joint name="zed2i_left_camera_optical_joint" type="fixed">
     <!-- optical_offset_x=-0.01 -->
-    <origin xyz="-0.01 0 0" rpy="-1.5707963267948966 0 -1.5707963267948966"/>
+    <!-- <origin xyz="-0.01 0 0" rpy="-1.5707963267948966 0 -1.5707963267948966"/> -->
+    <origin xyz="0.01395555 -0.00256978 -0.00997866" rpy="-1.63664046 -0.00976016 -1.6094062"/>
+    <!-- <origin xyz="0.00368202 -0.00304797 -0.00400939" rpy="-1.55957129 -0.0180563  -1.56035173"/> -->
     <parent link="zed2i_left_camera_frame"/>
     <child link="zed2i_left_camera_optical_frame"/>
   </joint>
@@ -1264,6 +1266,57 @@
     <child link="end_effector"/>
   </joint>
   <link name="end_effector">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius= "0.004"/>
+      </geometry>
+      <material name="red">
+        <color rgba="1 0 0 1"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="tag_10_joint" type="fixed">
+    <!-- <origin xyz="0.0385 0.0185 0.041155" rpy="0 1.5707963 1.5707963"/> -->
+    <origin xyz="0.0385 0.0215 0.041155" rpy="0 1.5707963 1.5707963"/>
+    <parent link="welder"/>
+    <child link="tag_10"/>
+  </joint>
+  <link name="tag_10">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius= "0.004"/>
+      </geometry>
+      <material name="red">
+        <color rgba="1 0 0 1"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="tag_11_joint" type="fixed">
+    <!-- <origin xyz="0.0385 0.0185 0.001155" rpy="0 1.5707963 1.5707963"/> -->
+    <origin xyz="0.0385 0.0215 0.001155" rpy="0 1.5707963 1.5707963"/>
+    <parent link="welder"/>
+    <child link="tag_11"/>
+  </joint>
+  <link name="tag_11">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius= "0.004"/>
+      </geometry>
+      <material name="red">
+        <color rgba="1 0 0 1"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="tag_12_joint" type="fixed">
+    <!-- <origin xyz="0.0385 0.0185 -0.038845" rpy="0 1.5707963 1.5707963"/> -->
+    <origin xyz="0.0385 0.0215 -0.038845" rpy="0 1.5707963 1.5707963"/>
+    <parent link="welder"/>
+    <child link="tag_12"/>
+  </joint>
+  <link name="tag_12">
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>

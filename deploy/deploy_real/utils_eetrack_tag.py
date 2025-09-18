@@ -154,7 +154,7 @@ class eetrack:
         self.eetrack_vel = 0.007
 
         # Welding offset from the line
-        self.offset_len = 0.01
+        self.offset_len = 0.02
 
         self.step_dt = 0.02
         self.dt_segment_length = self.eetrack_vel * self.step_dt # 0.0002
@@ -456,8 +456,18 @@ class eetrack:
         # Assume same rotation for start and end
         eetrack_start_quat_w = eetrack_end_quat_w = np.roll(sciR.as_quat(), 1)
 
-        eetrack_x_axis = sciR.as_matrix()[:,0]
+        eetrack_mat = sciR.as_matrix()
+        eetrack_x_axis = eetrack_mat[:,0]
         eetrack_start_pos_w = welding_start_pos_w - offset_len*eetrack_x_axis
         eetrack_end_pos_w = welding_end_pos_w - offset_len*eetrack_x_axis
+
+        # Manual offset due to calibration error and vision error.
+        eetrack_y_axis = eetrack_mat[:,1]
+        eetrack_start_pos_w += 0.02 * eetrack_y_axis
+        eetrack_end_pos_w += 0.02 * eetrack_y_axis
+
+        eetrack_z_axis = eetrack_mat[:,2]
+        eetrack_start_pos_w += 0.01 * eetrack_z_axis
+        eetrack_end_pos_w += 0.01 * eetrack_z_axis
 
         return eetrack_start_pos_w, eetrack_start_quat_w, eetrack_end_pos_w, eetrack_end_quat_w
