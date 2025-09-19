@@ -154,7 +154,7 @@ class eetrack:
         self.eetrack_vel = 0.007
 
         # Welding offset from the line
-        self.offset_len = 0.02
+        self.offset_len = 0.025
 
         self.step_dt = 0.02
         self.dt_segment_length = self.eetrack_vel * self.step_dt # 0.0002
@@ -463,11 +463,11 @@ class eetrack:
 
         # Manual offset due to calibration error and vision error.
         eetrack_y_axis = eetrack_mat[:,1]
-        eetrack_start_pos_w += 0.02 * eetrack_y_axis
-        eetrack_end_pos_w += 0.02 * eetrack_y_axis
+        eetrack_start_pos_w += 0.01 * eetrack_y_axis
+        eetrack_end_pos_w += 0.01 * eetrack_y_axis
 
         eetrack_z_axis = eetrack_mat[:,2]
-        eetrack_start_pos_w += 0.01 * eetrack_z_axis
-        eetrack_end_pos_w += 0.01 * eetrack_z_axis
+        eetrack_start_pos_w += 0.023 * eetrack_z_axis
+        eetrack_end_pos_w += 0.023 * eetrack_z_axis
 
         return eetrack_start_pos_w, eetrack_start_quat_w, eetrack_end_pos_w, eetrack_end_quat_w

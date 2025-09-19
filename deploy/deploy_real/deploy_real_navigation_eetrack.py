@@ -932,7 +932,7 @@ class Controller:
                 = ue.eetrack.get_eetrack_pos_quat(
                 welding_start_pos_w,
                 welding_end_pos_w,
-                offset_len=0.01,
+                offset_len=0.03,
                 approach_deg=45.0,
             )
             eetrack_start_pos_b, eetrack_start_quat_b = subtract_frame_transforms(
