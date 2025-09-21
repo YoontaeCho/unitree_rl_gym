@@ -140,6 +140,16 @@ eetrack_right_arm_kds: [
   # 3, 3, 3, 3, 3, 3, 3
 ]
 
+eetrack_lower_body_kps : [
+  200, 150, 150, 200, 20, 20, # left leg
+  200, 150, 150, 200, 20, 20, # right leg
+  100, 100, 100
+]
+eetrack_lower_body_kds : [
+  5, 5, 5, 5, 2, 2, # left leg
+  5, 5, 5, 5, 2, 2, # right leg
+  5, 5, 5
+]
 
 lab_joint_offsets: [
   -0.2000, -0.2000,  0.0000,  0.0000,  0.0000,  0.0000,  0.0000,  0.0000,

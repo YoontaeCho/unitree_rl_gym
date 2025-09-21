@@ -26,15 +26,16 @@ from config_0820 import Config
 from common.crc import CRC
 from enum import Enum
 from ikctrl import IKCtrl
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, Empty
 
 import utils_robot as ur
 import utils_locomotion as ul
 import utils_stage as us
-import utils_eetrack_tag as ue
+import utils_eetrack_tag_slam as ue
 from scipy.spatial.transform import Rotation as R
 
 from std_msgs.msg import Float64MultiArray
+import subprocess
 
 class Mode(Enum):
     wait = 0
@@ -275,6 +276,10 @@ class Controller:
 
         self.stop_locomotion = False
 
+        self.errors_avg_10 = np.zeros((0,2))
+        self.errors_avg_20 = np.zeros((0,2))
+        self.errors_avg_30 = np.zeros((0,2))
+        self.errors_avg_40 = np.zeros((0,2))
 
         ########################## Sit ##########################
         if False:
@@ -290,10 +295,13 @@ class Controller:
 
         self.sit_observations = np.zeros((1,92))
 
+        self.zed_executed = False
+
         ########################## Navigation ##########################
         # NOTE (bk) is this where we set the position target for the navigation?
         self.navigation_pos_target = np.array([1.0, 0.0, 0.0])
         self.navigation_heading_target = 0.0 # radians
+        self.pos_command_bs = np.zeros((0, 3))
         self.pos_error_bs = np.zeros((1,1))
         self.heading_error_bs = np.zeros((1,1))
         self.pelvis_to_midsole_offset_after_locomotion = {
@@ -333,6 +341,17 @@ class Controller:
 
 
         self.bending_counter = 0
+        self.zed_start_publisher = self._node.create_publisher(
+            Empty,
+            '/start_zed',
+            10,
+        )
+
+        self.zed_stop_publisher = self._node.create_publisher(
+            Empty,
+            '/stop_zed',
+            10,
+        )
 
         # Publisher for /vision/eetrack
         self.eetrack_vision_trigger_publisher = self._node.create_publisher(
@@ -361,7 +380,8 @@ class Controller:
         self.MAX_ANG_VEL = 0.3
         self.NAV_HZ = 5
         self.ERROR_THRESHOLD = 0.04  # m
-        self.NUM_AVG = 30
+        # self.NUM_AVG = 30
+        self.NUM_AVG = 10
 
         ########################## Navigation ##########################
 
@@ -519,7 +539,7 @@ class Controller:
         # Get the camera to world frame
         while True:
             try:
-                t, q = body_pose(self.tf_buffer, self.zed_optical_frame, "world", rot_type="quat")
+                t, q = body_pose(self.tf_buffer, self.zed_optical_frame, "mid_sole_link", rot_type="quat")
                 break
             except Exception as ex:
                 print(ex)
@@ -588,7 +608,7 @@ class Controller:
 
         # Format header
         t.header.stamp = self._node.get_clock().now().to_msg()
-        t.header.frame_id = 'world'
+        t.header.frame_id = 'mid_sole_link'
         t.child_frame_id = 'welding_object'
 
         # Populate translation
@@ -688,7 +708,7 @@ class Controller:
 
         # Format header
         t.header.stamp = self._node.get_clock().now().to_msg()
-        t.header.frame_id = 'world'
+        t.header.frame_id = "mid_sole_link" #'world'
         t.child_frame_id = 'target'
 
         # Populate translation
@@ -774,6 +794,9 @@ class Controller:
         success = result.success
         error_message = result.error_message
 
+        if len(joint_traj.points) == 0:
+            return
+
         self.trajopt_joint_traj = np.array([point.positions for point in joint_traj.points])
         self.mot_from_trajopt = index_map(self.config.motor_joint, joint_traj.joint_names)
 
@@ -805,14 +828,22 @@ class Controller:
             return
 
         self.counter += 1
-
-        world_from_pelvis = body_pose(
-            self.tf_buffer,
-            'pelvis',
-            'world',
-            rot_type='quat',
-            # stamp=rp.time.Time()
-        )
+        if self.task in ["locomotion", "navigation"]:
+            world_from_pelvis = body_pose(
+                self.tf_buffer,
+                'pelvis',
+                'world',
+                rot_type='quat',
+                # stamp=rp.time.Time()
+            )
+        else:
+            world_from_pelvis = body_pose(
+                self.tf_buffer,
+                'pelvis',
+                'mid_sole_link',
+                rot_type='quat',
+                # stamp=rp.time.Time()
+            )
 
         xyz, quat_wxyz = world_from_pelvis
         self.root_state_w = np.zeros(7)
@@ -822,7 +853,7 @@ class Controller:
         # print()
         # print(f"Current pelvis height : {xyz[-1]}")
 
-        if False:
+        if True:
             nav_target_pos , nav_target_axa = body_pose(
                 self.tf_buffer,
                 'nav_target',
@@ -909,9 +940,16 @@ class Controller:
         if self.remote_controller.button[KeyMap.X] == 1 and (self.task not in  ["eetrack", "sit"] or not self.sitting):
             print("============== navigation mode activated ==============")
             self.task = "navigation"
+            self.zed_stop_publisher.publish(Empty())
+
         if self.remote_controller.button[KeyMap.B] == 1 and self.task != "eetrack":
             print("============== Sitting mode activated ==============")
             self.task = "sit"
+            subprocess.run(["pkill", "fastlio"])
+            subprocess.run(["pkill", "livox"])
+            
+            self.zed_start_publisher.publish(Empty())
+
         if self.remote_controller.button[KeyMap.select] == 1:
             print("============== Trigger vision pipeline ==============")
             # self.trigger_vision_pipeline()
@@ -932,7 +970,7 @@ class Controller:
                 = ue.eetrack.get_eetrack_pos_quat(
                 welding_start_pos_w,
                 welding_end_pos_w,
-                offset_len=0.03,
+                offset_len=0.06,
                 approach_deg=45.0,
             )
             eetrack_start_pos_b, eetrack_start_quat_b = subtract_frame_transforms(
@@ -949,7 +987,7 @@ class Controller:
             start_ee_pos, start_ee_quat = body_pose(
                 self.tf_buffer,
                 'end_effector',
-                'world',
+                'mid_sole_link',
                 rot_type='quat'   
             )
 
@@ -993,6 +1031,7 @@ class Controller:
 
         ############################################ LOCOMOTION ############################################
         if self.task == "locomotion":
+
             self.stop_locomotion = False
             self.navigation_counter = 0
             # NOTE (bk): what's this if statement? needs to be re-written
@@ -1021,6 +1060,16 @@ class Controller:
         
         ############################################ NAVIGATION ############################################
         elif self.task == "navigation":
+            if self.pos_error_bs.shape[0] > 50:
+                for window_size in [10, 20, 30, 40]:
+                    translational_error = np.mean(self.pos_error_bs[-window_size:, :].reshape((window_size,)))
+                    rotational_error = np.mean(np.abs(self.heading_error_bs[-window_size:, :]).reshape((window_size,)))
+                    errors = np.array([translational_error, rotational_error])
+
+                    setattr(self, f"errors_avg_{window_size}", np.vstack((
+                        getattr(self, f"errors_avg_{window_size}"),
+                        errors
+                    )))
             # print("Pelvis height :", xyz[-1])
             print(pos_command_b)
             ###################### Hand design navigation ######################
@@ -1029,7 +1078,7 @@ class Controller:
                     # print("pos command mean : ", np.mean(self.pos_error_bs[-self.NUM_AVG:, :].reshape((self.NUM_AVG,))))
                     # print("heading error mean : ", np.mean(np.abs(self.heading_error_bs[-self.NUM_AVG:, :]).reshape((self.NUM_AVG,))))
                     if np.mean(self.pos_error_bs[-self.NUM_AVG:, :].reshape((self.NUM_AVG,))) < self.ERROR_THRESHOLD \
-                        and np.mean(np.abs(self.heading_error_bs[-self.NUM_AVG:, :]).reshape((self.NUM_AVG,))) < 0.05:
+                        and np.mean(np.abs(self.heading_error_bs[-self.NUM_AVG:, :]).reshape((self.NUM_AVG,))) < 0.1:
                         if self.stop_locomotion is not True :
                             self.stop_time = (self.counter-400) * self.config.control_dt
                         self.stop_locomotion = True
@@ -1042,18 +1091,18 @@ class Controller:
                     # self.locomotion_vel_command[:2] = np.clip(np.sign(pos_command_b[:2]) * MAX_LIN_VEL * np.sqrt(np.abs(pos_command_b[:2] / SLOW_BOUND)), -MAX_LIN_VEL, MAX_LIN_VEL)
                     # X >= 0
                     if pos_command_b[0] >= 0:
-                        self.locomotion_vel_command[0] = np.clip(0.07 * np.sqrt(np.abs(pos_command_b[0] / 0.8)), 0., 0.07)
+                        self.locomotion_vel_command[0] = np.clip(0.08 * np.sqrt(np.abs(pos_command_b[0] / 0.8)), 0., 0.08)
                     # X < 0
                     if pos_command_b[0] < 0:
-                        self.locomotion_vel_command[0] = np.clip(-0.3 * np.sqrt(np.abs(pos_command_b[0] / 0.1)), -0.3, 0.)
+                        self.locomotion_vel_command[0] = np.clip(-0.3 * np.sqrt(np.abs(pos_command_b[0] / 0.15)), -0.3, 0.)
                     # Y >= 0
                     if pos_command_b[1] >= 0:
-                        self.locomotion_vel_command[1] = np.clip(0.1 * np.sqrt(np.abs(pos_command_b[1] / 0.2)), 0., 0.1)
+                        self.locomotion_vel_command[1] = np.clip(0.2 * np.sqrt(np.abs(pos_command_b[1] / 0.2)), 0., 0.2)
                     # Y < 0
                     if pos_command_b[1] < 0:
                         self.locomotion_vel_command[1] = np.clip(-0.2 * np.sqrt(np.abs(pos_command_b[1] / 0.2)), -0.2, 0.)
 
-                    self.locomotion_vel_command[2] = np.clip(np.sign(heading_error) * 0.3 * np.sqrt(np.abs(heading_error / self.SLOW_BOUND)), -0.2, 0.2)
+                    self.locomotion_vel_command[2] = np.clip(np.sign(heading_error) * 0.3 * np.sqrt(np.abs(heading_error / 0.4)), -0.3, 0.3)
 
                 if self.stop_locomotion:
                     self.locomotion_vel_command = np.array([0., 0., 0.])
@@ -1315,6 +1364,10 @@ class Controller:
             kps[-7:] = self.config.eetrack_right_arm_kps
             kds[-7:] = self.config.eetrack_right_arm_kds
 
+            ################# change lower body Kp, Kd values due to overheating #################
+            kps[:15] = self.config.eetrack_lower_body_kps
+            kds[:15] = self.config.eetrack_lower_body_kds
+
         elif self.task == "sit":
             kds = np.array(self.config.sit_kds).astype(np.float32).copy()
 
@@ -1348,7 +1401,7 @@ class Controller:
         
         # self.locomotion_observations = np.vstack((self.locomotion_observations, self.obs))
         # self.locomotion_actions = np.vstack((self.locomotion_actions, self.locomotion_action))
-        # self.locomotion_vel_traj = np.vstack((self.locomotion_vel_traj, self.locomotion_vel_command))
+        self.locomotion_vel_traj = np.vstack((self.locomotion_vel_traj, self.locomotion_vel_command))
         self.root_states_w = np.vstack((self.root_states_w, self.root_state_w))
 
         self.target_dof_poss = np.vstack((self.target_dof_poss, target_dof_pos))
@@ -1365,7 +1418,7 @@ class Controller:
         elif self.task == "eetrack":
             self.target_poses_w = np.vstack((self.target_poses_w, self.target_pose_w))
             self.target_poses_b = np.vstack((self.target_poses_b, self.target_pose_b))
-            ee_pos_w, ee_quat_w = body_pose(self.tf_buffer, "end_effector", "world", rot_type="quat")
+            ee_pos_w, ee_quat_w = body_pose(self.tf_buffer, "end_effector", "mid_sole_link", rot_type="quat")
             self.ee_poses_w = np.vstack((self.ee_poses_w, np.concatenate((ee_pos_w, ee_quat_w))))
             ee_pos_b, ee_quat_b = body_pose(self.tf_buffer, "end_effector", "pelvis", rot_type="quat")
             self.ee_poses_b = np.vstack((self.ee_poses_b, np.concatenate((ee_pos_b, ee_quat_b))))
@@ -1408,6 +1461,13 @@ class Controller:
             "ee_poses_w": self.ee_poses_w,
             "ee_poses_b": self.ee_poses_b,
             "target_trajopt_joint_pos": self.trajopt_target_joint_pos_traj,
+            "locomotion_vel_cmd": self.locomotion_vel_traj,
+
+            # nav error
+            "errors_avg_10" : self.errors_avg_10,
+            "errors_avg_20" : self.errors_avg_20,
+            "errors_avg_30" : self.errors_avg_30,
+            "errors_avg_40" : self.errors_avg_40,
         }
         log_data = {
             "metrics": metrics,
