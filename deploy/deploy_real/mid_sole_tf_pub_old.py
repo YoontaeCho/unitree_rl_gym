@@ -91,7 +91,7 @@ class MidSoleTFPublisher(Node):
         # corresponding tf variables
         t.header.stamp = self.get_clock().now().to_msg()
         t.header.frame_id = 'pelvis'
-        t.child_frame_id = 'mid_sole_link'
+        t.child_frame_id = 'mid_sole_link_old'
 
         left_sole_pos, left_sole_quat = body_pose(
             self.tf_buffer,
@@ -116,20 +116,18 @@ class MidSoleTFPublisher(Node):
         t.transform.translation.y = mid_sole_pos[1]
         t.transform.translation.z = mid_sole_pos[2]
 
-        # t.transform.rotation.w = mid_sole_quat[0]
-        # t.transform.rotation.x = mid_sole_quat[1]
-        # t.transform.rotation.y = mid_sole_quat[2]
-        # t.transform.rotation.z = mid_sole_quat[3]
-
-        world_from_pelvis_quat = np.asarray(msg.imu_state.quaternion, dtype=np.float32)
-        world_from_pelvis_quat = quat_inv(quat_mul(quat_inv(yaw_quat(world_from_pelvis_quat)), world_from_pelvis_quat)).astype(float)
-        t.transform.rotation.w = world_from_pelvis_quat[0]
-        t.transform.rotation.x = world_from_pelvis_quat[1]
-        t.transform.rotation.y = world_from_pelvis_quat[2]
-        t.transform.rotation.z = world_from_pelvis_quat[3]
+        t.transform.rotation.w = mid_sole_quat[0]
+        t.transform.rotation.x = mid_sole_quat[1]
+        t.transform.rotation.y = mid_sole_quat[2]
+        t.transform.rotation.z = mid_sole_quat[3]
 
         # Send the transformation
         self.tf_broadcaster.sendTransform(t)
+
+        mid_sole_link_pos, mid_sole_link_quat = body_pose(self.tf_buffer, "mid_sole_link", "pelvis", rot_type="quat")
+
+        rpy_diff = (R.from_quat(np.roll(mid_sole_quat,-1)).inv() * R.from_quat(np.roll(mid_sole_link_quat,-1))).as_euler("xyz")
+        print("RPY diff:", rpy_diff)
 
         # if True:
 

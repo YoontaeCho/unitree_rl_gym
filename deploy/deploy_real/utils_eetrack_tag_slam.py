@@ -151,10 +151,10 @@ class eetrack:
         self.tf_buffer = tf_buffer
         
         self.eetrack_line_length = 0.10
-        self.eetrack_vel = 0.007
+        self.eetrack_vel = 0.005
 
         # Welding offset from the line
-        self.offset_len = 0.028
+        self.offset_len = 0.023
 
         self.step_dt = 0.02
         self.dt_segment_length = self.eetrack_vel * self.step_dt # 0.0002
@@ -405,6 +405,7 @@ class eetrack:
             self.sg_idx = min(self.sg_idx , self.to_eetrack_sgs_num + self.number_of_subgoals + 1)
         # FIXME
         # self.sg_idx = 0
+        print("Percent:", self.sg_idx/(self.to_eetrack_sgs_num + self.number_of_subgoals + 1))
         self.next_command_s_left = self.eetrack_subgoal[..., self.sg_idx, :]
 
     def get_command(self, root_state_w):
@@ -463,11 +464,11 @@ class eetrack:
 
         # Manual offset due to calibration error and vision error.
         eetrack_y_axis = eetrack_mat[:,1]
-        eetrack_start_pos_w += 0.01 * eetrack_y_axis
-        eetrack_end_pos_w += 0.01 * eetrack_y_axis
+        eetrack_start_pos_w += 0.0 * eetrack_y_axis
+        eetrack_end_pos_w += 0.0 * eetrack_y_axis
 
         eetrack_z_axis = eetrack_mat[:,2]
-        eetrack_start_pos_w += -0.003 * eetrack_z_axis
-        eetrack_end_pos_w += -0.003 * eetrack_z_axis
+        eetrack_start_pos_w += -0.005 * eetrack_z_axis
+        eetrack_end_pos_w += -0.005 * eetrack_z_axis
 
         return eetrack_start_pos_w, eetrack_start_quat_w, eetrack_end_pos_w, eetrack_end_quat_w
