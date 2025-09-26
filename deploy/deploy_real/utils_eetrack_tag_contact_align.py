@@ -146,20 +146,27 @@ class Range:
         self.dz_local = dz_local
 
 class eetrack:
-    def __init__(self, root_state_w, tf_buffer, clock, to_start=False, start_ee_pos=None, start_ee_quat=None, welding_points_from_vision=None):
+    def __init__(
+        self,
+        root_state_w,
+        tf_buffer,
+        clock,
+        eetrack_vel=0.005,
+        start_pos_w=None,
+        end_pos_w=None,
+        to_start=False,
+        inverse_y=False
+    ):
         self.clock = clock
         self.tf_buffer = tf_buffer
         
-        self.eetrack_line_length = 0.10
-        self.eetrack_vel = 0.005
+        self.eetrack_vel = eetrack_vel
 
         # Welding offset from the line
         self.offset_len = 0.015
 
         self.step_dt = 0.02
         self.dt_segment_length = self.eetrack_vel * self.step_dt # 0.0002
-        self.non_first_subgoal_sampling_time = self.dt_segment_length / self.eetrack_vel
-        self.number_of_subgoals = int(self.eetrack_line_length / self.dt_segment_length) # 0.1 / 0.0002 = 500
         
         self.device = "cpu"
         self.sg_idx = 0
@@ -173,7 +180,6 @@ class eetrack:
         # self.eetrack_end_w, self.eetrack_end_quat_w = body_pose(self.tf_buffer, "eetrack_end", "mid_sole_link", rot_type="quat")
 
         # Hard-coded due to tf subscription error.
-        # self.eetrack_start_w, self.eetrack_start_quat_w = np.array([0.2890, -0.3831,  0.3067]), np.array([-0.8831, -0.1125, -0.3658,  0.2715])
         # self.eetrack_start_w, self.eetrack_start_quat_w = np.array([0.3030, -0.3624,  0.3067]), np.array([-0.8831, -0.1125, -0.3658,  0.2715])
         # self.eetrack_end_w, self.eetrack_end_quat_w = np.array([0.2188, -0.4865,  0.3067]), np.array([-0.8831, -0.1125, -0.3658,  0.2715])
         
@@ -183,7 +189,7 @@ class eetrack:
         data["pos"][:,2] += 0.01
 
         
-        if welding_points_from_vision is None:
+        if start_pos_w is None or end_pos_w is None:
             target_0_pos, target_0_quat = body_pose(
                     self.tf_buffer,
                     frame="end_effector",
@@ -204,29 +210,30 @@ class eetrack:
 
             self.eetrack_start_w, self.eetrack_start_quat_w = eetrack_start_w, eetrack_start_quat_w
             self.eetrack_end_w, self.eetrack_end_quat_w = eetrack_end_w, eetrack_end_quat_w
+
+            # TODO: remove after testing
+            self.eetrack_start_w, self.eetrack_start_quat_w = np.array([0.3030, -0.3624,  0.3067]), np.array([-0.8831, -0.1125, -0.3658,  0.2715])
+            self.eetrack_end_w, self.eetrack_end_quat_w = np.array([0.2188, -0.4865,  0.3067]), np.array([-0.8831, -0.1125, -0.3658,  0.2715])
         else:
-            welding_start_pos_w = welding_points_from_vision[0, :]
-            welding_end_pos_w = welding_points_from_vision[-1, :]
+            welding_start_pos_w = start_pos_w.copy()
+            welding_end_pos_w = end_pos_w.copy()
             eetrack_start_pos_w, eetrack_start_quat_w, eetrack_end_pos_w, eetrack_end_quat_w = eetrack.get_eetrack_pos_quat(
                 welding_start_pos_w,
                 welding_end_pos_w,
                 offset_len=self.offset_len,
                 approach_deg=45.0,
+                inverse_y=inverse_y
             )
             self.eetrack_start_w, self.eetrack_start_quat_w = eetrack_start_pos_w, eetrack_start_quat_w
             self.eetrack_end_w, self.eetrack_end_quat_w = eetrack_end_pos_w, eetrack_end_quat_w
 
-
-        self.to_start = to_start
-        if not self.to_start:
+        if to_start:
+            self.create_eetrack()
+            self.eetrack_subgoal = self.create_subgoal_to_start()
+        else:
             self.create_eetrack()
             self.eetrack_subgoal = self.create_subgoal()
-        else:
-            self.eetrack_subgoal = self.create_subgoal_to_start(start_ee_pos, start_ee_quat)
 
-        self.is_initial_goal = True
-        self.is_initial_eetrack = True
-        # self.start_eetrack = False
 
     def create_eetrack(self):
         self.eetrack_line_length = np.linalg.norm(self.eetrack_start_w - self.eetrack_end_w)
@@ -247,33 +254,12 @@ class eetrack:
             rot_type='quat'
         )
         
-        to_z_num = 25
-        z_to_eetrack_sgs_num = 200
-        if False:
-            self.to_eetrack_sgs_num = to_z_num + z_to_eetrack_sgs_num
-        else:
-            # self.to_eetrack_sgs_num = to_z_num * len(waypoints) + z_to_eetrack_sgs_num
-            self.to_eetrack_sgs_num = z_to_eetrack_sgs_num
-        ################# pose interpolation ##################
-        # pos_hand_w_left_high_z = waipoint 1
-        pos_hand_w_left_high_z = pos_hand_w_left.copy()
-        pos_hand_w_left_high_z[0] = 0.5*pos_hand_w_left[0] + 0.5*self.eetrack_start_th_w[0,0].item()
-        pos_hand_w_left_high_z[1] = 0.5*pos_hand_w_left[1] + 0.5*self.eetrack_start_th_w[0,1].item()
-        pos_hand_w_left_high_z[2] = self.eetrack_start_th_w[0,2].item()
-        
-        # initial hand pos -> eetrack start pos
-        # 1. initial hand pos -> waypoint 1
-        # to_eeline_subgoals = interpolate_position(
-        #     torch.tensor(pos_hand_w_left).unsqueeze(0),
-        #     torch.tensor(pos_hand_w_left_high_z).unsqueeze(0),
-        #     to_z_num
-        # )
-
-        # 2. waypoint 1 -> eetack start
+        to_eetrack_sgs_num = 50
+        # 1. current hand pose -> eetack start
         to_eeline_subgoals = interpolate_position(
             torch.tensor(pos_hand_w_left).unsqueeze(0),
             self.eetrack_start_th_w,
-            z_to_eetrack_sgs_num
+            to_eetrack_sgs_num
         )
         
         # eetrack start pos -> eetrack end pos
@@ -284,8 +270,6 @@ class eetrack:
             self.eetrack_end_th_w,
             self.number_of_subgoals,
         )
-
-        # self.to_eeline_subgoals_len = len(to_eeline_subgoals)
 
         eetrack_subgoals = to_eeline_subgoals + on_eeline_subgoals
         
@@ -311,7 +295,7 @@ class eetrack:
         z_to_eetrack_quat = interpolate_quaternion(
             quat_hand_w_left,
             self.eetrack_quat_w,
-            z_to_eetrack_sgs_num
+            to_eetrack_sgs_num
         ).unsqueeze(0)
         lerped_quats.append(z_to_eetrack_quat)
 
@@ -323,11 +307,11 @@ class eetrack:
         
         eetrack_quat = torch.cat([to_eetrack_quat, on_eetrack_quat], dim=1)
 
+        self.number_of_subgoals += to_eetrack_sgs_num
+
         return th.cat([eetrack_subgoals, eetrack_quat], dim=2)
     
-    def create_subgoal_to_start(self, start_ee_pos, start_ee_quat):
-        self.number_of_subgoals = 0
-
+    def create_subgoal_to_start(self):
         # initial hand pos
         pos_hand_w_left, quat_hand_w_left = body_pose(
             self.tf_buffer,
@@ -336,48 +320,21 @@ class eetrack:
             rot_type='quat'
         )
 
-        to_z_num = 200
-        z_to_eetrack_sgs_num = 200
-        self.to_eetrack_sgs_num = to_z_num + z_to_eetrack_sgs_num
-
-        # pos_hand_w_left[2] += 0.01
-        pos_hand_w_left_high_z = pos_hand_w_left.copy()
-        T = matrix_from_quat(yaw_quat(quat_hand_w_left))
-        pos_hand_w_left_high_z += -0.1*T[:3,0]
+        self.to_start_line_length = np.linalg.norm(pos_hand_w_left - self.eetrack_start_w)
+        self.number_of_subgoals = int(self.to_start_line_length / self.dt_segment_length)
 
         to_start_subgoals = interpolate_position(
             th.tensor(pos_hand_w_left).unsqueeze(0),
-            th.tensor(pos_hand_w_left_high_z).unsqueeze(0),
-            to_z_num,
+            self.eetrack_start_th_w,
+            self.number_of_subgoals,
         )
-        to_start_subgoals += interpolate_position(
-            th.tensor(pos_hand_w_left_high_z).unsqueeze(0),
-            th.tensor(start_ee_pos).unsqueeze(0),
-            z_to_eetrack_sgs_num,
-        )
-
-
-
         to_start_subgoals = th.stack(to_start_subgoals, dim=1)
 
-
-        lerped_quats = []
-        lerped_quats.append(interpolate_quaternion(
+        to_start_quat = interpolate_quaternion(
             quat_hand_w_left,
-            th.from_numpy(quat_hand_w_left)[None],
-            to_z_num,
-        ).unsqueeze(0))
-
-        lerped_quats.append(interpolate_quaternion(
-            quat_hand_w_left,
-            th.from_numpy(start_ee_quat)[None],
-            z_to_eetrack_sgs_num,
-        ).unsqueeze(0))
-
-        to_start_quat = th.cat(
-            lerped_quats,
-            dim=1,
-        )
+            self.eetrack_quat_w,
+            self.number_of_subgoals,
+        ).unsqueeze(0)
 
         return th.cat([to_start_subgoals, to_start_quat], dim=2)
 
@@ -387,25 +344,10 @@ class eetrack:
         initial_goal: True if this is the first command.
         initial_goal should be given as True or False by user.
         """
-        if self.is_initial_goal:
-            self.sg_idx = 0
-            # self.eetrack_subgoal = self.create_subgoal()
-            # self.init_time = self.clock.get_time()
-        elif self.is_initial_eetrack:
-            self.sg_idx += 1
-            self.sg_idx = min(self.sg_idx , self.to_eetrack_sgs_num + 1)
-        else:
-            # print(rp.time.Time().nanoseconds)
-            # time = (self.clock.get_time() - self.init_time).nanoseconds / 1e9
-            # if (time >= 1.0):
-            #     # subgoal is updated on every 0.02s
-            #     update_time = 0.02
-            #     self.sg_idx = int((time - 1) / update_time + 1)
-            self.sg_idx += 1
-            self.sg_idx = min(self.sg_idx , self.to_eetrack_sgs_num + self.number_of_subgoals + 1)
-        # FIXME
+        self.sg_idx += 1
+        self.sg_idx = min(self.sg_idx , self.number_of_subgoals)
         # self.sg_idx = 0
-        print("Percent:", self.sg_idx/(self.to_eetrack_sgs_num + self.number_of_subgoals + 1))
+        print("Percent:", self.sg_idx/self.number_of_subgoals)
         self.next_command_s_left = self.eetrack_subgoal[..., self.sg_idx, :]
 
     def get_command(self, root_state_w):
@@ -442,12 +384,22 @@ class eetrack:
     
 
     @staticmethod
-    def get_eetrack_pos_quat(welding_start_pos_w, welding_end_pos_w, offset_len=0.01, approach_deg=45.0):
+    def get_eetrack_pos_quat(
+        welding_start_pos_w, 
+        welding_end_pos_w, 
+        offset_len=0.01, 
+        approach_deg=45.0,
+        inverse_y=False
+        ):
         # Computing the quaternion of welder (compute approaching vector of welder)
         # Assume the point is in world frame.
         z_up_axis = np.array([0,0,1])
         # Assume the start point is in left (+y) and the end point is in right (-y)
-        y_axis = welding_start_pos_w - welding_end_pos_w
+        if not inverse_y:
+            y_axis = welding_start_pos_w - welding_end_pos_w
+        else:
+            y_axis = welding_end_pos_w - welding_start_pos_w
+
         y_axis = y_axis / np.linalg.norm(y_axis)
         x_axis = np.cross(y_axis, z_up_axis)
         z_up_mat = np.stack([x_axis, y_axis, z_up_axis], axis=1)

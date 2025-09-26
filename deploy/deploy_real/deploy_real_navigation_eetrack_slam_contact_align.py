@@ -31,7 +31,7 @@ from std_msgs.msg import Bool, Empty
 import utils_robot as ur
 import utils_locomotion as ul
 import utils_stage as us
-import utils_eetrack_tag_slam as ue
+import utils_eetrack_tag_contact_align as ue
 from scipy.spatial.transform import Rotation as R
 
 from std_msgs.msg import Float64MultiArray
@@ -111,7 +111,8 @@ def body_pose(
         frame: str,
         ref_frame: str = 'pelvis',
         stamp=None,
-        rot_type: str = 'axa'):
+        rot_type: str = 'axa',
+        return_stamp=False,):
     """ --> tf does not exist """
     # global _last_tf
     if stamp is None:
@@ -138,9 +139,15 @@ def body_pose(
     if rot_type == 'axa':
         axa = axis_angle_from_quat(quat_wxyz)
         axa = wrap_to_pi(axa)
-        return (xyz, axa)
+        if return_stamp:
+            return (xyz, axa, t.header.stamp)
+        else:
+            return (xyz, axa)
     elif rot_type == 'quat':
-        return (xyz, quat_wxyz)
+        if return_stamp:
+            return (xyz, quat_wxyz, t.header.stamp)
+        else:
+            return (xyz, quat_wxyz)
     raise ValueError(f"Unknown rot_type: {rot_type}")
 
 
@@ -174,6 +181,22 @@ def interpolate_array_by_float_index(array, index):
     interpolated_value = left_value + (right_value - left_value) * fraction
     
     return interpolated_value
+
+
+def interpolate_position(pos1, pos2, n_segments):
+    increments = (pos2 - pos1) / n_segments
+    interp_pos = [pos1 + increments * p for p in range(n_segments)]
+    interp_pos.append(pos2)
+    return interp_pos
+
+
+def interpolate_quaternion(quat1, quat2, n_segments):
+    quat1 = th.from_numpy(quat1[None, None, ...])
+    quat2 = quat2[None, ...]
+    t = th.linspace(0, 1, n_segments + 1).view(1, -1, 1)
+    interp_q = math_utils.slerp_vectorized(quat1, quat2, t)
+    interp_q = interp_q[0]
+    return interp_q
 
 
 from common.rotation_helper import get_gravity_orientation, transform_imu_data
@@ -377,9 +400,15 @@ class Controller:
         self.zed_optical_frame = "zed2i_left_camera_optical_frame"
 
         ######################### eetrack #########################
+        self.contact_align_target_point : Literal["start_point", "end_point"] = "start_point"
+        self.contact_aligned_start_ee_pose = None
+        self.contact_aligned_end_ee_pose = None
+
         self.eetrack_command = None
         self.is_eetrack_first_iter = True
-        self.is_go_start = False
+
+        self.ee_z_down = None
+        self.ee_z_up = None
 
         self.weld_dx = 0.0
         self.weld_dy = 0.0
@@ -398,7 +427,7 @@ class Controller:
             'trajopt_single_ee',
         )
         self._node.get_logger().info("Waiting for trajopt action server...")
-        # self._action_client.wait_for_server()
+        self._action_client.wait_for_server()
 
         self.act_joint = config.ik_joint
         self.ikctrl = IKCtrl('../../resources/robots/g1_description/g1_29dof_rev_1_0_zed2i_with_welder_v3.urdf',
@@ -544,7 +573,10 @@ class Controller:
         self.zed_pose_w = np.concatenate([t, q])
         pts_world = self.apply_transform_to_points(pts_zed, t, q)
 
-        self.welding_points_from_vision = pts_world
+        self.welding_points_from_vision = pts_world.copy()
+        # Move start position to right, end position to left.
+        self.welding_points_from_vision[0] = 0.8*pts_world[0] + 0.2*pts_world[-1]
+        self.welding_points_from_vision[-1] = 0.2*pts_world[0] + 0.8*pts_world[-1]
         self._node.get_logger().info(f"Welding points recieved: {self.welding_points_from_vision}")
 
         # Disable after recieve
@@ -793,19 +825,178 @@ class Controller:
             GoalStatus.STATUS_ABORTED,
             GoalStatus.STATUS_CANCELED,
         )
+    
+
+    def solve_ik(self, target_pose_b):
+        # Get current joint positions
+        qj = np.zeros(self.num_joints, dtype=np.float32)
+        for i_mot in range(len(self.config.motor_joint)):
+            i_pin = self.pin_from_mot[i_mot]
+            qj[i_pin] = self.low_state.motor_state[i_mot].q
+
+        gravity_vec = 9.81*self.sit_obsmap._projected_gravity_from_lowstate(self.low_state)
+        res_q, arm_nle = self.ikctrl(qj,
+                                    target_pose_b,
+                                    rel=False,
+                                    gravity_vec=gravity_vec,
+                                    )
+        res_q = 2*res_q
+
+        target_dof_pos = self.sit_target_dof_pos.copy()
+        target_tau = np.zeros(self.num_joints, dtype=np.float32)
+        for i_act in range(len(res_q)):
+            i_mot = self.mot_from_act[i_act]
+            i_pin = self.pin_from_mot[i_mot]
+            target_q_i = (
+                    self.low_state.motor_state[i_mot].q + res_q[i_act]
+            )
+            target_q_i = np.clip(target_q_i,
+                            self.lim_lo_pin[i_pin],
+                            self.lim_hi_pin[i_pin])
+            target_dof_pos[i_mot] = target_q_i
+            target_tau[i_mot] = arm_nle[i_act]
+
+        return target_dof_pos, target_tau
+
+    def get_locomotion_command(self):
+        self.stop_locomotion = False
+        self.navigation_counter = 0
+        # NOTE (bk): what's this if statement? needs to be re-written
+        if np.any(
+            np.abs(np.array([self.remote_controller.ly, self.remote_controller.lx, self.remote_controller.rx])) > 0.
+        ) or self.minimum_locomotion_iter != 0:
+
+            if self.minimum_locomotion_iter == 0:
+                self.minimum_locomotion_iter = 100
+            self.minimum_locomotion_iter -= 1
+
+            v_x = np.clip(self.remote_controller.ly, -0.25, 0.1)
+            v_y = np.clip(self.remote_controller.lx * -1, -0.16, 0.16)
+            v_z = np.clip(self.remote_controller.rx * -1, -0.5, 0.5)
+
+            self.locomotion_vel_command[0] = v_x
+            self.locomotion_vel_command[1] = v_y
+            self.locomotion_vel_command[2] = v_z
+
+            phase = (self.locomotion_counter * 0.02) % 1.0 / 1.0
+            self.locomotion_counter += 1
+
+        else:
+            self.locomotion_vel_command = np.zeros(3)
+            phase = self.locomotion_counter = 0
+        
+        return phase
+    
+    def get_navigation_command(self, xyz, quat_wxyz):
+        ###################### Compute state ######################
+        # Pelvis heading direction
+        forward_w = quat_apply(quat_wxyz.astype(np.float32), np.array([1., 0., 0.]).astype(np.float32))
+        pelvis_heading_w = np.arctan2(forward_w[1], forward_w[0])
+
+        heading_error = wrap_to_pi(np.array([self.pelvis_heading_target]).astype(np.float32) - np.array([pelvis_heading_w]).astype(np.float32))
+
+        target_vec = self.pelvis_pos_target - xyz
+        target_vec[2] = 0.0
+        self.pos_command_b = quat_rotate_inverse(yaw_quat(quat_wxyz).astype(np.float32), target_vec.astype(np.float32))
+
+        self.pos_error_bs = np.vstack((self.pos_error_bs, np.linalg.norm(self.pos_command_b[:2]).reshape((1,1))))
+        self.heading_error_bs = np.vstack((self.heading_error_bs, heading_error.reshape(1,1)))
+
+        if self.pos_error_bs.shape[0] > 50:
+            for window_size in [10, 20, 30, 40]:
+                translational_error = np.mean(self.pos_error_bs[-window_size:, :].reshape((window_size,)))
+                rotational_error = np.mean(np.abs(self.heading_error_bs[-window_size:, :]).reshape((window_size,)))
+                errors = np.array([translational_error, rotational_error])
+
+                setattr(self, f"errors_avg_{window_size}", np.vstack((
+                    getattr(self, f"errors_avg_{window_size}"),
+                    errors
+                )))
+        # print("Pelvis height :", xyz[-1])
+        print(self.pos_command_b)
+        ###################### Hand design navigation ######################
+        if True:
+            if self.pos_error_bs.shape[0] > self.NUM_AVG:
+                # print("pos command mean : ", np.mean(self.pos_error_bs[-self.NUM_AVG:, :].reshape((self.NUM_AVG,))))
+                # print("heading error mean : ", np.mean(np.abs(self.heading_error_bs[-self.NUM_AVG:, :]).reshape((self.NUM_AVG,))))
+                if np.mean(self.pos_error_bs[-self.NUM_AVG:, :].reshape((self.NUM_AVG,))) < self.ERROR_THRESHOLD \
+                    and np.mean(np.abs(self.heading_error_bs[-self.NUM_AVG:, :]).reshape((self.NUM_AVG,))) < 0.1:
+                    if self.stop_locomotion is not True :
+                        self.stop_time = (self.counter-400) * self.config.control_dt
+                    self.stop_locomotion = True
+
+            if self.counter % 10 == 0:
+                # self.locomotion_vel_command[:2] = np.clip(np.sign(pos_command_b[:2]) * MAX_LIN_VEL * np.sqrt(np.abs(pos_command_b[:2] / SLOW_BOUND)), -MAX_LIN_VEL, MAX_LIN_VEL)
+                # X >= 0
+                # X >= 0
+                if self.pos_command_b[0] >= 0:
+                    self.locomotion_vel_command[0] = np.clip(0.1 * np.sqrt(np.abs(self.pos_command_b[0] / 0.8)), 0., 0.1)
+                # X < 0
+                if self.pos_command_b[0] < 0:
+                    self.locomotion_vel_command[0] = np.clip(-0.3 * np.sqrt(np.abs(self.pos_command_b[0] / 0.3)), -0.3, 0.)
+                # Y >= 0
+                if self.pos_command_b[1] >= 0:
+                    self.locomotion_vel_command[1] = np.clip(0.2 * np.sqrt(np.abs(self.pos_command_b[1] / 0.3)), 0., 0.2)
+                # Y < 0
+                if self.pos_command_b[1] < 0:
+                    self.locomotion_vel_command[1] = np.clip(-0.1 * np.sqrt(np.abs(self.pos_command_b[1] / 0.3)), -0.1, 0.)
+                
+                self.locomotion_vel_command[2] = np.clip(np.sign(heading_error) * 0.3 * np.sqrt(np.abs(heading_error / 0.4)), -0.3, 0.3)
 
 
-    def run_policy(self):
-        ############################# MAIN LOOP #############################
-        # If the button A is pressed, then finish the policy.
-        if self.remote_controller.button[KeyMap.A] == 1:
-            self._mode_change = True
-            self.mode = Mode.finish
-            return
+            if self.stop_locomotion:
+                self.locomotion_vel_command = np.array([0., 0., 0.])
+                phase = 0.0
 
-        self.counter += 1
+        if self.navigation_counter < 100:
+            # vel cmd smoothing
+            alpha = self.navigation_counter / 100
+            self.locomotion_vel_command = np.zeros(3) * (1-alpha) + self.locomotion_vel_command * alpha
+        
+            self.navigation_counter += 1
 
-        print(f"CURRENT TIME : {round(self.counter * 0.02, 4)} s")
+        return phase
+
+    def run_sit_policy(self, xyz):
+        if self.remote_controller.button[KeyMap.down] == 1:
+            self.sitting = True
+        if self.remote_controller.button[KeyMap.up] == 1:
+            self.sitting = False
+
+        height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.00, sitting=self.sitting)
+
+        # For stage 1 & 2.
+        self.obs = self.sit_obsmap(self.low_state, height_command, xyz)
+
+        obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
+        obs_tensor = obs_tensor.detach().clone().float()
+        self.sit_action = self.sit_policy(obs_tensor).detach().numpy().squeeze()
+
+        # target_dof_pos : motor joint ordered
+        self.sit_target_dof_pos = self.sit_actmap(self.sit_action)
+
+        if self.sit_counter < 100:
+            alpha = self.sit_counter / 100
+            self.run_locomotion_policy(phase=0.0)
+
+            self.sit_target_dof_pos = self.locomotion_target_dof_pos
+            arm_pos = (
+                np.zeros_like(self.locomotion_actmap.lab_arm_offset) * (1-alpha)
+                + np.array(self.locomotion_actmap.lab_arm_offset) * alpha
+                )
+            self.sit_target_dof_pos[self.locomotion_actmap.mot_from_lab_upper_joints] = arm_pos
+            self.sit_counter += 1
+        
+    def run_locomotion_policy(self, phase):
+        self.obs = self.locomotion_obsmap(self.low_state, self.locomotion_vel_command, phase, last_action=self.locomotion_last_action)
+        obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
+        obs_tensor = obs_tensor.detach().clone().float()
+        self.locomotion_action = self.locomotion_policy(obs_tensor).detach().numpy().squeeze()
+        self.locomotion_last_action = self.locomotion_action
+
+        self.locomotion_target_dof_pos = self.locomotion_actmap(self.locomotion_action)
+    
+    def get_pelvis_from_world(self):
         if self.task in ["locomotion", "navigation"]:
             try:
                 world_from_pelvis = body_pose(
@@ -873,7 +1064,6 @@ class Controller:
                 world_from_pelvis = (p_a_d, q_a_d)
                 print(world_from_pelvis)
 
-
         else:
             world_from_pelvis = body_pose(
                 self.tf_buffer,
@@ -883,15 +1073,26 @@ class Controller:
                 # stamp=rp.time.Time()
             )
 
+        return world_from_pelvis
+    
+
+
+    ############################# MAIN LOOP #############################
+    def run_policy(self):
+        # If the button A is pressed, then finish the policy.
+        if self.remote_controller.button[KeyMap.A] == 1:
+            self._mode_change = True
+            self.mode = Mode.finish
+            return
+
+        self.counter += 1
+
+        world_from_pelvis = self.get_pelvis_from_world()
+
         xyz, quat_wxyz = world_from_pelvis
         self.root_state_w = np.zeros(7)
         self.root_state_w[0:3] = xyz
         self.root_state_w[3:7] = quat_wxyz
-
-        # print()
-        # print(f"Current pelvis height : {xyz[-1]}")
-
-
 
         # Add termination condition.
         if self.terminate_by_pelvis_condition(xyz, quat_wxyz):
@@ -961,26 +1162,117 @@ class Controller:
                 eetrack_start_quat_w,
             )
             self.send_ee_goal_to_trajopt(eetrack_start_pos_b, eetrack_start_quat_b)
-        if self.remote_controller.button[KeyMap.F1] == 1 and self.task == "trajopt":
+            
+        if self.remote_controller.button[KeyMap.F1] == 1:
+            if self.task == "trajopt":
+                # Start going to welding start position from vision
+                print("============== To Start mode activated ==============")
+                self.task = "to_start"
+
+                self.eetrack_command = ue.eetrack(
+                    th.from_numpy(self.root_state_w)[None],
+                    self.tf_buffer,
+                    clock,
+                    eetrack_vel=0.01,
+                    start_pos_w=self.welding_points_from_vision[0],
+                    end_pos_w=self.welding_points_from_vision[-1],
+                    to_start=True
+                )
+
+        if self.remote_controller.button[KeyMap.L1] == 1 and (self.task == "eetrack" or self.task == "to_start"):
+            # Perform contact align mode. Going to x axis direction (torch direction) of end-effector
+            # TODO: also do this in the end position of welding line.
+            print("============== Contact Align mode activated ==============")
+            if self.task == "eetrack":
+                self.contact_align_target_point = "end_point"
+            else:
+                self.contact_align_target_point = "start_point"
+
+            self.task = "contact_align"
+
+            self.prev_pos_ee_w = np.zeros(3)
+            self.prev_quat_ee_w = np.array([1,0,0,0])
+            self.prev_ee_stamp = self._node.get_clock().now().to_msg()
+
+            # Move end-effector to z-up axis of EE.
+            # self.ee_z_down = True
+            # Move end-effector to z-down axis of EE.
+            # self.ee_z_up = False
+            # Move end-effector to mid position of contacted up and down position.
+            # self.ee_z_mid = False
+
+            # Move end-effector to x-axis direction of EE.
+            self.ee_x_up = True
+
+            self.contact_align_start_pos_ee_w, self.contact_align_start_quat_ee_w = body_pose(
+                self.tf_buffer,
+                frame="end_effector",
+                ref_frame="mid_sole_link",
+                rot_type='quat'
+            )
+            # self.contact_align_dz = 0.0
+
+        if self.remote_controller.button[KeyMap.F2] == 1 and (self.task == "contact_align" or self.task == "to_start"):
+        # if self.remote_controller.button[KeyMap.F2] == 1 and self.task == "to_start":
             print("============== eetrack mode activated ==============")
             self.task = "eetrack"
-
-            start_ee_pos, start_ee_quat = body_pose(
-                self.tf_buffer,
-                'end_effector',
-                'mid_sole_link',
-                rot_type='quat'   
-            )
-
+            print("contact target mode: ", self.contact_align_target_point)
             # TODO We should have an assertion to prevent self.welding_points_from_vision being None
+            offset_from_ee_to_welding_object_when_fully_contacted = 0.0075
+            offset_from_ee_to_welding_object_on_z_axis = -0.002
+
+            if self.contact_align_target_point == "start_point":
+                start_pos_w = (
+                    self.contact_aligned_start_ee_pose[0] + 
+                    offset_from_ee_to_welding_object_when_fully_contacted*
+                    matrix_from_quat(self.contact_aligned_start_ee_pose[1])[:3,0] +
+                    # Add z-directional offset
+                    offset_from_ee_to_welding_object_on_z_axis *
+                    matrix_from_quat(self.contact_aligned_start_ee_pose[1])[:3,2]
+                )
+                x_offset_on_vision_point = -0.005
+                self.welding_points_from_vision[-1][0] += x_offset_on_vision_point
+                end_pos_w = self.welding_points_from_vision[-1]
+                inverse_y = False
+                eetrack_vel = 0.01
+
+            elif self.contact_align_target_point == "end_point":
+                start_pos_w = (
+                    self.contact_aligned_end_ee_pose[0] + 
+                    # Add x-directional offset
+                    offset_from_ee_to_welding_object_when_fully_contacted *
+                    matrix_from_quat(self.contact_aligned_end_ee_pose[1])[:3,0] +
+                    # Add z-directional offset
+                    offset_from_ee_to_welding_object_on_z_axis *
+                    matrix_from_quat(self.contact_aligned_end_ee_pose[1])[:3,2]
+                )
+                
+                end_pos_w = (
+                    self.contact_aligned_start_ee_pose[0] + 
+                    # Add x-directional offset
+                    offset_from_ee_to_welding_object_when_fully_contacted *
+                    matrix_from_quat(self.contact_aligned_start_ee_pose[1])[:3,0] +
+                    # Add z-directional offset
+                    offset_from_ee_to_welding_object_on_z_axis *
+                    matrix_from_quat(self.contact_aligned_start_ee_pose[1])[:3,2]
+                )
+                inverse_y = True
+                eetrack_vel = 0.005
+
             self.eetrack_command = ue.eetrack(
                 th.from_numpy(self.root_state_w)[None],
                 self.tf_buffer,
-                clock, to_start=False, 
-                start_ee_pos=start_ee_pos,
-                  start_ee_quat=start_ee_quat,
-                  welding_points_from_vision = self.welding_points_from_vision)
-
+                clock,
+                eetrack_vel=eetrack_vel,
+                # start_pos_w=self.welding_points_from_vision[0],
+                # use prev_pos_ee_w from the last contact-align as the welding start position.
+                # start position of welding line on welding object.
+                start_pos_w=start_pos_w,
+                # end position of welding line on welding object.
+                end_pos_w=end_pos_w,
+                to_start=False,
+                inverse_y=inverse_y
+            )
 
         if self.is_apriltag_detection_on and self.task in ["locomotion", "navigation"]:
             try:
@@ -1000,156 +1292,22 @@ class Controller:
 
         ############################################ LOCOMOTION ############################################
         if self.task == "locomotion":
-
-            self.stop_locomotion = False
-            self.navigation_counter = 0
-            # NOTE (bk): what's this if statement? needs to be re-written
-            if np.any(
-                np.abs(np.array([self.remote_controller.ly, self.remote_controller.lx, self.remote_controller.rx])) > 0.
-            ) or self.minimum_locomotion_iter != 0:
-
-                if self.minimum_locomotion_iter == 0:
-                    self.minimum_locomotion_iter = 100
-                self.minimum_locomotion_iter -= 1
-
-                v_x = np.clip(self.remote_controller.ly, -0.25, 0.1)
-                v_y = np.clip(self.remote_controller.lx * -1, -0.16, 0.16)
-                v_z = np.clip(self.remote_controller.rx * -1, -0.5, 0.5)
-
-                self.locomotion_vel_command[0] = v_x
-                self.locomotion_vel_command[1] = v_y
-                self.locomotion_vel_command[2] = v_z
-
-                phase = (self.locomotion_counter * 0.02) % 1.0 / 1.0
-                self.locomotion_counter += 1
-
-            else:
-                self.locomotion_vel_command = np.zeros(3)
-                phase = self.locomotion_counter = 0
+            phase = self.get_locomotion_command()
         
         ############################################ NAVIGATION ############################################
         elif self.task == "navigation":
-
-            ###################### Compute state ######################
-            # Pelvis heading direction
-            forward_w = quat_apply(quat_wxyz.astype(np.float32), np.array([1., 0., 0.]).astype(np.float32))
-            pelvis_heading_w = np.arctan2(forward_w[1], forward_w[0])
-
-            heading_error = wrap_to_pi(np.array([self.pelvis_heading_target]).astype(np.float32) - np.array([pelvis_heading_w]).astype(np.float32))
-
-            target_vec = self.pelvis_pos_target - xyz
-            target_vec[2] = 0.0
-            self.pos_command_b = quat_rotate_inverse(yaw_quat(quat_wxyz).astype(np.float32), target_vec.astype(np.float32))
-
-            self.pos_error_bs = np.vstack((self.pos_error_bs, np.linalg.norm(self.pos_command_b[:2]).reshape((1,1))))
-            self.heading_error_bs = np.vstack((self.heading_error_bs, heading_error.reshape(1,1)))
-
-            if self.pos_error_bs.shape[0] > 50:
-                for window_size in [10, 20, 30, 40]:
-                    translational_error = np.mean(self.pos_error_bs[-window_size:, :].reshape((window_size,)))
-                    rotational_error = np.mean(np.abs(self.heading_error_bs[-window_size:, :]).reshape((window_size,)))
-                    errors = np.array([translational_error, rotational_error])
-
-                    setattr(self, f"errors_avg_{window_size}", np.vstack((
-                        getattr(self, f"errors_avg_{window_size}"),
-                        errors
-                    )))
-            # print("Pelvis height :", xyz[-1])
-            print(self.pos_command_b)
-            ###################### Hand design navigation ######################
-            if True:
-                if self.pos_error_bs.shape[0] > self.NUM_AVG:
-                    # print("pos command mean : ", np.mean(self.pos_error_bs[-self.NUM_AVG:, :].reshape((self.NUM_AVG,))))
-                    # print("heading error mean : ", np.mean(np.abs(self.heading_error_bs[-self.NUM_AVG:, :]).reshape((self.NUM_AVG,))))
-                    if np.mean(self.pos_error_bs[-self.NUM_AVG:, :].reshape((self.NUM_AVG,))) < self.ERROR_THRESHOLD \
-                        and np.mean(np.abs(self.heading_error_bs[-self.NUM_AVG:, :]).reshape((self.NUM_AVG,))) < 0.1:
-                        if self.stop_locomotion is not True :
-                            self.stop_time = (self.counter-400) * self.config.control_dt
-                        self.stop_locomotion = True
-
-                if self.counter % 10 == 0:
-                    # self.locomotion_vel_command[:2] = np.clip(np.sign(pos_command_b[:2]) * MAX_LIN_VEL * np.sqrt(np.abs(pos_command_b[:2] / SLOW_BOUND)), -MAX_LIN_VEL, MAX_LIN_VEL)
-                    # X >= 0
-                    # X >= 0
-                    if self.pos_command_b[0] >= 0:
-                        self.locomotion_vel_command[0] = np.clip(0.1 * np.sqrt(np.abs(self.pos_command_b[0] / 0.8)), 0., 0.1)
-                    # X < 0
-                    if self.pos_command_b[0] < 0:
-                        self.locomotion_vel_command[0] = np.clip(-0.3 * np.sqrt(np.abs(self.pos_command_b[0] / 0.3)), -0.3, 0.)
-                    # Y >= 0
-                    if self.pos_command_b[1] >= 0:
-                        self.locomotion_vel_command[1] = np.clip(0.2 * np.sqrt(np.abs(self.pos_command_b[1] / 0.3)), 0., 0.2)
-                    # Y < 0
-                    if self.pos_command_b[1] < 0:
-                        self.locomotion_vel_command[1] = np.clip(-0.1 * np.sqrt(np.abs(self.pos_command_b[1] / 0.3)), -0.1, 0.)
-                    
-                    self.locomotion_vel_command[2] = np.clip(np.sign(heading_error) * 0.3 * np.sqrt(np.abs(heading_error / 0.4)), -0.3, 0.3)
-
-
-                if self.stop_locomotion:
-                    self.locomotion_vel_command = np.array([0., 0., 0.])
-                    phase = 0.0
-
-            if self.navigation_counter < 100:
-                # vel cmd smoothing
-                alpha = self.navigation_counter / 100
-                self.locomotion_vel_command = np.zeros(3) * (1-alpha) + self.locomotion_vel_command * alpha
-            
-                self.navigation_counter += 1
+            phase = self.get_navigation_command(xyz, quat_wxyz)
         
         # phase = 0.0
         target_tau = np.zeros(29, dtype=np.float32)
         if self.task in ["locomotion", "navigation"]:
-            self.obs = self.locomotion_obsmap(self.low_state, self.locomotion_vel_command, phase, last_action=self.locomotion_last_action)
-            obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
-            obs_tensor = obs_tensor.detach().clone().float()
-            self.locomotion_action = self.locomotion_policy(obs_tensor).detach().numpy().squeeze()
-            self.locomotion_last_action = self.locomotion_action
-
-            # target_dof_pos : motor joint ordered
-            if "0901_f2" in self.config.locomotion_policy_path:
-                is_arm_action = True
-            else:
-                is_arm_action = False
-            self.locomotion_target_dof_pos = self.locomotion_actmap(self.locomotion_action, arm_action=is_arm_action)
+            self.run_locomotion_policy(phase)
             target_dof_pos = self.locomotion_target_dof_pos
-
-            self.bending_offset = 0
-            self.bending_target_dof = None
-            self.bending_counter = 0
 
 
         elif self.task == "sit":
-            if self.remote_controller.button[KeyMap.down] == 1:
-                self.sitting = True
-            if self.remote_controller.button[KeyMap.up] == 1:
-                self.sitting = False
-
-            height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.00, sitting=self.sitting)
-
-            # For stage 1 & 2.
-            self.obs = self.sit_obsmap(self.low_state, height_command, xyz)
-
-            obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
-            obs_tensor = obs_tensor.detach().clone().float()
-            self.sit_action = self.sit_policy(obs_tensor).detach().numpy().squeeze()
-
-            # target_dof_pos : motor joint ordered
-            self.sit_target_dof_pos = self.sit_actmap(self.sit_action)
+            self.run_sit_policy(xyz)
             target_dof_pos = self.sit_target_dof_pos
-
-            if self.sit_counter < 100:
-                alpha = self.sit_counter / 100
-                target_dof_pos = self.locomotion_target_dof_pos.copy()
-                arm_pos = (
-                    np.zeros_like(self.locomotion_actmap.lab_arm_offset) * (1-alpha)
-                    + np.array(self.locomotion_actmap.lab_arm_offset) * alpha
-                    )
-                target_dof_pos[self.locomotion_actmap.mot_from_lab_upper_joints] = arm_pos
-                self.sit_counter += 1
-
-        # elif self.task == "to_eetrack_init":
-        #     pass
 
         elif self.task == "vision":
             target_dof_pos = self.sit_target_dof_pos.copy()
@@ -1202,32 +1360,58 @@ class Controller:
                     target_tau[i_mot] = arm_nle[i_act]
                 if self.trajopt_i == (5*(len(self.trajopt_joint_traj)-1)):
                     self._node.get_logger().info("Reached end of TrajOpt trajectory.")
-            
-        
+
+
+        elif self.task == "contact_align":
+            pos_ee_w, quat_ee_w, ee_stamp = body_pose(
+                self.tf_buffer,
+                frame="end_effector",
+                ref_frame="mid_sole_link",
+                rot_type='quat',
+                return_stamp=True
+            )
+
+            x_axis_w = matrix_from_quat(self.contact_align_start_quat_ee_w)[:3,0]
+            if self.ee_x_up:
+                # TODO: incease target_dx (smaller than 0.001)
+                target_dx = 0.0004 # How much the target far from the current EE
+                target_pos_w = pos_ee_w + target_dx*x_axis_w
+                target_quat_w = interpolate_quaternion(
+                    quat_ee_w,
+                    th.from_numpy(self.contact_align_start_quat_ee_w)[None],
+                    5,
+                )[1].cpu().numpy()
+
+            self.target_pose_w = np.concatenate([target_pos_w, target_quat_w], axis=-1)
+            target_pos_b, target_quat_b = subtract_frame_transforms(
+                self.root_state_w[:3],
+                self.root_state_w[3:],
+                target_pos_w,
+                target_quat_w,
+            )
+            self.target_pose_b = np.concatenate([target_pos_b, target_quat_b], axis=-1)
+
+            self.publish_hand_target()
+
+            target_dof_pos, target_tau = self.solve_ik(self.target_pose_b)
+
+            # When F2 (or F3) pressed, it passed to the eetrack_command at "eetrack" task.
+            self.prev_pos_ee_w = pos_ee_w.copy()
+            self.prev_quat_ee_w = quat_ee_w.copy()
+            self.prev_ee_stamp = ee_stamp
+            if self.contact_align_target_point == "start_point":
+                self.contact_aligned_start_ee_pose = (self.prev_pos_ee_w, self.prev_quat_ee_w)
+            elif self.contact_align_target_point == "end_point":
+                self.contact_aligned_end_ee_pose = (self.prev_pos_ee_w, self.prev_quat_ee_w)
+
+
         ################################# EETrack #################################
-        elif self.task == "eetrack":
+        elif self.task == "to_start" or self.task == "eetrack":
 
             if self.is_eetrack_first_iter:
                 print("\n[EETrack] EETrack has began.")
                 self.is_eetrack_first_iter = False
                 self.eetrack_initial_counter = self.counter
-
-            # if self.eetrack_command is None:
-            #     self.eetrack_command = ue.eetrack(
-            #         th.from_numpy(root_state_w)[None],
-            #         self.tf_buffer,
-            #         clock, to_start=False)
-
-            # Keymap press -> changes is_initial_goal == False
-            commanded_to_go_to_first_welding_ee_pose = self.remote_controller.button[KeyMap.start] == 1
-            if commanded_to_go_to_first_welding_ee_pose:
-                print("\n[EETrack] To welding line start Sampling has begun.")
-                self.eetrack_command.is_initial_goal = False
-
-            if self.remote_controller.button[KeyMap.F2] == 1: # F2 is F3 button in controller
-                print("\n[EETrack] Subgoal Sampling has begun.")
-                self.eetrack_command.is_initial_eetrack = False
-                # self.is_go_start = False
 
             _ = self.eetrack_command.get_command(
                 th.from_numpy(self.root_state_w)[None]
@@ -1241,59 +1425,41 @@ class Controller:
                 self.eetrack_command.lerp_command_b_left_quat.squeeze().detach().cpu().numpy(),
             ])
 
-            # print(self.target_pose_w)
-            # print(self.target_pose_b)
-
             self.publish_hand_target()
 
-            if not self.is_go_start:
-                # Get current joint positions
-                qj = np.zeros(29, dtype=np.float32)
-                for i_mot in range(len(self.config.motor_joint)):
-                    i_pin = self.pin_from_mot[i_mot]
-                    qj[i_pin] = self.low_state.motor_state[i_mot].q
+            target_dof_pos, target_tau = self.solve_ik(self.target_pose_b)
 
-                gravity_vec = 9.81*self.sit_obsmap._projected_gravity_from_lowstate(self.low_state)
-                res_q, arm_nle = self.ikctrl(qj,
-                                            self.target_pose_b,
-                                            rel=False,
-                                            gravity_vec=gravity_vec,
-                                            )
-                res_q = 2*res_q
+            # # Get current joint positions
+            # qj = np.zeros(29, dtype=np.float32)
+            # for i_mot in range(len(self.config.motor_joint)):
+            #     i_pin = self.pin_from_mot[i_mot]
+            #     qj[i_pin] = self.low_state.motor_state[i_mot].q
 
-                target_dof_pos = self.sit_target_dof_pos.copy()
-                if True:
-                    for i_act in range(len(res_q)):
-                        i_mot = self.mot_from_act[i_act]
-                        i_pin = self.pin_from_mot[i_mot]
-                        target_q_i = (
-                                self.low_state.motor_state[i_mot].q + res_q[i_act]
-                        )
-                        target_q_i = np.clip(target_q_i,
-                                        self.lim_lo_pin[i_pin],
-                                        self.lim_hi_pin[i_pin])
-                        target_dof_pos[i_mot] = target_q_i
-                        target_tau[i_mot] = arm_nle[i_act]
+            # gravity_vec = 9.81*self.sit_obsmap._projected_gravity_from_lowstate(self.low_state)
+            # res_q, arm_nle = self.ikctrl(qj,
+            #                             self.target_pose_b,
+            #                             rel=False,
+            #                             gravity_vec=gravity_vec,
+            #                             )
+            # res_q = 2*res_q
+
+            # target_dof_pos = self.sit_target_dof_pos.copy()
+            # for i_act in range(len(res_q)):
+            #     i_mot = self.mot_from_act[i_act]
+            #     i_pin = self.pin_from_mot[i_mot]
+            #     target_q_i = (
+            #             self.low_state.motor_state[i_mot].q + res_q[i_act]
+            #     )
+            #     target_q_i = np.clip(target_q_i,
+            #                     self.lim_lo_pin[i_pin],
+            #                     self.lim_hi_pin[i_pin])
+            #     target_dof_pos[i_mot] = target_q_i
+            #     target_tau[i_mot] = arm_nle[i_act]
 
         kps = np.array(self.config.kps).astype(np.float32).copy()
         kds = np.array(self.config.kds).astype(np.float32).copy()
 
-        if False:
-            ########################## Prevent abrupt motion when transition from loco -> sit ##########################
-            self.task_counter += 1
-            if self.prev_task != self.task:
-                self.task_counter = 0
-            self.prev_task = self.task
-            
-            if self.task_counter < 100 and self.task == "sit":
-                print("transition smoothing applied")
-                if self.config.later_smoothing:
-                    if self.prev_joint_pos_target is not None:
-                            target_dof_pos = 0.2 * target_dof_pos + \
-                                            0.8 * self.prev_joint_pos_target
-                    self.prev_joint_pos_target = target_dof_pos
-
-        if self.task == "vision" or self.task == "trajopt" or self.task == "eetrack":
+        if self.task == "vision" or self.task == "trajopt" or self.task == "to_start" or self.task == "contact_align" or self.task == "eetrack":
             kps = np.array(self.config.sit_kps).astype(np.float32).copy()
             kds = np.array(self.config.sit_kds).astype(np.float32).copy()
 
@@ -1331,6 +1497,7 @@ class Controller:
          
         # send the command
         self.send_cmd(self.low_cmd)
+        self.prev_task = self.task
 
     def dump_observations_and_joint_pos_target(self, target_dof_pos):
         # log timestamp
@@ -1347,7 +1514,8 @@ class Controller:
         self.target_dof_poss = np.vstack((self.target_dof_poss, target_dof_pos))
 
         if self.task == "sit":
-            self.sit_observations = np.vstack((self.sit_observations, self.obs))
+            pass
+            # self.sit_observations = np.vstack((self.sit_observations, self.obs))
         elif self.task == "vision":
             self.zed_poses_w = np.vstack((self.zed_poses_w, self.zed_pose_w))
         elif self.task =="trajopt":
@@ -1355,7 +1523,7 @@ class Controller:
                 self.trajopt_target_joint_pos_traj = np.vstack((self.trajopt_target_joint_pos_traj, np.zeros_like(self.trajopt_target_joint_pos)))
             else:
                 self.trajopt_target_joint_pos_traj = np.vstack((self.trajopt_target_joint_pos_traj, self.trajopt_target_joint_pos))
-        elif self.task == "eetrack":
+        elif self.task == "to_start" or self.task == "contact_align" or self.task == "eetrack":
             self.target_poses_w = np.vstack((self.target_poses_w, self.target_pose_w))
             self.target_poses_b = np.vstack((self.target_poses_b, self.target_pose_b))
             ee_pos_w, ee_quat_w = body_pose(self.tf_buffer, "end_effector", "mid_sole_link", rot_type="quat")

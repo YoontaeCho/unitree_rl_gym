@@ -140,6 +140,8 @@ class Controller:
         self.locomotion_observations = np.zeros((0, self.config.locomotion_obs_dim)) # TODO
         # self.eetrack_observations = np.zeros((0, self.config.eetrack_obs_dim))
         self.locomotion_vel_traj = np.zeros((0, 3))
+        self.pos_command_bs = np.zeros((0,3))
+        self.pos_command_b = np.zeros(3)
 
         # self.locomotion_actions = np.zeros((0, 15))
         self.locomotion_actions = np.zeros((0, 14))
@@ -424,10 +426,10 @@ class Controller:
         root_state_w[3:7] = quat_wxyz
 
 
-        if False:
+        if True:
             nav_target_pos , nav_target_axa = body_pose(
                 self.tf_buffer,
-                'tag_target',
+                'nav_target',
                 'world',
                 rot_type='axa',
                 stamp=rp.time.Time()
@@ -470,10 +472,10 @@ class Controller:
 
         target_vec = self.pelvis_pos_target - xyz
         target_vec[2] = 0.0
-        pos_command_b = quat_rotate_inverse(yaw_quat(quat_wxyz).astype(np.float32), target_vec.astype(np.float32))
-        print(f"pos command b : {pos_command_b}")
+        self.pos_command_b = quat_rotate_inverse(yaw_quat(quat_wxyz).astype(np.float32), target_vec.astype(np.float32))
+        print(f"pos command b : {self.pos_command_b}")
         print(f"heading_error : {heading_error}")
-        self.pos_error_bs = np.vstack((self.pos_error_bs, np.linalg.norm(pos_command_b[:2]).reshape((1,1))))
+        self.pos_error_bs = np.vstack((self.pos_error_bs, np.linalg.norm(self.pos_command_b[:2]).reshape((1,1))))
         self.heading_error_bs = np.vstack((self.heading_error_bs, heading_error.reshape(1,1)))
 
 
@@ -526,21 +528,21 @@ class Controller:
                 #     self.locomotion_vel_command = np.array([0., 0., 0.])
                 #     phase = 0.0
                 if self.counter % 10 == 0:
-                    # self.locomotion_vel_command[:2] = np.clip(np.sign(pos_command_b[:2]) * MAX_LIN_VEL * np.sqrt(np.abs(pos_command_b[:2] / SLOW_BOUND)), -MAX_LIN_VEL, MAX_LIN_VEL)
+                    # self.locomotion_vel_command[:2] = np.clip(np.sign(self.pos_command_b[:2]) * MAX_LIN_VEL * np.sqrt(np.abs(self.pos_command_b[:2] / SLOW_BOUND)), -MAX_LIN_VEL, MAX_LIN_VEL)
                     # X >= 0
-                    if pos_command_b[0] >= 0:
-                        self.locomotion_vel_command[0] = np.clip(0.1 * np.sqrt(np.abs(pos_command_b[0] / 0.8)), 0., 0.1)
+                    if self.pos_command_b[0] >= 0:
+                        self.locomotion_vel_command[0] = np.clip(0.1 * np.sqrt(np.abs(self.pos_command_b[0] / 0.8)), 0., 0.1)
                     # X < 0
-                    if pos_command_b[0] < 0:
-                        self.locomotion_vel_command[0] = np.clip(-0.3 * np.sqrt(np.abs(pos_command_b[0] / 0.2)), -0.3, 0.)
+                    if self.pos_command_b[0] < 0:
+                        self.locomotion_vel_command[0] = np.clip(-0.3 * np.sqrt(np.abs(self.pos_command_b[0] / 0.4)), -0.3, 0.)
                     # Y >= 0
-                    if pos_command_b[1] >= 0:
-                        self.locomotion_vel_command[1] = np.clip(0.1 * np.sqrt(np.abs(pos_command_b[1] / 0.8)), 0., 0.1)
+                    if self.pos_command_b[1] >= 0:
+                        self.locomotion_vel_command[1] = np.clip(0.1 * np.sqrt(np.abs(self.pos_command_b[1] / 0.3)), 0., 0.1)
                     # Y < 0
-                    if pos_command_b[1] < 0:
-                        self.locomotion_vel_command[1] = np.clip(- self.MAX_LIN_VEL * np.sqrt(np.abs(pos_command_b[1] / 0.2)), -self.MAX_LIN_VEL, 0.)
+                    if self.pos_command_b[1] < 0:
+                        self.locomotion_vel_command[1] = np.clip(-0.1 * np.sqrt(np.abs(self.pos_command_b[1] / 0.3)), -0.1, 0.)
                     
-                    self.locomotion_vel_command[2] = np.clip(np.sign(heading_error) * self.MAX_ANG_VEL * np.sqrt(np.abs(heading_error / self.SLOW_BOUND)), -self.MAX_ANG_VEL, self.MAX_ANG_VEL)
+                    self.locomotion_vel_command[2] = np.clip(np.sign(heading_error) * 0.2 * np.sqrt(np.abs(heading_error / 0.4)), -0.2, 0.2)
 
                 if self.stop_locomotion:
                     self.locomotion_vel_command = np.array([0., 0., 0.])
@@ -647,6 +649,7 @@ class Controller:
         self.locomotion_observations = np.vstack((self.locomotion_observations, self.obs))
         self.locomotion_actions = np.vstack((self.locomotion_actions, self.locomotion_action))
         self.locomotion_vel_traj = np.vstack((self.locomotion_vel_traj, self.locomotion_vel_command))
+        self.pos_command_bs = np.vstack((self.pos_command_bs, self.pos_command_b))
 
         
             
@@ -686,6 +689,7 @@ class Controller:
             "locomotion_vel_traj" : self.locomotion_vel_traj,
             "pos_errors" : self.pos_error_bs,
             "heading_errors" : self.heading_error_bs,
+            "pos_command_bs" : self.pos_command_bs
         }
         log_data = {
             "metrics": metrics,

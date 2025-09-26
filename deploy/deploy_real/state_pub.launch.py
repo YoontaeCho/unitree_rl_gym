@@ -24,6 +24,6 @@ def generate_launch_description():
             name='robot_state_publisher',
             output='screen',
             # parameters=[{'use_sim_time': use_sim_time, 'robot_description': robot_desc}],
-            parameters=[{'use_sim_time': use_sim_time, 'robot_description': robot_desc, 'publish_frequency': 100.0}],
+            parameters=[{'use_sim_time': use_sim_time, 'robot_description': robot_desc, 'publish_frequency': 1000.0}],
             arguments=[urdf]),
     ])

@@ -103,5 +103,6 @@ class Config:
             self.slow_bound = config.get("slow_bound", 0.2)
 
             self.sit_kds = config.get("sit_kds", None)
+            self.sit_kps = config.get("sit_kps", None)
 
             self.sit_smoothing = config.get("sit_smoothing", 1)

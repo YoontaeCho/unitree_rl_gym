@@ -16,7 +16,7 @@ import pinocchio as pin
 import pink
 import yaml
 from common.np_math import (index_map, with_dir)
-from math_utils import (as_np, quat_rotate, axis_angle_from_quat, wrap_to_pi, yaw_quat)
+from math_utils import (as_np, quat_rotate, axis_angle_from_quat, wrap_to_pi, yaw_quat, quat_mul, quat_inv)
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
 
@@ -24,7 +24,8 @@ quat_rotate = as_np(quat_rotate)
 axis_angle_from_quat = as_np(axis_angle_from_quat)
 wrap_to_pi = as_np(wrap_to_pi)
 yaw_quat = as_np(yaw_quat)
-
+quat_inv = as_np(quat_inv)
+quat_mul = as_np(quat_mul)
 
 def body_pose(
         tf_buffer,
@@ -104,9 +105,10 @@ class MidSoleTFPublisher(Node):
             rot_type='quat'
         )
 
+        world_from_pelvis_quat = np.asarray(msg.imu_state.quaternion, dtype=np.float32)
+        world_from_pelvis_quat = quat_inv(quat_mul(quat_inv(yaw_quat(world_from_pelvis_quat)), world_from_pelvis_quat)).astype(float)
+        
         mid_sole_pos = (left_sole_pos + right_sole_pos) / 2.0
-        mid_sole_quat = np.roll(Slerp([0,1], R.from_quat([np.roll(left_sole_quat,-1), np.roll(right_sole_quat,-1)]))(0.5).as_quat(),1)
-        # mid_sole_quat = yaw_quat(mid_sole_quat)
 
         # Turtle only exists in 2D, thus we get x and y translation
         # coordinates from the message and set the z coordinate to 0
@@ -114,10 +116,10 @@ class MidSoleTFPublisher(Node):
         t.transform.translation.y = mid_sole_pos[1]
         t.transform.translation.z = mid_sole_pos[2]
 
-        t.transform.rotation.w = mid_sole_quat[0]
-        t.transform.rotation.x = mid_sole_quat[1]
-        t.transform.rotation.y = mid_sole_quat[2]
-        t.transform.rotation.z = mid_sole_quat[3]
+        t.transform.rotation.w = world_from_pelvis_quat[0]
+        t.transform.rotation.x = world_from_pelvis_quat[1]
+        t.transform.rotation.y = world_from_pelvis_quat[2]
+        t.transform.rotation.z = world_from_pelvis_quat[3]
 
         # Send the transformation
         self.tf_broadcaster.sendTransform(t)

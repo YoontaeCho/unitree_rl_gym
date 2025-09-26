@@ -82,7 +82,7 @@ class PelvistoTrack(Node):
         # # Timer for dynamic transform broadcasting (e.g., pelvis tracking)
         # self.timer = self.create_timer(0.01, self.on_timer)
         # # One-shot timer to check & publish the static transform after a short delay
-        self.static_tf_timer = self.create_timer(1.0, self.publish_static_tf)
+        # self.static_tf_timer = self.create_timer(0.01, self.publish_static_tf)
 
         self._pos_lpf_filter = ActionFilterButter(lowcut=np.zeros(1*3)*2,
                                     highcut=np.ones(1*3) * 6.0, 
@@ -90,6 +90,7 @@ class PelvistoTrack(Node):
         self._rot_lpf_filter = ActionFilterButter(lowcut=np.zeros(1*3)*2,
                                     highcut=np.ones(1*3) * 6.0, 
                                     sampling_rate=100.0, num_joints=1*3)
+        self.world_to_cam_init_tf = None
     
 
     def on_low_state(self,
@@ -123,6 +124,7 @@ class PelvistoTrack(Node):
         t.transform.rotation.w = imu_from_pelvis_tf.transform.rotation.w
 
         self.tf_broadcaster.sendTransform(t)
+        self.publish_tf()
 
     
     def publish_static_tf(self):
@@ -131,20 +133,62 @@ class PelvistoTrack(Node):
         This method is designed to run only once.
         """
         # Cancel the timer so this callback runs only one time.
-        if self.low_state.crc == 0:
-            return
-        self.static_tf_timer.cancel()
+        # if self.low_state.crc == 0:
+        #     return
+        # self.static_tf_timer.cancel()
 
-        try:
-            # Try to look up an existing transform from "world" to "camera_init".
-            # Here, rclpy.time.Time() (i.e. time=0) means "the latest available".
-            self.tf_buffer.lookup_transform(
-                "world", "camera_init", rclpy.time.Time()
-            )
+        if self.world_to_cam_init_tf is None:
+            try:
+                # Try to look up an existing transform from "world" to "camera_init".
+                # Here, rclpy.time.Time() (i.e. time=0) means "the latest available".
+                self.tf_buffer.lookup_transform(
+                    "world", "camera_init", rclpy.time.Time()
+                )
+                self.get_logger().info(
+                    "Static transform from 'world' to 'camera_init' already exists. Not publishing a new one."
+                )
+            except Exception as ex:
+                # If the transform isn't found, declare (or get) the parameter for z and publish the static transform.
+                z_value, rot = self.lidar_height_rot(self.low_state)
+                static_tf = TransformStamped()
+                static_tf.header.stamp = self.get_clock().now().to_msg()
+                static_tf.header.frame_id = "world"
+                static_tf.child_frame_id = "camera_init"
+                # static_tf.child_frame_id = "pelvis"
+
+                static_tf.transform.translation.x = 0.0
+                static_tf.transform.translation.y = 0.0
+                static_tf.transform.translation.z = z_value
+                static_tf.transform.rotation.x = float(rot[0])
+                static_tf.transform.rotation.y = float(rot[1])
+                static_tf.transform.rotation.z = float(rot[2])
+                static_tf.transform.rotation.w = float(rot[3])
+
+                self.world_to_cam_init_tf = static_tf
+
+                self.static_tf_broadcaster.sendTransform(static_tf)
+                self.get_logger().info(
+                    f"Published static transform from 'world' to 'camera_init' with z = {z_value} quat = {rot}"
+                )
+        else:
+            self.world_to_cam_init_tf.header.stamp = self.get_clock().now().to_msg()
+            self.static_tf_broadcaster.sendTransform(self.world_to_cam_init_tf)
             self.get_logger().info(
-                "Static transform from 'world' to 'camera_init' already exists. Not publishing a new one."
-            )
-        except Exception as ex:
+                    f"Connected world <> pelvis again. "
+                )
+
+    
+    def publish_tf(self):
+        """Check if a static transform from 'world' to 'camera_init' exists.
+        If not, publish it using the parameter 'camera_init_z' for the z-value.
+        This method is designed to run only once.
+        """
+        # Cancel the timer so this callback runs only one time.
+        # if self.low_state.crc == 0:
+        #     return
+        # self.static_tf_timer.cancel()
+
+        if self.world_to_cam_init_tf is None:
             # If the transform isn't found, declare (or get) the parameter for z and publish the static transform.
             z_value, rot = self.lidar_height_rot(self.low_state)
             static_tf = TransformStamped()
@@ -160,11 +204,10 @@ class PelvistoTrack(Node):
             static_tf.transform.rotation.y = float(rot[1])
             static_tf.transform.rotation.z = float(rot[2])
             static_tf.transform.rotation.w = float(rot[3])
+            self.world_to_cam_init_tf = static_tf
 
-            self.static_tf_broadcaster.sendTransform(static_tf)
-            self.get_logger().info(
-                f"Published static transform from 'world' to 'camera_init' with z = {z_value} quat = {rot}"
-            )
+        self.world_to_cam_init_tf.header.stamp = self.get_clock().now().to_msg()
+        self.tf_broadcaster.sendTransform(self.world_to_cam_init_tf)
 
     def lidar_height_rot(self, low_state: LowStateHG):
         print(self.tf_buffer.lookup_transform('pelvis',
