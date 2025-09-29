@@ -221,7 +221,7 @@ class eetrack:
                 welding_start_pos_w,
                 welding_end_pos_w,
                 offset_len=self.offset_len,
-                approach_deg=45.0,
+                approach_deg=40.0,
                 inverse_y=inverse_y
             )
             self.eetrack_start_w, self.eetrack_start_quat_w = eetrack_start_pos_w, eetrack_start_quat_w
@@ -254,7 +254,7 @@ class eetrack:
             rot_type='quat'
         )
         
-        to_eetrack_sgs_num = 50
+        self.to_eetrack_sgs_num =  to_eetrack_sgs_num = 50
         # 1. current hand pose -> eetack start
         to_eeline_subgoals = interpolate_position(
             torch.tensor(pos_hand_w_left).unsqueeze(0),
@@ -321,7 +321,7 @@ class eetrack:
         )
 
         self.to_start_line_length = np.linalg.norm(pos_hand_w_left - self.eetrack_start_w)
-        self.number_of_subgoals = int(self.to_start_line_length / self.dt_segment_length)
+        self.to_eetrack_sgs_num = self.number_of_subgoals = int(self.to_start_line_length / self.dt_segment_length)
 
         to_start_subgoals = interpolate_position(
             th.tensor(pos_hand_w_left).unsqueeze(0),
@@ -346,6 +346,32 @@ class eetrack:
         """
         self.sg_idx += 1
         self.sg_idx = min(self.sg_idx , self.number_of_subgoals)
+        if self.sg_idx == self.to_eetrack_sgs_num:
+            print("--------------- On eetrack start ---------------")
+            print("--------------- On eetrack start ---------------")
+            print("--------------- On eetrack start ---------------")
+            print("--------------- On eetrack start ---------------")
+            print("--------------- On eetrack start ---------------")
+            print("--------------- On eetrack start ---------------")
+            print("--------------- On eetrack start ---------------")
+            print("--------------- On eetrack start ---------------")
+            print("--------------- On eetrack start ---------------")
+            print("--------------- On eetrack start ---------------")
+            print("--------------- On eetrack start ---------------")
+            print("--------------- On eetrack start ---------------")
+            print("--------------- On eetrack start ---------------")
+            print("--------------- On eetrack start ---------------")
+            print("--------------- On eetrack start ---------------")
+            print("--------------- On eetrack start ---------------")
+            print("--------------- On eetrack start ---------------")
+            print("--------------- On eetrack start ---------------")
+            print("--------------- On eetrack start ---------------")
+            print("--------------- On eetrack start ---------------")
+            print("--------------- On eetrack start ---------------")
+            print("--------------- On eetrack start ---------------")
+            print("--------------- On eetrack start ---------------")
+            print("--------------- On eetrack start ---------------")
+
         # self.sg_idx = 0
         print("Percent:", self.sg_idx/self.number_of_subgoals)
         self.next_command_s_left = self.eetrack_subgoal[..., self.sg_idx, :]

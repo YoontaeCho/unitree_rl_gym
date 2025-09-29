@@ -566,8 +566,8 @@ class Controller:
 
         self.welding_points_from_vision = pts_world.copy()
         # Move start position to right, end position to left.
-        self.welding_points_from_vision[0] = 0.8*pts_world[0] + 0.2*pts_world[-1]
-        self.welding_points_from_vision[-1] = 0.2*pts_world[0] + 0.8*pts_world[-1]
+        self.welding_points_from_vision[0] = 0.85*pts_world[0] + 0.15*pts_world[-1]
+        self.welding_points_from_vision[-1] = 0.15*pts_world[0] + 0.85*pts_world[-1]
         self._node.get_logger().info(f"Welding points recieved: {self.welding_points_from_vision}")
 
         # Disable after recieve
@@ -886,7 +886,7 @@ class Controller:
 
             v_x = np.clip(self.remote_controller.ly, -0.25, 0.1)
             v_y = np.clip(self.remote_controller.lx * -1, -0.16, 0.16)
-            v_z = np.clip(self.remote_controller.rx * -1, -0.3, 0.3)
+            v_z = np.clip(self.remote_controller.rx * -1, -0.4, 0.4)
 
             self.locomotion_vel_command[0] = v_x
             self.locomotion_vel_command[1] = v_y
@@ -952,7 +952,7 @@ class Controller:
                     self.locomotion_vel_command[0] = np.clip(-0.3 * np.sqrt(np.abs(self.pos_command_b[0] / 0.2)), -0.3, 0.)
                 # Y >= 0
                 if self.pos_command_b[1] >= 0:
-                    self.locomotion_vel_command[1] = np.clip(0.1 * np.sqrt(np.abs(self.pos_command_b[1] / 0.3)), 0., 0.1)
+                    self.locomotion_vel_command[1] = np.clip(0.1 * np.sqrt(np.abs(self.pos_command_b[1] / 0.2)), 0., 0.1)
                 # Y < 0
                 if self.pos_command_b[1] < 0:
                     self.locomotion_vel_command[1] = np.clip(-0.14 * np.sqrt(np.abs(self.pos_command_b[1] / 0.2)), -0.14, 0.)
@@ -1163,15 +1163,17 @@ class Controller:
                 self.vision_start_counter = int(self.counter)
             elif self.task in ["navigation", "locomotion"]:
                 print("============== Trigger apriltag detection ==============")
-                subprocess.Popen([
-                    "python3",
-                    "/root/localization/align_publisher_zed.py"
-                    ],
-                stdout=subprocess.DEVNULL,   # discard standard output
-                stderr=subprocess.DEVNULL,   # discard error output
-                stdin=subprocess.DEVNULL     # detach from terminal input
-                )
-                self.is_apriltag_detection_on = True
+                if not self.is_apriltag_detection_on:
+                    subprocess.Popen([
+                        "python3",
+                        "/root/localization/align_publisher_zed.py"
+                        ],
+                    stdout=subprocess.DEVNULL,   # discard standard output
+                    stderr=subprocess.DEVNULL,   # discard error output
+                    stdin=subprocess.DEVNULL     # detach from terminal input
+                    )
+                    self.is_apriltag_detection_on = True
+                
 
 
         # Change to trajopt task only one the welding points are received.
@@ -1258,20 +1260,24 @@ class Controller:
             offset_from_ee_to_welding_object_when_fully_contacted = 0.0075
             offset_from_ee_to_welding_object_on_z_axis = -0.002
 
-            start_x_offset = 0.0075
-            start_z_offset = 0.0
+            start_x_offset_b = 0.0075
+            start_z_offset_b = 0.0
+            start_z_offset_w = -0.008 # -0.008
 
-            end_x_offset = 0.0075
-            end_z_offset = 0.0
+            end_x_offset_b = 0.0075
+            end_z_offset_b = 0.0
+            end_z_offset_w = start_z_offset_w
 
             if self.contact_align_target_point == "start_point":
                 start_pos_w = (
                     self.contact_aligned_start_ee_pose[0] + 
-                    start_x_offset*
+                    start_x_offset_b*
                     matrix_from_quat(self.contact_aligned_start_ee_pose[1])[:3,0] +
                     # Add z-directional offset
-                    start_z_offset *
-                    matrix_from_quat(self.contact_aligned_start_ee_pose[1])[:3,2]
+                    start_z_offset_b *
+                    matrix_from_quat(self.contact_aligned_start_ee_pose[1])[:3,2] +
+                    # Add z-directional offset on world
+                    np.array([0., 0., start_z_offset_w])
                 )
                 # x_offset_on_vision_point = -0.005
                 # self.welding_points_from_vision[-1][0] += x_offset_on_vision_point
@@ -1283,21 +1289,25 @@ class Controller:
                 start_pos_w = (
                     self.contact_aligned_end_ee_pose[0] + 
                     # Add x-directional offset
-                    end_x_offset *
+                    end_x_offset_b *
                     matrix_from_quat(self.contact_aligned_end_ee_pose[1])[:3,0] +
                     # Add z-directional offset
-                    end_z_offset *
-                    matrix_from_quat(self.contact_aligned_end_ee_pose[1])[:3,2]
+                    end_z_offset_b *
+                    matrix_from_quat(self.contact_aligned_end_ee_pose[1])[:3,2] +
+                    # Add z-directional offset on world
+                    np.array([0., 0., end_z_offset_w])
                 )
                 
                 end_pos_w = (
                     self.contact_aligned_start_ee_pose[0] + 
                     # Add x-directional offset
-                    start_x_offset *
+                    start_x_offset_b *
                     matrix_from_quat(self.contact_aligned_start_ee_pose[1])[:3,0] +
                     # Add z-directional offset
-                    start_z_offset *
-                    matrix_from_quat(self.contact_aligned_start_ee_pose[1])[:3,2]
+                    start_z_offset_b *
+                    matrix_from_quat(self.contact_aligned_start_ee_pose[1])[:3,2] +
+                    # Add z-directional offset on world
+                    np.array([0., 0., start_z_offset_w])
                 )
                 inverse_y = True
                 eetrack_vel = 0.005
