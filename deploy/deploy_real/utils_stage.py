@@ -325,7 +325,7 @@ class EETrackObservationWithLastAction:
 class SitObservation(EETrackObservation):
     def _hand_pose(self):   
         hp_l = body_pose(self.tf_buffer, 'left_rubber_hand')
-        hp_r = body_pose(self.tf_buffer,  'end_effector')
+        hp_r = body_pose(self.tf_buffer,  'welder')
         hand_pose = np.concatenate([hp_l[0], hp_r[0], hp_l[1], hp_r[1]])
         return hand_pose
     
@@ -374,14 +374,19 @@ class SitObservation_v2(SitObservation):
     def __call__(self,
                  low_state: LowStateHG,
                  height_command: np.ndarray,
-                 xyz
+                 xyz,
+                 hip_pitch_joint_offset = None
                  ):
         base_ang_vel = self._base_ang_vel(low_state)
         # NOTE(ycho): requires running `fake_world_tf_pub.py`.
         projected_gravity = self._projected_gravity_from_lowstate(low_state)
         foot_pose = self._foot_pose()
         hand_pose = self._hand_pose()
-        joint_pos, joint_vel = self._joint_pos_vel(low_state, self.config.lab_joint_offsets_sit)
+        joint_offset =  self.config.lab_joint_offsets_sit
+        if hip_pitch_joint_offset is not None:
+            joint_offset[0] = hip_pitch_joint_offset[0]
+            joint_offset[1] = hip_pitch_joint_offset[1]
+        joint_pos, joint_vel = self._joint_pos_vel(low_state, joint_offset)
         pelvis_height = self._pelvis_height(xyz)
         prev_pelvis_height = self._pelvis_height_prev(xyz)
 

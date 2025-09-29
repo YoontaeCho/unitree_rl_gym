@@ -183,6 +183,20 @@ log_path = "/tmp/e2e/log_0911_l1_20k_1758270599.npy"
 
 log_path = "/tmp/e2e/log_0911_l1_20k_1758368110.npy"
 
+log_path = "/tmp/e2e/log_0921_l3_1758516026.npy"
+
+log_path = "/tmp/e2e/log_0926_l3_30k_1759058070.npy"
+
+log_path = "/tmp/e2e/log_0926_l3_30k_1759058513.npy"
+
+log_path = "/tmp/e2e/log_0926_l3_30k_1759061296.npy"
+
+log_path = "/tmp/e2e/log_0926_l3_30k_1759062198.npy"
+
+log_path = "/tmp/e2e/log_0926_l3_30k_1759062437.npy"
+
+log_path = "/tmp/e2e/log_0926_l3_30k_1759064520.npy"
+
 data = np.load(log_path, allow_pickle=True).item()
 traj_data = data["trajectories"]
 # print(traj_data.keys())
@@ -192,19 +206,20 @@ urdf = yourdfpy.URDF.load("../resources/robots/g1_description/g1_29dof_rev_1_0_z
 t_h = traj_data["timestamp_high_freq"]
 t_l = traj_data["timestamp_low_freq"]
 tasks = traj_data["tasks"]
-task_unique, task_counts = unique_consecutive(tasks.flatten(), return_counts=True)
-task_changed_ids = task_counts.cumsum()[:-1]
-trajopt_ids = (tasks == "trajopt").nonzero()[0]
-q_traj = np.zeros_like(traj_data["q_traj"])
-q_traj[:, mot_from_lab] = traj_data["q_traj"]
-tau_traj = np.zeros_like(traj_data["tau_traj"])
-tau_traj[:, mot_from_lab] = traj_data["tau_traj"]
-target_poses_w = traj_data["target_poses_w"]
-target_poses_b = traj_data["target_poses_b"]
-root_states_w = traj_data["root_states_w"]
-ee_poses_w = traj_data["ee_poses_w"]
-ee_poses_b = traj_data["ee_poses_b"]
+# task_unique, task_counts = unique_consecutive(tasks.flatten(), return_counts=True)
+# task_changed_ids = task_counts.cumsum()[:-1]
+# trajopt_ids = (tasks == "trajopt").nonzero()[0]
+# q_traj = np.zeros_like(traj_data["q_traj"])
+# q_traj[:, mot_from_lab] = traj_data["q_traj"]
+# tau_traj = np.zeros_like(traj_data["tau_traj"])
+# tau_traj[:, mot_from_lab] = traj_data["tau_traj"]
+# target_poses_w = traj_data["target_poses_w"]
+# target_poses_b = traj_data["target_poses_b"]
+# root_states_w = traj_data["root_states_w"]
+# ee_poses_w = traj_data["ee_poses_w"]
+# ee_poses_b = traj_data["ee_poses_b"]
 vel_cmd_b = traj_data["locomotion_vel_cmd"]
+pos_error_b = traj_data["pos_command_bs"]
 
 window_size_10 = traj_data["errors_avg_10"]
 window_size_20 = traj_data["errors_avg_20"]
@@ -215,27 +230,29 @@ window_size_40 = traj_data["errors_avg_40"]
 trans_thresh = 0.04
 rot_thresh = 0.1
 
+time_to_start = 10
+
 plt.subplot(4,1,1)
-plt.plot(window_size_10[:,0], label="window: 10, trans")
-plt.plot(window_size_10[:,1], label="window: 10, rot")
+plt.plot(window_size_10[time_to_start:,0], label="window: 10, trans")
+plt.plot(window_size_10[time_to_start:,1], label="window: 10, rot")
 plt.axhline(y=trans_thresh, c="r", label="trans threshold")
 plt.axhline(y=rot_thresh, c="g", label="rot threshold")
 plt.legend()
 plt.subplot(4,1,2)
-plt.plot(window_size_20[:,0], label="window: 20, trans")
-plt.plot(window_size_20[:,1], label="window: 20, rot")
+plt.plot(window_size_20[time_to_start:,0], label="window: 20, trans")
+plt.plot(window_size_20[time_to_start:,1], label="window: 20, rot")
 plt.axhline(y=trans_thresh, c="r", label="trans threshold")
 plt.axhline(y=rot_thresh, c="g", label="rot threshold")
 plt.legend()
 plt.subplot(4,1,3)
-plt.plot(window_size_30[:,0], label="window: 30, trans")
-plt.plot(window_size_30[:,1], label="window: 30, rot")
+plt.plot(window_size_30[time_to_start:,0], label="window: 30, trans")
+plt.plot(window_size_30[time_to_start:,1], label="window: 30, rot")
 plt.axhline(y=trans_thresh, c="r", label="trans threshold")
 plt.axhline(y=rot_thresh, c="g", label="rot threshold")
 plt.legend()
 plt.subplot(4,1,4)
-plt.plot(window_size_40[:,0], label="window: 40, trans")
-plt.plot(window_size_40[:,1], label="window: 40, rot")
+plt.plot(window_size_40[time_to_start:,0], label="window: 40, trans")
+plt.plot(window_size_40[time_to_start:,1], label="window: 40, rot")
 plt.axhline(y=trans_thresh, c="r", label="trans threshold")
 plt.axhline(y=rot_thresh, c="g", label="rot threshold")
 plt.legend()
@@ -243,15 +260,23 @@ plt.show()
 
 
 
-navigation_ids = (tasks=="navigation").nonzero()[0].flatten()
+# navigation_ids = (tasks=="navigation").nonzero()[0].flatten()
 
+print("translational error : ", np.linalg.norm(pos_error_b[-1]))
+print("x : ", abs(pos_error_b[-1, 0]))
+print("y : ", abs(pos_error_b[-1, 1]))
 
 labels = ["x", "y", "yaw"]
+
+navigation_ids = (tasks=="navigation").nonzero()[0].flatten()
 for i in range(3):
     plt.subplot(3,1,i+1)
-    plt.plot(vel_cmd_b[:, i], label=labels[i])
+    plt.plot(vel_cmd_b[navigation_ids, i][time_to_start:], label=f"{labels[i]} vel")
+    plt.plot(pos_error_b[:, i][time_to_start:], label=f"{labels[i]} error")
+    plt.axhline(y=0, c="r")
 
     plt.legend()
+    # plt.ylim((-0.1, 0.1))
 plt.show()
 
 

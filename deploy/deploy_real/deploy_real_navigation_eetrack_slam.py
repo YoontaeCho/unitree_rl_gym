@@ -282,7 +282,7 @@ class Controller:
         self.errors_avg_40 = np.zeros((0,2))
 
         ########################## Sit ##########################
-        if True:
+        if "sit_ver3" in self.config.sit_policy_path:
             self.sit_obsmap = us.SitObservation(config, self.tf_buffer)
         else:
             self.sit_obsmap = us.SitObservation_v2(config, self.tf_buffer)
@@ -477,6 +477,7 @@ class Controller:
             self.log_metrics_and_trajectories()
             print("Log saved.")
         finally:
+            subprocess.run(["pkill", "align"])
             self._node.destroy_timer(self._timer)
             create_damping_cmd(self.low_cmd)
             self.send_cmd(self.low_cmd)
@@ -1147,7 +1148,11 @@ class Controller:
                     )
                 target_dof_pos[self.locomotion_actmap.mot_from_lab_upper_joints] = arm_pos
                 self.sit_counter += 1
-
+            elif self.sit_counter < 200:
+                arm_pos = np.array(self.locomotion_actmap.lab_arm_offset)
+                self.sit_target_dof_pos[self.locomotion_actmap.mot_from_lab_upper_joints] = arm_pos
+                self.sit_counter += 1
+        
         # elif self.task == "to_eetrack_init":
         #     pass
 
@@ -1305,11 +1310,15 @@ class Controller:
             kds[:15] = self.config.eetrack_lower_body_kds
 
         elif self.task == "sit":
-            if self.sit_counter < 100:
-                kps = np.array(self.config.kps).astype(np.float32).copy()
+            if "sit_ver3" in self.config.sit_policy_path :
+                if self.sit_counter < 100:
+                    kps = np.array(self.config.kps).astype(np.float32).copy()
+                else:
+                    kps = np.array(self.config.sit_kps).astype(np.float32).copy()
+                kds = np.array(self.config.sit_kds).astype(np.float32).copy()
             else:
-                kps = np.array(self.config.sit_kps).astype(np.float32).copy()
-            kds = np.array(self.config.sit_kds).astype(np.float32).copy()
+                kps = np.array(self.config.kps).astype(np.float32).copy()
+                kds = np.array(self.config.kds).astype(np.float32).copy()
 
             if True:
                 if self.prev_joint_pos_target is not None:

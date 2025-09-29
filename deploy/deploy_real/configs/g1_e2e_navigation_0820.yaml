@@ -141,7 +141,7 @@ sit_kds: [
 
 eetrack_right_arm_kps: [
   # 100, 100, 100, 100, 100, 100, 100
-  250, 250, 250, 250, 250, 250, 250 # 0906
+  200, 200, 200, 200, 200, 200, 200 # 0906
   # 40, 40, 40, 40, 40, 40, 40
 ]
 eetrack_right_arm_kds: [
@@ -174,7 +174,6 @@ lab_joint_offsets_sit: [
   -0.3500, -0.0575, -0.0087,  0.0000,  0.0000,  1.0000,  1.0000,  0.0000,
     0.0000,  0.0000,  0.0000,  0.0000,  0.0000
 ]
-
 
 mot_joint_offsets: [
   -0.2000,  0.0000,  0.0000,  0.42000, -0.23000, 0.0000,      # left leg
@@ -223,8 +222,9 @@ lower_joint: [
 ]
 
 # LOCOMOTION
-locomotion_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0926_l3.pt"
-# locomotion_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0921_l3.pt"
+# locomotion_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0926_l3_30k.pt"
+# locomotion_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0926_l3.pt"
+locomotion_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0921_l3.pt"
 # locomotion_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0921_l1.pt"
 # locomotion_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0911_l1_20k.pt"
 # locomotion_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0901_f1_20k.pt"
@@ -233,10 +233,14 @@ navigation_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0820_nav_f9.p
 
 
 # SIT
+# sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0925_s2.pt"
+# sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0925_s3.pt"
 sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/sit_ver3.pt"
+
 # sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0910_s1.pt"
 # sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0911_s2_15k.pt"
 # sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0910_s1_v2.pt"
+
 slow_bound: 0.2
 max_velocity: 0.1
 # sit target height when we press [down] button

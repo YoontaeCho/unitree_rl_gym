@@ -305,7 +305,7 @@ class Controller:
         self.errors_avg_40 = np.zeros((0,2))
 
         ########################## Sit ##########################
-        if True:
+        if "sit_ver3" in self.config.sit_policy_path:
             self.sit_obsmap = us.SitObservation(config, self.tf_buffer)
         else:
             self.sit_obsmap = us.SitObservation_v2(config, self.tf_buffer)
@@ -427,7 +427,7 @@ class Controller:
             'trajopt_single_ee',
         )
         self._node.get_logger().info("Waiting for trajopt action server...")
-        self._action_client.wait_for_server()
+        # self._action_client.wait_for_server()
 
         self.act_joint = config.ik_joint
         self.ikctrl = IKCtrl('../../resources/robots/g1_description/g1_29dof_rev_1_0_zed2i_with_welder_v3.urdf',
@@ -506,6 +506,7 @@ class Controller:
             self.log_metrics_and_trajectories()
             print("Log saved.")
         finally:
+            subprocess.run(["pkill", "align"])
             self._node.destroy_timer(self._timer)
             create_damping_cmd(self.low_cmd)
             self.send_cmd(self.low_cmd)
@@ -888,6 +889,8 @@ class Controller:
         return phase
     
     def get_navigation_command(self, xyz, quat_wxyz):
+        phase = (self.counter * 0.02) % 1.0 / 1.0
+        
         ###################### Compute state ######################
         # Pelvis heading direction
         forward_w = quat_apply(quat_wxyz.astype(np.float32), np.array([1., 0., 0.]).astype(np.float32))
@@ -965,8 +968,9 @@ class Controller:
 
         height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.00, sitting=self.sitting)
 
-        # For stage 1 & 2.
         self.obs = self.sit_obsmap(self.low_state, height_command, xyz)
+
+        self.sit_obs = self.obs.copy()
 
         obs_tensor = th.from_numpy(self.obs).unsqueeze(0)
         obs_tensor = obs_tensor.detach().clone().float()
@@ -985,7 +989,14 @@ class Controller:
                 + np.array(self.locomotion_actmap.lab_arm_offset) * alpha
                 )
             self.sit_target_dof_pos[self.locomotion_actmap.mot_from_lab_upper_joints] = arm_pos
-            self.sit_counter += 1
+        self.sit_counter += 1
+        # elif self.sit_counter < 200:
+
+        #     self.run_locomotion_policy(phase=0.0)
+        #     self.sit_target_dof_pos = self.locomotion_target_dof_pos
+        #     arm_pos = np.array(self.locomotion_actmap.lab_arm_offset)
+        #     self.sit_target_dof_pos[self.locomotion_actmap.mot_from_lab_upper_joints] = arm_pos
+        #     self.sit_counter += 1
         
     def run_locomotion_policy(self, phase):
         self.obs = self.locomotion_obsmap(self.low_state, self.locomotion_vel_command, phase, last_action=self.locomotion_last_action)
@@ -1221,13 +1232,19 @@ class Controller:
             offset_from_ee_to_welding_object_when_fully_contacted = 0.0075
             offset_from_ee_to_welding_object_on_z_axis = -0.002
 
+            start_x_offset = 0.0075
+            start_z_offset = 0.0
+
+            end_x_offset = 0.0075
+            end_z_offset = 0.0
+
             if self.contact_align_target_point == "start_point":
                 start_pos_w = (
                     self.contact_aligned_start_ee_pose[0] + 
-                    offset_from_ee_to_welding_object_when_fully_contacted*
+                    start_x_offset*
                     matrix_from_quat(self.contact_aligned_start_ee_pose[1])[:3,0] +
                     # Add z-directional offset
-                    offset_from_ee_to_welding_object_on_z_axis *
+                    start_z_offset *
                     matrix_from_quat(self.contact_aligned_start_ee_pose[1])[:3,2]
                 )
                 x_offset_on_vision_point = -0.005
@@ -1240,20 +1257,20 @@ class Controller:
                 start_pos_w = (
                     self.contact_aligned_end_ee_pose[0] + 
                     # Add x-directional offset
-                    offset_from_ee_to_welding_object_when_fully_contacted *
+                    end_x_offset *
                     matrix_from_quat(self.contact_aligned_end_ee_pose[1])[:3,0] +
                     # Add z-directional offset
-                    offset_from_ee_to_welding_object_on_z_axis *
+                    end_z_offset *
                     matrix_from_quat(self.contact_aligned_end_ee_pose[1])[:3,2]
                 )
                 
                 end_pos_w = (
                     self.contact_aligned_start_ee_pose[0] + 
                     # Add x-directional offset
-                    offset_from_ee_to_welding_object_when_fully_contacted *
+                    start_x_offset *
                     matrix_from_quat(self.contact_aligned_start_ee_pose[1])[:3,0] +
                     # Add z-directional offset
-                    offset_from_ee_to_welding_object_on_z_axis *
+                    start_z_offset *
                     matrix_from_quat(self.contact_aligned_start_ee_pose[1])[:3,2]
                 )
                 inverse_y = True
@@ -1460,8 +1477,8 @@ class Controller:
         kds = np.array(self.config.kds).astype(np.float32).copy()
 
         if self.task == "vision" or self.task == "trajopt" or self.task == "to_start" or self.task == "contact_align" or self.task == "eetrack":
-            kps = np.array(self.config.sit_kps).astype(np.float32).copy()
-            kds = np.array(self.config.sit_kds).astype(np.float32).copy()
+            kps = np.array(self.config.kps).astype(np.float32).copy()
+            kds = np.array(self.config.kds).astype(np.float32).copy()
 
             kps[-7:] = self.config.eetrack_right_arm_kps
             kds[-7:] = self.config.eetrack_right_arm_kds
@@ -1471,11 +1488,15 @@ class Controller:
             kds[:15] = self.config.eetrack_lower_body_kds
 
         elif self.task == "sit":
-            if self.sit_counter < 100:
-                kps = np.array(self.config.kps).astype(np.float32).copy()
+            if "sit_ver3" in self.config.sit_policy_path :
+                if self.sit_counter < 100:
+                    kps = np.array(self.config.kps).astype(np.float32).copy()
+                else:
+                    kps = np.array(self.config.sit_kps).astype(np.float32).copy()
+                kds = np.array(self.config.sit_kds).astype(np.float32).copy()
             else:
-                kps = np.array(self.config.sit_kps).astype(np.float32).copy()
-            kds = np.array(self.config.sit_kds).astype(np.float32).copy()
+                kps = np.array(self.config.kps).astype(np.float32).copy()
+                kds = np.array(self.config.sit_kds).astype(np.float32).copy()
 
             if True:
                 if self.prev_joint_pos_target is not None:
@@ -1514,8 +1535,9 @@ class Controller:
         self.target_dof_poss = np.vstack((self.target_dof_poss, target_dof_pos))
 
         if self.task == "sit":
-            pass
-            # self.sit_observations = np.vstack((self.sit_observations, self.obs))
+            # pass
+            # if self.sit_counter >= 100:
+                self.sit_observations = np.vstack((self.sit_observations, self.sit_obs))
         elif self.task == "vision":
             self.zed_poses_w = np.vstack((self.zed_poses_w, self.zed_pose_w))
         elif self.task =="trajopt":

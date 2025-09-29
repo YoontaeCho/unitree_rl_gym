@@ -160,6 +160,42 @@ log_path = "/tmp/e2e/log_0911_l1_20k_1758087392.npy" # 0917 test 1
 log_path = "/tmp/e2e/log_0911_l1_20k_1758091899.npy" # 0917 test 2
 log_path = "/tmp/e2e/log_0911_l1_20k_1758092474.npy" # 0917 test 3
 log_path = "/tmp/e2e/log_0911_l1_20k_1758092928.npy" # 0917 test 4
+# 0922
+# Test 1
+log_path = "/tmp/e2e/log_0921_l3_1758542931.npy"
+# Test 5
+log_path = "/tmp/e2e/log_0921_l3_1758544327.npy"
+
+# real 0924
+log_path = "/tmp/e2e/log_0921_l3_1758671187.npy"
+log_path = "/tmp/e2e/log_0921_l3_1758680159.npy"
+# log_path = "/tmp/e2e/log_0921_l3_1758681824.npy"
+
+# Vision test 0924
+log_path = "/tmp/e2e/log_0921_l3_1758690695.npy" # test 1
+
+# Original sit pose
+log_path = "/tmp/e2e/log_0921_l3_1758787795.npy"
+log_path = "/tmp/e2e/log_0921_l3_1758788147.npy" # Turn off at the end
+log_path = "/tmp/e2e/log_0921_l3_1758788481.npy"
+
+# # Diff yaw
+# log_path = "/tmp/e2e/log_0921_l3_1758789013.npy"
+# log_path = "/tmp/e2e/log_0921_l3_1758789255.npy"
+# log_path = "/tmp/e2e/log_0921_l3_1758789763.npy"
+
+# # Diff y axis
+# log_path = "/tmp/e2e/log_0921_l3_1758798050.npy"
+# log_path = "/tmp/e2e/log_0921_l3_1758798211.npy"
+# log_path = "/tmp/e2e/log_0921_l3_1758798362.npy"
+
+log_path = "/tmp/e2e/log_0921_l3_1758868333.npy"
+
+log_path = "/tmp/e2e/log_0921_l3_1758886287.npy"
+
+# 0927 rooftop
+log_path = "/tmp/e2e/log_0926_l3_30k_1758961291.npy"
+
 data = np.load(log_path, allow_pickle=True).item()
 traj_data = data["trajectories"]
 # print(traj_data.keys())
@@ -190,11 +226,19 @@ ee_poses_b = traj_data["ee_poses_b"]
 #     ee_T_bs.append(ee_T_b)
 # ee_T_bs = np.stack(ee_T_b)
 
-eetrack_ids = (tasks=="eetrack").nonzero()[0].flatten()
+eetrack_ids = ((tasks=="to_start") | (tasks=="contact_align") | (tasks=="eetrack")).nonzero()[0].flatten()
+to_start_len = np.sum((tasks=="to_start"))
 for i in range(3):
     plt.subplot(1,3,i+1)
-    plt.plot(t_l[eetrack_ids], ee_poses_w[:,i], label="cur")
-    plt.plot(t_l[eetrack_ids], target_poses_w[:,i], label="target")
+    plt.plot(t_l[eetrack_ids[to_start_len:]], ee_poses_w[to_start_len:,i], label="cur")
+    plt.plot(t_l[eetrack_ids[to_start_len:]], target_poses_w[to_start_len:,i], label="target")
+    plt.yticks(np.linspace(ee_poses_w[:,i].min(), ee_poses_w[:,i].max(), 20))
+    plt.grid()
+plt.legend()
+plt.show()
+
+plt.plot(t_l[eetrack_ids][to_start_len:-1], np.linalg.norm(np.diff(ee_poses_w[to_start_len:,:3], axis=0), axis=1), label="cur")
+plt.grid()
 plt.legend()
 plt.show()
 
@@ -216,16 +260,19 @@ print(q_traj[-1])
 # plt.tight_layout()
 # plt.show()
 
-# plt.figure(figsize=(25,15))
-# for i in range(29):
-#     plt.subplot(6,5,i+1)
-#     plt.plot(t_h, tau_traj[:,i], label="tau")
-#     plt.title(motor_joint[i])
-#     for tc_id in task_changed_ids:
-#         plt.axvline(t_l[tc_id], c='r', ls='--')
-# plt.legend()
-# plt.tight_layout()
-# plt.show()
+contact_align_ids = (tasks=="contact_align").nonzero()[0].flatten()
+contact_align_start_t = t_l[contact_align_ids[0]]
+contact_align_high_start_idx = np.argmin(np.abs(t_h - contact_align_start_t))
+plt.figure(figsize=(25,15))
+for i in range(29):
+    plt.subplot(6,5,i+1)
+    plt.plot(t_h, tau_traj[:,i], label="tau")
+    plt.title(motor_joint[i])
+    for tc_id in task_changed_ids:
+        plt.axvline(t_l[tc_id], c='r', ls='--')
+plt.legend()
+plt.tight_layout()
+plt.show()
 
 # target_trajopt_joint_pos = traj_data["target_trajopt_joint_pos"]
 
