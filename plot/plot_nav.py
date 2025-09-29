@@ -195,7 +195,46 @@ log_path = "/tmp/e2e/log_0926_l3_30k_1759062198.npy"
 
 log_path = "/tmp/e2e/log_0926_l3_30k_1759062437.npy"
 
-log_path = "/tmp/e2e/log_0926_l3_30k_1759064520.npy"
+# log_path = "/tmp/e2e/log_0926_l3_30k_1759064520.npy"
+
+# 50Hz
+log_path = "/tmp/e2e/log_0926_l3_30k_1759110016.npy"
+
+log_path = "/tmp/e2e/log_0926_l3_30k_1759110404.npy"
+
+log_path = "/tmp/e2e/log_0926_l3_30k_1759111914.npy"
+
+log_path = "/tmp/e2e/log_0926_l3_30k_1759112769.npy"
+
+log_path = "/tmp/e2e/log_0926_l3_30k_1759113011.npy"
+
+log_path = "/tmp/e2e/log_0926_l3_30k_1759113517.npy"
+
+log_path = "/tmp/e2e/log_0926_l3_30k_1759116383.npy"
+
+log_path = "/tmp/e2e/log_0926_l3_30k_1759116901.npy"
+
+# GOOOD
+log_path = "/tmp/e2e/log_0926_l3_30k_1759117282.npy"
+
+log_path = "/tmp/e2e/log_0926_l3_30k_1759117516.npy"
+
+log_path = "/tmp/e2e/log_0926_l3_30k_1759117854.npy"
+
+log_path = "/tmp/e2e/log_0926_l3_30k_1759118104.npy"
+
+log_path = "/tmp/e2e/log_0926_l3_30k_1759118562.npy"
+
+log_path = "/tmp/e2e/log_0926_l3_30k_1759118861.npy"
+
+
+# USUAL
+log_path = "/tmp/e2e/log_0926_l3_30k_1759119373.npy"
+log_path = "/tmp/e2e/log_0926_l3_30k_1759119885.npy"
+
+# OUTLIER NOISE
+log_path = "/tmp/e2e/log_0926_l3_30k_1759119557.npy"
+
 
 data = np.load(log_path, allow_pickle=True).item()
 traj_data = data["trajectories"]
@@ -235,26 +274,26 @@ time_to_start = 10
 plt.subplot(4,1,1)
 plt.plot(window_size_10[time_to_start:,0], label="window: 10, trans")
 plt.plot(window_size_10[time_to_start:,1], label="window: 10, rot")
-plt.axhline(y=trans_thresh, c="r", label="trans threshold")
-plt.axhline(y=rot_thresh, c="g", label="rot threshold")
+plt.axhline(y=trans_thresh, linestyle=":", c="r", label="trans threshold")
+plt.axhline(y=rot_thresh, linestyle=":", c="g", label="rot threshold")
 plt.legend()
 plt.subplot(4,1,2)
 plt.plot(window_size_20[time_to_start:,0], label="window: 20, trans")
 plt.plot(window_size_20[time_to_start:,1], label="window: 20, rot")
-plt.axhline(y=trans_thresh, c="r", label="trans threshold")
-plt.axhline(y=rot_thresh, c="g", label="rot threshold")
+plt.axhline(y=trans_thresh, linestyle=":", c="r", label="trans threshold")
+plt.axhline(y=rot_thresh, linestyle=":", c="g", label="rot threshold")
 plt.legend()
 plt.subplot(4,1,3)
 plt.plot(window_size_30[time_to_start:,0], label="window: 30, trans")
 plt.plot(window_size_30[time_to_start:,1], label="window: 30, rot")
-plt.axhline(y=trans_thresh, c="r", label="trans threshold")
-plt.axhline(y=rot_thresh, c="g", label="rot threshold")
+plt.axhline(y=trans_thresh, linestyle=":", c="r", label="trans threshold")
+plt.axhline(y=rot_thresh, linestyle=":", c="g", label="rot threshold")
 plt.legend()
 plt.subplot(4,1,4)
 plt.plot(window_size_40[time_to_start:,0], label="window: 40, trans")
 plt.plot(window_size_40[time_to_start:,1], label="window: 40, rot")
-plt.axhline(y=trans_thresh, c="r", label="trans threshold")
-plt.axhline(y=rot_thresh, c="g", label="rot threshold")
+plt.axhline(y=trans_thresh, linestyle=":", c="r", label="trans threshold")
+plt.axhline(y=rot_thresh, linestyle=":", c="g", label="rot threshold")
 plt.legend()
 plt.show()
 
@@ -279,6 +318,10 @@ for i in range(3):
     # plt.ylim((-0.1, 0.1))
 plt.show()
 
+plt.plot(np.linalg.norm(vel_cmd_b[navigation_ids, :], axis=1)[time_to_start:], label="velocity norm")
+plt.legend()
+
+plt.show()
 
 # last_n = 8000
 # ee_T_bs = []

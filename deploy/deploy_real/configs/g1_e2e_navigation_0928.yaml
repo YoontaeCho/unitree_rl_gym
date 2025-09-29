@@ -242,8 +242,8 @@ navigation_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0820_nav_f9.p
 
 # SIT
 # sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0925_s2.pt"
-sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0925_s3.pt"
-# sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/sit_ver3.pt"
+# sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0925_s3.pt"
+sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/sit_ver3.pt"
 
 # sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0910_s1.pt"
 # sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0911_s2_15k.pt"

@@ -417,7 +417,7 @@ class Controller:
             'trajopt_single_ee',
         )
         self._node.get_logger().info("Waiting for trajopt action server...")
-        # self._action_client.wait_for_server()
+        self._action_client.wait_for_server()
 
         self.act_joint = config.ik_joint
         self.ikctrl = IKCtrl('../../resources/robots/g1_description/g1_29dof_rev_1_0_zed2i_with_welder_v3.urdf',
@@ -496,7 +496,7 @@ class Controller:
             self.log_metrics_and_trajectories()
             print("Log saved.")
         finally:
-            subprocess.run(["pkill", "align"])
+            subprocess.run(["pkill", "-f", "align"])
             self._node.destroy_timer(self._timer)
             create_damping_cmd(self.low_cmd)
             self.send_cmd(self.low_cmd)
@@ -955,9 +955,14 @@ class Controller:
                     self.locomotion_vel_command[1] = np.clip(0.1 * np.sqrt(np.abs(self.pos_command_b[1] / 0.3)), 0., 0.1)
                 # Y < 0
                 if self.pos_command_b[1] < 0:
-                    self.locomotion_vel_command[1] = np.clip(-0.12 * np.sqrt(np.abs(self.pos_command_b[1] / 0.2)), -0.12, 0.)
+                    self.locomotion_vel_command[1] = np.clip(-0.14 * np.sqrt(np.abs(self.pos_command_b[1] / 0.2)), -0.14, 0.)
                 
-                self.locomotion_vel_command[2] = np.clip(np.sign(heading_error) * 0.3 * np.sqrt(np.abs(heading_error / 0.4)), -0.3, 0.3)
+                self.locomotion_vel_command[2] = np.clip(np.sign(heading_error) * 0.3 * np.sqrt(np.abs(heading_error / 0.2)), -0.3, 0.3)
+
+                # vel_norm = np.linalg.norm(self.locomotion_vel_command)
+                # if vel_norm < 0.2:
+                #     self.locomotion_vel_command = 0.2 * self.locomotion_vel_command / vel_norm
+
 
 
             if self.stop_locomotion:
@@ -983,7 +988,7 @@ class Controller:
 
         # For stage 1 & 2.
         interpolation_length = 200 # 4s
-        if self.sit_counter > 100 and self.sit_counter < 100 + interpolation_length:        
+        if self.sit_counter > 100 and self.sit_counter < 100 + interpolation_length and "sit_ver3" not in self.config.sit_policy_path:        
             alpha = (self.sit_counter - 100) / interpolation_length
             hip_pitch_offset = np.array([-4.8070e-01 + 0.3, -3.1852e-01 + 0.3])*(1-alpha) + np.array([-4.8070e-01, -3.1852e-01])*alpha
             
@@ -1159,7 +1164,7 @@ class Controller:
             elif self.task in ["navigation", "locomotion"]:
                 print("============== Trigger apriltag detection ==============")
                 subprocess.Popen([
-                    "python3", 
+                    "python3",
                     "/root/localization/align_publisher_zed.py"
                     ],
                 stdout=subprocess.DEVNULL,   # discard standard output
@@ -1268,8 +1273,8 @@ class Controller:
                     start_z_offset *
                     matrix_from_quat(self.contact_aligned_start_ee_pose[1])[:3,2]
                 )
-                x_offset_on_vision_point = -0.005
-                self.welding_points_from_vision[-1][0] += x_offset_on_vision_point
+                # x_offset_on_vision_point = -0.005
+                # self.welding_points_from_vision[-1][0] += x_offset_on_vision_point
                 end_pos_w = self.welding_points_from_vision[-1]
                 inverse_y = False
                 eetrack_vel = 0.01
@@ -1414,11 +1419,13 @@ class Controller:
                 # TODO: incease target_dx (smaller than 0.001)
                 target_dx = 0.0004 # How much the target far from the current EE
                 target_pos_w = pos_ee_w + target_dx*x_axis_w
-                target_quat_w = interpolate_quaternion(
-                    quat_ee_w,
-                    th.from_numpy(self.contact_align_start_quat_ee_w)[None],
-                    5,
-                )[1].cpu().numpy()
+                target_quat_w = self.contact_align_start_quat_ee_w
+                
+                #interpolate_quaternion(
+                #    quat_ee_w,
+                #    th.from_numpy(self.contact_align_start_quat_ee_w)[None],
+                #    5,
+                #)[1].cpu().numpy()
 
             self.target_pose_w = np.concatenate([target_pos_w, target_quat_w], axis=-1)
             target_pos_b, target_quat_b = subtract_frame_transforms(

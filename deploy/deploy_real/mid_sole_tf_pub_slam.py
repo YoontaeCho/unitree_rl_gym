@@ -79,6 +79,7 @@ class MidSoleTFPublisher(Node):
             'lowstate',
             self.on_low_state,
             10)
+        self.prev_body_pos = np.zeros(3)
 
     def on_low_state(self,
                      msg: LowStateHG):
@@ -158,6 +159,11 @@ class MidSoleTFPublisher(Node):
 
 
             self.tf_broadcaster.sendTransform(body_tf_from_world)
+            
+            localization_error = np.linalg.norm(body_pos_from_world - self.prev_body_pos)
+            if localization_error > 0.1:
+                print("[! WARN !] LiDAR data is very noisy. Localization can be very inaccurate. If you see this message multiple times before moving, rerun the SLAM.")
+            self.prev_body_pos = body_pos_from_world
 
         except Exception as e:
             self.get_logger().info(
