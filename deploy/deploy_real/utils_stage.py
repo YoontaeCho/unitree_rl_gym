@@ -375,7 +375,8 @@ class SitObservation_v2(SitObservation):
                  low_state: LowStateHG,
                  height_command: np.ndarray,
                  xyz,
-                 hip_pitch_joint_offset = None
+                 hip_pitch_joint_offset = None,
+                 ankle_pitch_joint_offset = None
                  ):
         base_ang_vel = self._base_ang_vel(low_state)
         # NOTE(ycho): requires running `fake_world_tf_pub.py`.
@@ -386,6 +387,9 @@ class SitObservation_v2(SitObservation):
         if hip_pitch_joint_offset is not None:
             joint_offset[0] = hip_pitch_joint_offset[0]
             joint_offset[1] = hip_pitch_joint_offset[1]
+        if ankle_pitch_joint_offset is not None:
+            joint_offset[13] = ankle_pitch_joint_offset[0]
+            joint_offset[14] = ankle_pitch_joint_offset[1]
         joint_pos, joint_vel = self._joint_pos_vel(low_state, joint_offset)
         pelvis_height = self._pelvis_height(xyz)
         prev_pelvis_height = self._pelvis_height_prev(xyz)

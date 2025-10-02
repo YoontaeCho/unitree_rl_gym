@@ -221,7 +221,8 @@ class eetrack:
                 welding_start_pos_w,
                 welding_end_pos_w,
                 offset_len=self.offset_len,
-                approach_deg=40.0,
+                # approach_deg=40.0,
+                approach_deg=35.0,
                 inverse_y=inverse_y
             )
             self.eetrack_start_w, self.eetrack_start_quat_w = eetrack_start_pos_w, eetrack_start_quat_w

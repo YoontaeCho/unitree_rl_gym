@@ -566,8 +566,8 @@ class Controller:
 
         self.welding_points_from_vision = pts_world.copy()
         # Move start position to right, end position to left.
-        self.welding_points_from_vision[0] = 0.85*pts_world[0] + 0.15*pts_world[-1]
-        self.welding_points_from_vision[-1] = 0.15*pts_world[0] + 0.85*pts_world[-1]
+        self.welding_points_from_vision[0] = 0.8*pts_world[0] + 0.2*pts_world[-1]
+        self.welding_points_from_vision[-1] = 0.2*pts_world[0] + 0.8*pts_world[-1]
         self._node.get_logger().info(f"Welding points recieved: {self.welding_points_from_vision}")
 
         # Disable after recieve
@@ -946,16 +946,16 @@ class Controller:
                 # X >= 0
                 # X >= 0
                 if self.pos_command_b[0] >= 0:
-                    self.locomotion_vel_command[0] = np.clip(0.08 * np.sqrt(np.abs(self.pos_command_b[0] / 0.6)), 0., 0.08)
+                    self.locomotion_vel_command[0] = np.clip(0.1 * np.sqrt(np.abs(self.pos_command_b[0] / 0.6)), 0., 0.1)
                 # X < 0
                 if self.pos_command_b[0] < 0:
                     self.locomotion_vel_command[0] = np.clip(-0.3 * np.sqrt(np.abs(self.pos_command_b[0] / 0.2)), -0.3, 0.)
                 # Y >= 0
                 if self.pos_command_b[1] >= 0:
-                    self.locomotion_vel_command[1] = np.clip(0.1 * np.sqrt(np.abs(self.pos_command_b[1] / 0.2)), 0., 0.1)
+                    self.locomotion_vel_command[1] = np.clip(0.1 * np.sqrt(np.abs(self.pos_command_b[1] / 0.3)), 0., 0.1)
                 # Y < 0
                 if self.pos_command_b[1] < 0:
-                    self.locomotion_vel_command[1] = np.clip(-0.14 * np.sqrt(np.abs(self.pos_command_b[1] / 0.2)), -0.14, 0.)
+                    self.locomotion_vel_command[1] = np.clip(-0.12 * np.sqrt(np.abs(self.pos_command_b[1] / 0.3)), -0.12, 0.)
                 
                 self.locomotion_vel_command[2] = np.clip(np.sign(heading_error) * 0.3 * np.sqrt(np.abs(heading_error / 0.2)), -0.3, 0.3)
 
@@ -987,12 +987,20 @@ class Controller:
         height_command = self.vhcommand(current_pelvis_height_w = xyz[2] + 0.00, sitting=self.sitting)
 
         # For stage 1 & 2.
-        interpolation_length = 200 # 4s
-        if self.sit_counter > 100 and self.sit_counter < 100 + interpolation_length and "sit_ver3" not in self.config.sit_policy_path:        
-            alpha = (self.sit_counter - 100) / interpolation_length
-            hip_pitch_offset = np.array([-4.8070e-01 + 0.3, -3.1852e-01 + 0.3])*(1-alpha) + np.array([-4.8070e-01, -3.1852e-01])*alpha
-            
-            self.obs = self.sit_obsmap(self.low_state, height_command, xyz, hip_pitch_offset)
+        if self.config.use_interpolation:
+            interpolation_length = 200 # 4s
+            if self.sit_counter > 100 and self.sit_counter < 100 + interpolation_length and "sit_ver3" not in self.config.sit_policy_path:        
+                alpha = (self.sit_counter - 100) / interpolation_length
+                # hip_pitch_offset = np.array([-4.8070e-01 + 0.1, -3.1852e-01 + 0.1])*(1-alpha) + np.array([-4.8070e-01, -3.1852e-01])*alpha
+                hip_pitch_offset = np.array([-4.8070e-01 + 0.2, -3.1852e-01 + 0.2])*(1-alpha) + np.array([-4.8070e-01, -3.1852e-01])*alpha
+                ankle_pitch_offset = np.array([-2.3876e-01 + 0.2, -4.7379e-01 + 0.2])*(1-alpha) + np.array([-2.3876e-01, -4.7379e-01])*alpha
+                if self.config.is_downhill:
+                    # on downhill, we have to bend ankle pitch more on the transition phase
+                    self.obs = self.sit_obsmap(self.low_state, height_command, xyz, hip_pitch_offset, ankle_pitch_offset)
+                else:
+                    self.obs = self.sit_obsmap(self.low_state, height_command, xyz, hip_pitch_offset)
+            else:
+                self.obs = self.sit_obsmap(self.low_state, height_command, xyz)
         else:
             self.obs = self.sit_obsmap(self.low_state, height_command, xyz)
 
@@ -1522,8 +1530,12 @@ class Controller:
             kds[-7:] = self.config.eetrack_right_arm_kds
 
             ################# change lower body Kp, Kd values due to overheating #################
-            kps[:15] = self.config.eetrack_lower_body_kps
-            kds[:15] = self.config.eetrack_lower_body_kds
+            if "sit_ver3" not in self.config.sit_policy_path:
+                kps[:15] = self.config.kps[:15]
+                kds[:15] = self.config.kds[:15]
+            else:
+                kps[:15] = self.config.eetrack_lower_body_kps
+                kds[:15] = self.config.eetrack_lower_body_kds
 
         elif self.task == "sit":
             if "sit_ver3" in self.config.sit_policy_path :

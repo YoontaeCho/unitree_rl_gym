@@ -106,3 +106,5 @@ class Config:
             self.sit_kps = config.get("sit_kps", None)
 
             self.sit_smoothing = config.get("sit_smoothing", 1)
+            self.is_downhill = config.get("is_downhill", False)
+            self.use_interpolation = config.get("use_interpolation", True)

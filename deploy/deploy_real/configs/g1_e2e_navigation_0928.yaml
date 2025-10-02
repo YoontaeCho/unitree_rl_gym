@@ -111,8 +111,8 @@ sit_kps: [
     40, 40, 40, 40, 40, 40, 40  # right arm
 ]
 sit_kds: [
-    15, 15, 15, 15, 4, 4,           # left leg
-    15, 15, 15, 15, 4, 4,           # right leg
+    15, 15, 15, 15, 2, 2,           # left leg
+    15, 15, 15, 15, 2, 2,           # right leg
     10, 10, 5,                    # waist
     10, 10, 10, 10, 10, 10, 10, # left arm
     # 10, 10, 10, 10, 10, 10, 10  # right arm
@@ -241,9 +241,10 @@ navigation_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0820_nav_f9.p
 
 
 # SIT
+# sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/1001_s5_new.pt"
 # sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0925_s2.pt"
-# sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0925_s3.pt"
-sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/sit_ver3.pt"
+sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0925_s3.pt"
+# sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/sit_ver3.pt"
 
 # sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0910_s1.pt"
 # sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0911_s2_15k.pt"
@@ -252,7 +253,7 @@ sit_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/sit_ver3.pt"
 slow_bound: 0.2
 max_velocity: 0.1
 # sit target height when we press [down] button
-target_height: 0.43
+target_height: 0.4
 
 
 policy_path: ""
@@ -266,3 +267,6 @@ sit_smoothing: 0.9
 # locomotion_obs_dim: 84
 locomotion_obs_dim: 83 # 14dof
 num_actions: 14
+
+is_downhill : False
+# use_interpolation : True

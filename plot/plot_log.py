@@ -196,6 +196,8 @@ log_path = "/tmp/e2e/log_0921_l3_1758886287.npy"
 # 0927 rooftop
 log_path = "/tmp/e2e/log_0926_l3_30k_1758961291.npy"
 
+log_path ="/tmp/e2e/log_0926_l3_30k_1759204216.npy"
+
 data = np.load(log_path, allow_pickle=True).item()
 traj_data = data["trajectories"]
 # print(traj_data.keys())
@@ -230,9 +232,9 @@ eetrack_ids = ((tasks=="to_start") | (tasks=="contact_align") | (tasks=="eetrack
 to_start_len = np.sum((tasks=="to_start"))
 for i in range(3):
     plt.subplot(1,3,i+1)
-    plt.plot(t_l[eetrack_ids[to_start_len:]], ee_poses_w[to_start_len:,i], label="cur")
-    plt.plot(t_l[eetrack_ids[to_start_len:]], target_poses_w[to_start_len:,i], label="target")
-    plt.yticks(np.linspace(ee_poses_w[:,i].min(), ee_poses_w[:,i].max(), 20))
+    plt.plot(t_l[eetrack_ids[to_start_len:]], ee_poses_b[to_start_len:,i], label="cur")
+    plt.plot(t_l[eetrack_ids[to_start_len:]], target_poses_b[to_start_len:,i], label="target")
+    plt.yticks(np.linspace(ee_poses_b[:,i].min(), ee_poses_b[:,i].max(), 20))
     plt.grid()
 plt.legend()
 plt.show()
