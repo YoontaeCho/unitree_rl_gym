@@ -198,6 +198,14 @@ log_path = "/tmp/e2e/log_0926_l3_30k_1758961291.npy"
 
 log_path ="/tmp/e2e/log_0926_l3_30k_1759204216.npy"
 
+# Left knee overheat
+log_path = "/tmp/e2e/log_0926_l3_30k_1760095652.npy"
+# No overheat
+# log_path = "/tmp/e2e/log_0926_l3_30k_1760085259.npy"
+
+
+log_path = "/tmp/e2e/log_0926_l3_30k_1760674181.npy"
+
 data = np.load(log_path, allow_pickle=True).item()
 traj_data = data["trajectories"]
 # print(traj_data.keys())
@@ -239,19 +247,19 @@ for i in range(3):
 plt.legend()
 plt.show()
 
-plt.plot(t_l[eetrack_ids][to_start_len:-1], np.linalg.norm(np.diff(ee_poses_w[to_start_len:,:3], axis=0), axis=1), label="cur")
-plt.grid()
-plt.legend()
-plt.show()
+# plt.plot(t_l[eetrack_ids][to_start_len:-1], np.linalg.norm(np.diff(ee_poses_w[to_start_len:,:3], axis=0), axis=1), label="cur")
+# plt.grid()
+# plt.legend()
+# plt.show()
 
-trimesh.Scene([
-    trimesh.creation.axis(),
-    trimesh.PointCloud(target_poses_w[:,:3], [0,255,0]),
-    trimesh.PointCloud(ee_poses_w[:,:3], [255,0,0]),
-]).show()
+# trimesh.Scene([
+#     trimesh.creation.axis(),
+#     trimesh.PointCloud(target_poses_w[:,:3], [0,255,0]),
+#     trimesh.PointCloud(ee_poses_w[:,:3], [255,0,0]),
+# ]).show()
 
-np.set_printoptions(suppress=True)
-print(q_traj[-1])
+# np.set_printoptions(suppress=True)
+# print(q_traj[-1])
 
 # plt.figure(figsize=(25,15))
 # for i in range(29):
@@ -262,19 +270,31 @@ print(q_traj[-1])
 # plt.tight_layout()
 # plt.show()
 
-contact_align_ids = (tasks=="contact_align").nonzero()[0].flatten()
+contact_align_ids = (tasks=="sit").nonzero()[0].flatten()
 contact_align_start_t = t_l[contact_align_ids[0]]
 contact_align_high_start_idx = np.argmin(np.abs(t_h - contact_align_start_t))
 plt.figure(figsize=(25,15))
 for i in range(29):
     plt.subplot(6,5,i+1)
-    plt.plot(t_h, tau_traj[:,i], label="tau")
+    plt.plot(t_h[:], tau_traj[:,i], label="tau")
     plt.title(motor_joint[i])
     for tc_id in task_changed_ids:
         plt.axvline(t_l[tc_id], c='r', ls='--')
 plt.legend()
 plt.tight_layout()
 plt.show()
+
+# Plot variances of each joint torque after t_h > 57.0 in a bar graph
+# joint_variances = tau_traj[np.logical_and(t_h > 96.0, t_h < 98.0)].var(axis=0)
+joint_variances = tau_traj[np.logical_and(t_h > 50.0, t_h < 75.0)].var(axis=0)
+plt.figure(figsize=(15, 6))
+plt.bar(range(len(motor_joint)), joint_variances)
+plt.xticks(range(len(motor_joint)), motor_joint, rotation=90)
+plt.ylabel("Variance")
+plt.title("Joint Torque Variances")
+plt.tight_layout()
+plt.show()
+# tau_traj[t_h > 57.0].var(axis=0)[3]
 
 # target_trajopt_joint_pos = traj_data["target_trajopt_joint_pos"]
 

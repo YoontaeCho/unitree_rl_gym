@@ -567,7 +567,7 @@ class Controller:
         self.welding_points_from_vision = pts_world.copy()
         # Move start position to right, end position to left.
         self.welding_points_from_vision[0] = 0.8*pts_world[0] + 0.2*pts_world[-1]
-        self.welding_points_from_vision[-1] = 0.2*pts_world[0] + 0.8*pts_world[-1]
+        # self.welding_points_from_vision[-1] = 0.2*pts_world[0] + 0.8*pts_world[-1]
         self._node.get_logger().info(f"Welding points recieved: {self.welding_points_from_vision}")
 
         # Disable after recieve
@@ -929,7 +929,7 @@ class Controller:
                     errors
                 )))
         # print("Pelvis height :", xyz[-1])
-        print(self.pos_command_b)
+        print("Pelvis <> Target distance in local frame : ", self.pos_command_b)
         ###################### Hand design navigation ######################
         if True:
             if self.pos_error_bs.shape[0] > self.NUM_AVG:
@@ -989,7 +989,9 @@ class Controller:
         # For stage 1 & 2.
         if self.config.use_interpolation:
             interpolation_length = 200 # 4s
-            if self.sit_counter > 100 and self.sit_counter < 100 + interpolation_length and "sit_ver3" not in self.config.sit_policy_path:        
+            if (self.sit_counter > 100 and self.sit_counter < 100 + interpolation_length) \
+                 and \
+                ("sit_ver3" not in self.config.sit_policy_path):        
                 alpha = (self.sit_counter - 100) / interpolation_length
                 # hip_pitch_offset = np.array([-4.8070e-01 + 0.1, -3.1852e-01 + 0.1])*(1-alpha) + np.array([-4.8070e-01, -3.1852e-01])*alpha
                 hip_pitch_offset = np.array([-4.8070e-01 + 0.2, -3.1852e-01 + 0.2])*(1-alpha) + np.array([-4.8070e-01, -3.1852e-01])*alpha
@@ -1003,6 +1005,15 @@ class Controller:
                 self.obs = self.sit_obsmap(self.low_state, height_command, xyz)
         else:
             self.obs = self.sit_obsmap(self.low_state, height_command, xyz)
+            if self.config.is_downhill:
+                interpolation_length = 200 # 4s
+                if (self.sit_counter > 100 and self.sit_counter < 100 + interpolation_length) \
+                    and \
+                    ("sit_ver3" not in self.config.sit_policy_path):        
+                    alpha = (self.sit_counter - 100) / interpolation_length
+                    ankle_pitch_offset = np.array([-2.3876e-01 + 0.2, -4.7379e-01 + 0.2])*(1-alpha) + np.array([-2.3876e-01, -4.7379e-01])*alpha
+                    # on downhill, we have to bend ankle pitch more on the transition phase
+                    self.obs = self.sit_obsmap(self.low_state, height_command, xyz, ankle_pitch_joint_offset=ankle_pitch_offset)
 
         self.sit_obs = self.obs.copy()
 
@@ -1268,11 +1279,11 @@ class Controller:
             offset_from_ee_to_welding_object_when_fully_contacted = 0.0075
             offset_from_ee_to_welding_object_on_z_axis = -0.002
 
-            start_x_offset_b = 0.0075
+            start_x_offset_b = 0.0085 #0.0075
             start_z_offset_b = 0.0
             start_z_offset_w = -0.008 # -0.008
 
-            end_x_offset_b = 0.0075
+            end_x_offset_b = 0.0085 #0.0075
             end_z_offset_b = 0.0
             end_z_offset_w = start_z_offset_w
 
@@ -1533,9 +1544,9 @@ class Controller:
             if "sit_ver3" not in self.config.sit_policy_path:
                 kps[:15] = self.config.kps[:15]
                 kds[:15] = self.config.kds[:15]
-            else:
-                kps[:15] = self.config.eetrack_lower_body_kps
-                kds[:15] = self.config.eetrack_lower_body_kds
+            # else:
+            #     kps[:15] = self.config.eetrack_lower_body_kps
+            #     kds[:15] = self.config.eetrack_lower_body_kds
 
         elif self.task == "sit":
             if "sit_ver3" in self.config.sit_policy_path :
@@ -1547,6 +1558,12 @@ class Controller:
             else:
                 kps = np.array(self.config.kps).astype(np.float32).copy()
                 kds = np.array(self.config.sit_kds).astype(np.float32).copy()
+                # if self.sit_counter > 100 and self.sit_counter < 200:
+                #     alpha = self.sit_counter / 100
+                #     high_kps = np.array(self.config.kps).astype(np.float32).copy()
+                #     low_kps = np.array(self.config.sit_kps).astype(np.float32).copy()
+                #     kps[4:6] = alpha * high_kps[4:6] + (1-alpha) * low_kps[4:6]
+                #     kps[10:12] = alpha * high_kps[10:12] + (1-alpha) * low_kps[10:12]
 
             if True:
                 if self.prev_joint_pos_target is not None:
