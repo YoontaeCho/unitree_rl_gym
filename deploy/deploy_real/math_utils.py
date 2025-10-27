@@ -1634,6 +1634,30 @@ def slerp_vectorized(q0: torch.Tensor, q1: torch.Tensor, steps: torch.Tensor):
     q0 = q0.expand(-1, diff_quat.shape[1], -1)
     return quat_mul(q0, diff_quat)
 
+
+
+@torch.jit.script
+def quat_apply_inverse(quat: torch.Tensor, vec: torch.Tensor) -> torch.Tensor:
+    """Apply an inverse quaternion rotation to a vector.
+
+    Args:
+        quat: The quaternion in (w, x, y, z). Shape is (..., 4).
+        vec: The vector in (x, y, z). Shape is (..., 3).
+
+    Returns:
+        The rotated vector in (x, y, z). Shape is (..., 3).
+    """
+    # store shape
+    shape = vec.shape
+    # reshape to (N, 3) for multiplication
+    quat = quat.reshape(-1, 4)
+    vec = vec.reshape(-1, 3)
+    # extract components from quaternions
+    xyz = quat[:, 1:]
+    t = xyz.cross(vec, dim=-1) * 2
+    return (vec - quat[:, 0:1] * t + xyz.cross(t, dim=-1)).view(shape)
+
+
 def main():
     quat = np.random.normal(size=4)
     quat /= np.linalg.norm(quat)
