@@ -297,12 +297,6 @@ class Controller:
         q_pin = np.zeros_like(self.ikctrl.cfg.q)
         q_pin[self.pin_from_mot] = q_mot
 
-        controller_joints_name = ['waist_roll_joint', 'waist_yaw_joint', 'waist_pitch_joint']
-        self.waist_res_q = np.zeros(len(controller_joints_name), dtype=np.float32)
-        self.mot_from_controller = index_map(self.config.motor_joint, controller_joints_name)
-        self.joint_name_to_idx = {name: i for i, name in enumerate(controller_joints_name)}
-
-
         if config.msg_type == "hg":
             # g1 and h1_2 use the hg msg type
             self.low_cmd = LowCmdHG()
@@ -333,21 +327,14 @@ class Controller:
         # self.task : Literal["locomotion", "navigation", "sit", "eetrack"] = "sit"
         self.prev_task = self.task
         self.task_counter = 0
-
-        self.zero_phase = False
-
-        self.sitting = False
         self._mode_change = True
         self._terminate = False
 
         # calls run_wrapper every self.config.control_dt seconds
         self._timer = self._node.create_timer(self.config.control_dt, self.run_wrapper)
-        self.welding_object_pose_w = None
-        self._tf_timer = self._node.create_timer(0.01, self.publish_welding_object_pose_callback)
         self.stop_time = None
+        self.goal_changed = False
 
-
-    
         try:
             rp.spin(self._node)
         except KeyboardInterrupt:
@@ -386,6 +373,7 @@ class Controller:
     def send_cmd(self, cmd: Union[LowCmdGo, LowCmdHG]):
         cmd.mode_machine = self.mode_machine_
         cmd.crc = CRC().Crc(cmd)
+        return
         self.lowcmd_publisher_.publish(cmd)
 
     def zero_torque_state(self):
@@ -413,9 +401,10 @@ class Controller:
         # move to default pos with smoothing
         if self.counter < self._num_step: # NOTE (bk) what's this if statement for?
             alpha = self.counter / self._num_step
-            for motor_idx in range(self.num_joints):
-                target_pos = self.config.default_angles[motor_idx]
-                self.low_cmd.motor_cmd[motor_idx].q = (self._init_dof_pos[motor_idx] * (1 - alpha) + target_pos * alpha)
+            target_pos = np.zeros(self.num_joints)
+            target_pos[self.mot_from_lab] = self.config.lab_joint_offsets
+            for motor_idx in range(self.num_joints): 
+                self.low_cmd.motor_cmd[motor_idx].q = (self._init_dof_pos[motor_idx] * (1 - alpha) + target_pos[motor_idx] * alpha)
                 self.low_cmd.motor_cmd[motor_idx].dq = 0.0
                 self.low_cmd.motor_cmd[motor_idx].kp = self._kps[motor_idx]
                 self.low_cmd.motor_cmd[motor_idx].kd = self._kds[motor_idx]
@@ -431,8 +420,10 @@ class Controller:
         if self.remote_controller.button[KeyMap.Y] != 1:
             # NOTE (bk) what does this code snippet do? perhaps it sends the robot to default pos?
             # return
+            target_pos = np.zeros(self.num_joints)
+            target_pos[self.mot_from_lab] = self.config.lab_joint_offsets
             for motor_idx in range(self.num_joints):
-                self.low_cmd.motor_cmd[motor_idx].q = self.config.locomotion_motor_joint_offsets[motor_idx]
+                self.low_cmd.motor_cmd[motor_idx].q = target_pos[motor_idx]
                 self.low_cmd.motor_cmd[motor_idx].dq = 0.0
                 self.low_cmd.motor_cmd[motor_idx].kp = float(self.config.kps[motor_idx])
                 self.low_cmd.motor_cmd[motor_idx].kd = float(self.config.kds[motor_idx])
@@ -457,7 +448,7 @@ class Controller:
         t.transform.translation.z = float(pos[2])
 
         # Set world_from_pelvis quaternion based on IMU state
-        qw, qx, qy, qz = [float(x) for x in quat[3:7]]
+        qw, qx, qy, qz = [float(x) for x in quat]
         t.transform.rotation.x = qx
         t.transform.rotation.y = qy
         t.transform.rotation.z = qz
@@ -502,7 +493,7 @@ class Controller:
                     rot_type='quat',
                     # stamp=rp.time.Time()
                 )
-                print(world_from_pelvis)
+                # print(world_from_pelvis)
             except:
                 try:
                     p_a, q_a = body_pose(
@@ -558,7 +549,7 @@ class Controller:
                     p_d, q_d
                 )
                 world_from_pelvis = (p_a_d, q_a_d)
-                print(world_from_pelvis)
+                # print(world_from_pelvis)
 
         else:
             world_from_pelvis = body_pose(
@@ -587,6 +578,8 @@ class Controller:
         return :
         - None. Generates verts.
         """
+        self.traj_init_counter = self.counter
+        self.goal_changed = False
         self.num_verts = num_verts
         self.traj_duration = num_verts * 0.02
         self.num_segs = self.num_verts - 1
@@ -619,8 +612,9 @@ class Controller:
 
 
     def _get_pos_b(self, pos_w):
+        # breakpoint()
         return quat_apply_inverse(
-            yaw_quat(self.root_state_w.unsqueeze(1).repeat(1, pos_w.shape[1], 1)),
+            yaw_quat(np.broadcast_to(self.root_state_w[3:], (pos_w.shape[0], 4))),
             pos_w
         )
 
@@ -668,15 +662,24 @@ class Controller:
         traj_timesteps = timestep_begin + steps * self.traj_sample_time_step  # (S,)
 
         # 단일 env -> traj_id = 0
-        traj_samples = self._calc_traj_samples(traj_id=0, times=traj_timesteps)  # (S,3)
+        traj_samples = self._calc_traj_samples(times=traj_timesteps)  # (S,3)
 
         # 결과 기록
         # traj_command_w, traj_command_b 는 (S,3) shape 라고 가정
         self.traj_command_w[...] = traj_samples
         self.traj_command_b[...] = self._get_pos_b(traj_samples)
 
+        for i in range(self.num_traj_samples):
+            # print(f"traj cmd sample {i}: w {self.traj_command_w[i]}, b {self.traj_command_b[i]}")
+            self.publish_tf(
+                header_frame='world',
+                child_frame=f'target_{i}',
+                pos=self.traj_command_w[i],
+                quat=np.array([1.0, 0.0, 0.0, 0.0])
+            )
+
         # 필요 시 반환
-        return self.traj_command_b
+        return self.traj_command_b[...,:2].flatten()
 
     
 
@@ -691,8 +694,6 @@ class Controller:
 
         self.counter += 1
 
-
-
         world_from_pelvis = self.get_pelvis_from_world()
 
         xyz, quat_wxyz = world_from_pelvis
@@ -705,7 +706,7 @@ class Controller:
             raise ValueError("Terminated by pelvis condition.")
         
 
-        if self.counter == 0:
+        if self.counter == 1:
             self.init_trajcmd(
                 body_pos_w=xyz,
                 body_quat_w=quat_wxyz,
@@ -714,14 +715,13 @@ class Controller:
                 num_traj_samples = 10,
                 traj_sample_time_step = 0.5
             )
-            self.goal_changed = False
 
         ############################################ SWITCH MODE FROM LOCOMOTION TO NAVIVATION ############################################
         if self.remote_controller.button[KeyMap.Y] == 1:
             print("============== locomotion mode activated ==============")
             self.task = "locomotion" 
             # self.zed_stop_publisher.publish(Empty())
-        if self.remote_controller.button[KeyMap.A] == 1:
+        if self.remote_controller.button[KeyMap.X] == 1:
             print("============== Go 1m forward ==============")
             self.goal_pos_b = np.array([1.0, 0.0, 0.0])  # 1m forward in body frame
             self.goal_changed = True
@@ -740,8 +740,6 @@ class Controller:
                 num_traj_samples = 10,
                 traj_sample_time_step = 0.5
             )
-            self.goal_changed = False
-            self.traj_init_counter = self.counter
 
         ############################################ LOCOMOTION ############################################
         target_tau = np.zeros(29, dtype=np.float32)
@@ -853,7 +851,7 @@ class Controller:
             if self._mode_change:
                 print("Run Policy.\n")
                 print("--------------[ Basic Guidelines ]---------------")
-                print("[Navigation] Press Button {A} to switch goal Forward 1m.")
+                print("[Navigation] Press Button {X} to switch goal Forward 1m.")
                 print("-------------------------------------------------")
                 print("[Navigation] Press Button {B} to switch goal Backward -1m.")
                 print("-------------------------------------------------")

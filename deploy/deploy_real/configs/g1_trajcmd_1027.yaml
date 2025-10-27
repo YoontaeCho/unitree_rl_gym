@@ -7,7 +7,19 @@ imu_type: "pelvis"    # "torso" or "pelvis"
 lowcmd_topic: "rt/lowcmd"
 lowstate_topic: "rt/lowstate"
 
-
+# Right
+ik_joint: [
+  # 'waist_yaw_joint',
+  # 'waist_roll_joint',
+  # 'waist_pitch_joint',
+  "right_shoulder_pitch_joint",
+  "right_shoulder_roll_joint",
+  "right_shoulder_yaw_joint",
+  "right_elbow_joint",
+  "right_wrist_roll_joint",
+  "right_wrist_pitch_joint",
+  "right_wrist_yaw_joint"
+]
 motor_joint: [
     'left_hip_pitch_joint',
     'left_hip_roll_joint',
@@ -98,7 +110,7 @@ lab_joint_offsets: [
 ]
 
 
-locomotion_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/0926_l3_30k.pt"
+locomotion_policy_path: "{LEGGED_GYM_ROOT_DIR}/deploy/pre_train/g1/trajcmd_1027_14k.pt"
 
 
 initial_smoothing: 0.8
