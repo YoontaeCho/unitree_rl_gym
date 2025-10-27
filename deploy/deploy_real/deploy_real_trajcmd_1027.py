@@ -717,7 +717,8 @@ class Controller:
                 goal_pos_b = np.array([0.0, 0.0, 0.0]),
                 num_verts = 101,
                 num_traj_samples = 10,
-                traj_sample_time_step = 0.5
+                traj_sample_time_step = 0.5,
+                traj_duration = 10.0
             )
 
         ############################################ SWITCH MODE FROM LOCOMOTION TO NAVIVATION ############################################
@@ -742,7 +743,8 @@ class Controller:
                 goal_pos_b = self.goal_pos_b,
                 num_verts = 101,
                 num_traj_samples = 10,
-                traj_sample_time_step = 0.5
+                traj_sample_time_step = 0.5,
+                traj_duration = 10.0
             )
 
         ############################################ LOCOMOTION ############################################
