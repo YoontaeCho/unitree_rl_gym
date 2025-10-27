@@ -566,7 +566,8 @@ class Controller:
     def init_trajcmd(self, body_pos_w, body_quat_w, goal_pos_b, 
                      num_verts : int = 101, 
                      num_traj_samples: int = 10, 
-                     traj_sample_time_step: float = 0.5
+                     traj_sample_time_step: float = 0.5,
+                     episode_dur: int = 10,
                      ):
         """
         args : 
@@ -581,7 +582,10 @@ class Controller:
         self.traj_init_counter = self.counter
         self.goal_changed = False
         self.num_verts = num_verts
-        self.traj_duration = num_verts * 0.02
+        self.episode_dur = episode_dur
+        
+        dt = episode_dur / (num_verts - 1)
+        self.traj_duration = num_verts * dt
         self.num_segs = self.num_verts - 1
         self.num_traj_samples = num_traj_samples
         self.traj_sample_time_step = traj_sample_time_step
